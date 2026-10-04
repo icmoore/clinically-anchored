@@ -48,3 +48,5 @@ nothing. Check `GET /openapi.json` on the deployed URL against `main` (route cou
   "Deploy latest commit" to build the newest code.
 - Last resort that bypasses GitHub: `railway login`, `railway link`, then `railway up` from
   `apps/api` (deploys your local folder, so keep your checkout on `main`).
+
+<!-- CI check: verifying deploy pipeline after GitHub repo migration to icmoore -->
