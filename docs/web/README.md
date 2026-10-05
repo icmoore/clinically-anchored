@@ -60,10 +60,17 @@ dashboard from the Overview doc yet):
     the draft and a note; the api enforces it with a 403). Decided drafts are listed under
     "Earlier drafts" with what the AI wrote and, for edits, what was sent instead. Drafts load
     separately from the rest of the page, so if that call fails the thread and check-ins still work.
-  - **Contact log** (`components/contact-log.tsx`): a quick-log form (call / visit / email,
-    optional minutes, optional note; logged as happening now) above a list of the patient's
-    contact, newest first, each with a small `auto` / `manual` badge. `auto` rows are the
-    "message" entries the api adds when a clinician message is sent. Loads separately like drafts.
+  - **Contact** (`components/contact-log.tsx`, figures in `lib/contact-stats.ts`): the overview
+    spec's Contact card. Counted, never inferred: messages (patient / you), clinic visits, calls
+    (with minutes), first contact, time since last contact, patient messages awaiting your reply
+    (those with no clinician message after them), "Your time on this patient" (minutes you
+    entered) and median reply time (a run of patient messages to your next message). Calls, visits
+    and emails are entered with **Log a call, visit or email**; "Contact history" lists every
+    entry with an `auto` / `manual` badge (`auto` = the "message" rows the api adds when a
+    clinician message is sent; the card counts messages from the thread, not from those rows).
+    Not shown yet because the data doesn't exist: post-op day on each contact (no procedure
+    date is stored; dates are shown instead) and time measured inside the app (not tracked).
+    Loads separately like drafts.
   Summary and Draft reply need AWS credentials set on the api (Bedrock); without them they show the api's error.
 - `/check-in?token=` (patient, structured check-in) and `/messages?token=` (patient chat).
   Patients are link-only for now; patient sign-in comes before real patients.
