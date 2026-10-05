@@ -15,6 +15,7 @@ from clinically_anchored_api.core.audit import AuditWriteError, record_event
 from clinically_anchored_api.core.auth import ClinicMember, require_clinic_member
 from clinically_anchored_api.core.db import get_supabase
 from clinically_anchored_api.core.security import require_messages_token
+from clinically_anchored_api.core.touchpoints import log_message_sent
 from clinically_anchored_api.schemas import MessageCreate, MessageOut
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,8 @@ def _insert_and_audit(
     if not result.data:
         raise HTTPException(status_code=500, detail="Message was not saved.")
     row = result.data[0]
+    if sender == "clinician":  # contact the clinic initiates; patient messages aren't touchpoints
+        log_message_sent(supabase, clinic_id=clinic_id, message=row)
     try:
         audit_message_sent(supabase, clinic_id=clinic_id, row=row, actor=actor)
     except AuditWriteError as exc:

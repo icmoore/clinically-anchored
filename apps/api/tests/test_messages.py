@@ -105,6 +105,8 @@ class _FakeSupabase:
 def audit_calls(monkeypatch):
     calls: list[dict] = []
     monkeypatch.setattr(messages_module, "record_event", lambda _db, **kw: calls.append(kw))
+    # The auto-logged touchpoint is covered in test_touchpoints.py; keep it out of these tests.
+    monkeypatch.setattr(messages_module, "log_message_sent", lambda *_a, **_kw: None)
     return calls
 
 

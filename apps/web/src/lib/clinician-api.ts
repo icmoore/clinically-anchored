@@ -133,3 +133,26 @@ export const rejectDraft = (clinic: string, id: string) =>
 // On-demand summary. Not stored by the api: each call regenerates (and costs a call).
 export const generateSummary = (clinic: string, patient: string) =>
   post<Summary>(`/clinics/${clinic}/patients/${patient}/summaries`);
+
+// Contact/time log. Manual entries are calls, visits and emails; `message` rows are
+// written by the api itself whenever a clinician message is sent (never by this UI).
+export type TouchpointKind = "call" | "visit" | "email" | "message";
+export type ManualTouchpointKind = Exclude<TouchpointKind, "message">;
+export interface Touchpoint {
+  id: string;
+  patient_id: string;
+  kind: TouchpointKind;
+  source: "auto" | "manual";
+  occurred_at: string;
+  duration_minutes: number | null;
+  note: string | null;
+  logged_by: string | null; // null for auto-logged rows
+  created_at: string;
+}
+export const listTouchpoints = (clinic: string, patient: string) =>
+  authed<Touchpoint[]>(`/clinics/${clinic}/patients/${patient}/touchpoints`);
+export const logTouchpoint = (
+  clinic: string,
+  patient: string,
+  body: { kind: ManualTouchpointKind; duration_minutes?: number; note?: string },
+) => post<Touchpoint>(`/clinics/${clinic}/patients/${patient}/touchpoints`, body);

@@ -57,6 +57,7 @@ CHECKS = [
     Check("messages", "message", "message.read", "read_at"),
     Check("consents", "consent", "consent.granted", "granted_at"),
     Check("consents", "consent", "consent.revoked", "revoked_at"),
+    Check("touchpoints", "touchpoint", "touchpoint.logged", "created_at"),
     Check("message_drafts", "draft", "draft.generated", "created_at"),
     Check("message_drafts", "draft", "draft.approved", "decided_at", (("status", "approved"),)),
     Check("message_drafts", "draft", "draft.edited", "decided_at", (("status", "edited"),)),
