@@ -60,7 +60,11 @@ dashboard from the Overview doc yet):
     the draft and a note; the api enforces it with a 403). Decided drafts are listed under
     "Earlier drafts" with what the AI wrote and, for edits, what was sent instead. Drafts load
     separately from the rest of the page, so if that call fails the thread and check-ins still work.
-  Both need AWS credentials set on the api (Bedrock); without them they show the api's error.
+  - **Contact log** (`components/contact-log.tsx`): a quick-log form (call / visit / email,
+    optional minutes, optional note; logged as happening now) above a list of the patient's
+    contact, newest first, each with a small `auto` / `manual` badge. `auto` rows are the
+    "message" entries the api adds when a clinician message is sent. Loads separately like drafts.
+  Summary and Draft reply need AWS credentials set on the api (Bedrock); without them they show the api's error.
 - `/check-in?token=` (patient, structured check-in) and `/messages?token=` (patient chat).
   Patients are link-only for now; patient sign-in comes before real patients.
 

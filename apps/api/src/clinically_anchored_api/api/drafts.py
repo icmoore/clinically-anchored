@@ -24,6 +24,7 @@ from clinically_anchored_api.core import ai
 from clinically_anchored_api.core.audit import AuditWriteError, record_event
 from clinically_anchored_api.core.auth import ClinicMember, require_clinic_member
 from clinically_anchored_api.core.db import get_supabase
+from clinically_anchored_api.core.touchpoints import log_message_sent
 from clinically_anchored_api.schemas import (
     DraftCreate,
     DraftDecisionOut,
@@ -301,6 +302,7 @@ def _decide(
     decided, sent = outcome["draft"], outcome["message"]
     failed = []
     if sent is not None:
+        log_message_sent(supabase, clinic_id=clinic_id, message=sent)
         try:
             audit_message_sent(supabase, clinic_id=clinic_id, row=sent, actor=_actor(member))
         except AuditWriteError as exc:

@@ -83,12 +83,12 @@ a subset of it:
 | D29 | Structured check-in answers | `check_ins` |
 | D12 | Consent records | `consents` (generic; wording/types/gating undecided) |
 | D8 | AI message drafts | `message_drafts` |
+| D11 | Touchpoint events (calls, visits, emails, messages) | `touchpoints` |
 | D16/D17 | Audit log, signed and hash-chained | `audit_log` |
 
 Not yet modeled, and not needed until their stage comes up: D9
 (wound photos — v2, blocked in v1), D10 (confirmed summary facts, sourced from her
-own Accuro notes, later stage), D11 (touchpoint events — calls/visits logged
-manually), D13 (protocol/template library), D14 (derived
+own Accuro notes, later stage), D13 (protocol/template library), D14 (derived
 scores/triage priority), D22 (model/prompt version metadata, hashed into attestation
 events). Add these as their features get built, each with its own migration — don't
 pre-build the whole catalogue speculatively.

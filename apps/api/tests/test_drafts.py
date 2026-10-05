@@ -153,6 +153,9 @@ def audit_calls(monkeypatch):
     recorder = lambda _db, **kw: calls.append(kw)  # noqa: E731
     monkeypatch.setattr(drafts_module, "record_event", recorder)
     monkeypatch.setattr(messages_module, "record_event", recorder)
+    # The auto-logged touchpoint is covered in test_touchpoints.py; keep it out of these tests.
+    for module in (drafts_module, messages_module):
+        monkeypatch.setattr(module, "log_message_sent", lambda *_a, **_kw: None)
     return calls
 
 

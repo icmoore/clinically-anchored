@@ -2,6 +2,7 @@
 so the shapes are easy to scan in one place -- this file is effectively the
 contract apps/web's generated OpenAPI client is built from."""
 
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -255,3 +256,42 @@ class SummaryOut(BaseModel):
     lines: list[SummaryLineOut]
     covers_messages: int  # how many of the thread's messages the model was shown
     truncated: bool  # true if older messages were left out
+
+
+class TouchpointCreate(BaseModel):
+    # Manual entries only: messages are logged automatically when one is sent, so
+    # offering "message" here would invite counting the same contact twice.
+    kind: Literal["call", "visit", "email"]
+    # Defaults to now; a clinician can backdate (e.g. a call from this morning).
+    occurred_at: datetime | None = None
+    duration_minutes: int | None = Field(default=None, ge=1, le=1440)
+    note: str | None = Field(default=None, max_length=5000)
+
+    @field_validator("occurred_at")
+    @classmethod
+    def _aware_and_not_future(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return value
+        if value.tzinfo is None:
+            raise ValueError("occurred_at must include a timezone")
+        if value > datetime.now(UTC) + timedelta(minutes=5):  # small allowance for clock skew
+            raise ValueError("occurred_at cannot be in the future")
+        return value
+
+    @field_validator("note")
+    @classmethod
+    def _blank_note_is_none(cls, value: str | None) -> str | None:
+        return value.strip() or None if value is not None else None
+
+
+class TouchpointOut(BaseModel):
+    id: str
+    clinic_id: str
+    patient_id: str
+    kind: Literal["call", "visit", "email", "message"]
+    source: Literal["auto", "manual"]
+    occurred_at: str
+    duration_minutes: int | None
+    note: str | None
+    logged_by: str | None  # null for auto-logged rows
+    created_at: str

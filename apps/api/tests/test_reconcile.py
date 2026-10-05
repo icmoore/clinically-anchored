@@ -48,7 +48,8 @@ class _Q:
 class _Db:
     def __init__(self):
         self.t = {n: [] for n in (
-            "patients", "check_ins", "messages", "consents", "message_drafts", "audit_log",
+            "patients", "check_ins", "messages", "consents", "message_drafts", "touchpoints",
+            "audit_log",
         )}
 
     def table(self, name):
@@ -225,3 +226,13 @@ def test_cli_exit_codes_and_output(db, monkeypatch, capsys):
 
     assert rec.main(["--json", "--since", "2026-10-02"]) == 0
     assert json.loads(capsys.readouterr().out)["ok"] is True
+
+
+def test_unaudited_touchpoint_is_reported(db):
+    t = "2026-10-01T10:00:00Z"
+    db.t["touchpoints"] += [
+        {"id": "t-ok", "clinic_id": A, "created_at": t},
+        {"id": "t-orphan", "clinic_id": A, "created_at": t},
+    ]
+    db.audit(A, "touchpoint.logged", "t-ok")
+    assert _gaps(rec.reconcile(db)) == {("touchpoints", "t-orphan", "touchpoint.logged")}

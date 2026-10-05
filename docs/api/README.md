@@ -88,7 +88,7 @@ Built (on `main`):
   `GET /clinics/{id}/audit-log/verify` (checks each row against the public key named by its
   `key_id`; keys other than the current one come from `AUDIT_PUBLIC_KEYS`). Audited events:
   `check_in.submitted`/`.reviewed`, `message.sent`/`.read`, `patient.created`, `link.issued`,
-  `consent.granted`/`.revoked`.
+  `consent.granted`/`.revoked`, `touchpoint.logged`.
   Known gap: the business row and its audit row are separate writes, so a failure
   between them leaves an unaudited row (the request returns 500 and logs it; the row stays).
   Reconciliation is a script, not an endpoint: `python -m clinically_anchored_api.core.reconcile
@@ -150,6 +150,21 @@ Built (on `main`):
   `AWS_SECRET_ACCESS_KEY` are set on Railway (no credentials -> 502), and the synthetic-data-only
   rule still applies. Clinic protocol notes (D13) aren't modelled, so that template variable is
   a fixed placeholder, and the template wording is still pending clinical review.
+- Contact/time log (`api/touchpoints.py` + `core/touchpoints.py`, migration 8, data-catalogue D11):
+  `GET /clinics/{id}/patients/{pid}/touchpoints` lists a patient's contact log, most recent
+  `occurred_at` first; `POST` logs a call, visit or email by hand (body `kind`, optional
+  `occurred_at` -- timezone required, not in the future -- `duration_minutes` 1-1440, `note` up
+  to 5000). Any clinic member may log (delegates too: it sends nothing). `kind` `message` is not
+  accepted from the client: a `message` / `source: auto` row (`logged_by` null, actor
+  `{"type": "system"}`) is written by the api itself whenever a *clinician* message is sent --
+  a direct send or an approved/edited draft -- never for a patient's message. That write is
+  best-effort: the message is already sent, so a failed insert or audit is logged and the send
+  still succeeds (a missing row is a gap in the log, not a lost message; an unaudited row shows
+  up in reconcile). Audited `touchpoint.logged` (touchpoint fields, incl. the note, in the hashed
+  payload; ids and actor in metadata). Rows can't be edited or deleted through the api; correct
+  a mistake with a new entry. Not built: calendar import, and any baseline/outcome metrics
+  rollup (decision 8) -- this is only the log those will read. The auto row isn't linked to the
+  message that caused it (no `message_id` column); add one if the metrics need that join.
 
 Not built: auto-refreshing ("rolling") summaries -- by decision, summaries are on demand only --
 and storing summaries (see above).

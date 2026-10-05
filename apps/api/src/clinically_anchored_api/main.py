@@ -12,6 +12,7 @@ from clinically_anchored_api.api import (
     procedures,
     queue,
     summaries,
+    touchpoints,
 )
 from clinically_anchored_api.core.config import get_settings
 
@@ -41,6 +42,7 @@ app.include_router(consents.router)
 app.include_router(drafts.router)
 app.include_router(queue.router)
 app.include_router(summaries.router)
+app.include_router(touchpoints.router)
 
 if settings.environment == "development":
     from clinically_anchored_api.api import dev

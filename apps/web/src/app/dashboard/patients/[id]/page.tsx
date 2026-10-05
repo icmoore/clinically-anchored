@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 import { AppHeader } from "@/components/app-header";
+import { ContactLogSection } from "@/components/contact-log";
 import { DraftsSection } from "@/components/draft-review";
 import { SummarySection } from "@/components/summary-view";
 import { ApiError } from "@/lib/api";
@@ -13,11 +14,13 @@ import {
   IssuedLink,
   Message,
   Patient,
+  Touchpoint,
   issueLink,
   listCheckIns,
   listDrafts,
   listPatients,
   listThread,
+  listTouchpoints,
   markRead,
   reviewCheckIn,
   sendMessage,
@@ -69,12 +72,14 @@ function PatientView({
   }, []);
 
   const fetchAll = useCallback(async () => {
-    const [patients, checkIns, thread, drafts] = await Promise.all([
+    const [patients, checkIns, thread, drafts, touchpoints] = await Promise.all([
       listPatients(clinicId),
       listCheckIns(clinicId, patientId),
       listThread(clinicId, patientId),
       // Drafts are an add-on: if they fail to load, the rest of the page still works.
       listDrafts(clinicId, patientId).catch(() => null),
+      // Likewise the contact log.
+      listTouchpoints(clinicId, patientId).catch(() => null),
     ]);
     // Viewing the thread counts as reading the patient's new messages.
     for (const m of thread) {
@@ -88,6 +93,7 @@ function PatientView({
       checkIns,
       thread,
       drafts,
+      touchpoints,
     };
   }, [clinicId, patientId]);
   const { data, failed, reload } = usePolling(fetchAll, REFRESH_MS);
@@ -96,6 +102,7 @@ function PatientView({
   const checkIns: CheckInDetail[] | null = data?.checkIns ?? null;
   const thread: Message[] | null = data?.thread ?? null;
   const drafts: Draft[] | null = data?.drafts ?? null;
+  const touchpoints: Touchpoint[] | null = data?.touchpoints ?? null;
   const error = failed ? "Couldn't refresh. Retrying..." : null;
   const load = reload;
 
@@ -168,6 +175,13 @@ function PatientView({
           onSent={load}
         />
       </section>
+
+      <ContactLogSection
+        clinicId={clinicId}
+        patientId={patientId}
+        touchpoints={touchpoints}
+        onChanged={load}
+      />
     </main>
   );
 }
