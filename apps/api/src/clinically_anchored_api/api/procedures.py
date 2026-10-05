@@ -15,7 +15,7 @@ def list_procedures(clinic_id: str) -> list[Procedure]:
     supabase = get_supabase()
     result = (
         supabase.table("procedures")
-        .select("id, name")
+        .select("id, name, category")
         .eq("clinic_id", clinic_id)
         .eq("active", True)
         .order("name")

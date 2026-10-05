@@ -22,7 +22,7 @@ def check_in_context(claims: dict[str, str] = Depends(require_checkin_token)) ->
     supabase = get_supabase()
     result = (
         supabase.table("procedures")
-        .select("id, name")
+        .select("id, name, category")
         .eq("clinic_id", clinic_id)
         .eq("active", True)
         .order("name")

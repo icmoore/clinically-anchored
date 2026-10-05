@@ -23,7 +23,7 @@ import {
   sendMessage,
 } from "@/lib/clinician-api";
 import { clock, timeAgo } from "@/lib/format";
-import { reportedSymptoms } from "@/lib/symptoms";
+import { buildSummary } from "@/lib/symptoms";
 import { useClinician } from "@/lib/use-clinician";
 import { usePolling } from "@/lib/use-polling";
 
@@ -251,7 +251,11 @@ function CheckInCard({
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const symptoms = reportedSymptoms(checkIn.answers);
+  // Patient/procedure/day are already shown by this card -- the summary
+  // here is just the symptom detail, built from the same definitions the
+  // check-in form itself used (apps/web's lib/symptoms.ts), so it can't
+  // drift out of sync with what the patient was actually asked.
+  const summary = buildSummary({ answers: checkIn.answers });
   const reviewed = checkIn.reviewed_at !== null;
 
   async function review() {
@@ -291,9 +295,7 @@ function CheckInCard({
           .filter(Boolean)
           .join(" · ") || "No procedure or day given"}
       </p>
-      <p className="mt-2 text-sm text-zinc-900">
-        {symptoms.length > 0 ? symptoms.join(", ") : "No symptoms reported."}
-      </p>
+      <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-900">{summary}</p>
       {!reviewed && (
         <button
           onClick={review}

@@ -86,7 +86,10 @@ def test_submit_check_in_writes_row_and_flags_red_flag(audit_calls):
         response = client.post(
             "/check-ins",
             params={"token": token},
-            json={"post_op_day": 5, "answers": {"fever": True}},
+            json={
+                "post_op_day": 5,
+                "answers": {"fever": {"took_temperature": True, "temperature_c": 39.0}},
+            },
         )
 
         assert response.status_code == 200
@@ -112,7 +115,10 @@ def test_submit_check_in_no_red_flags():
         response = client.post(
             "/check-ins",
             params={"token": token},
-            json={"post_op_day": 5, "answers": {"fever": False}},
+            json={
+                "post_op_day": 5,
+                "answers": {"fever": {"took_temperature": True, "temperature_c": 37.0}},
+            },
         )
 
         assert response.status_code == 200
@@ -137,7 +143,13 @@ def test_submit_check_in_rejects_bad_token():
 
 def test_check_in_context_resolves_clinic_and_procedures():
     fake = _FakeSupabase(
-        select_rows=[{"id": "44444444-4444-4444-4444-444444444444", "name": "Hemorrhoidectomy"}]
+        select_rows=[
+            {
+                "id": "44444444-4444-4444-4444-444444444444",
+                "name": "Hemorrhoidectomy",
+                "category": "anorectal",
+            }
+        ]
     )
     client = _client_with_fake_db(fake)
     try:

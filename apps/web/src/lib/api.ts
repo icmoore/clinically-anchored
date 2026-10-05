@@ -3,6 +3,8 @@
 // isn't wired up yet, but nothing here should be called with anything
 // other than the api's actual response shapes.
 
+import type { CheckInAnswers, ProcedureCategory } from "./symptoms";
+
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export class ApiError extends Error {
@@ -28,6 +30,7 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export interface Procedure {
   id: string;
   name: string;
+  category: ProcedureCategory;
 }
 
 export interface CheckInContext {
@@ -41,7 +44,7 @@ export interface CheckInOut {
   patient_id: string;
   procedure_id: string | null;
   post_op_day: number | null;
-  answers: Record<string, boolean>;
+  answers: CheckInAnswers;
   is_red_flag: boolean;
   created_at: string;
 }
@@ -52,7 +55,7 @@ export function getCheckInContext(token: string): Promise<CheckInContext> {
 
 export function submitCheckIn(
   token: string,
-  body: { procedure_id: string | null; post_op_day: number | null; answers: Record<string, boolean> },
+  body: { procedure_id: string | null; post_op_day: number | null; answers: CheckInAnswers },
 ): Promise<CheckInOut> {
   return request(`/check-ins?token=${encodeURIComponent(token)}`, {
     method: "POST",
