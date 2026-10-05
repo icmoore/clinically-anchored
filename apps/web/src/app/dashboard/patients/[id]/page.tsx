@@ -180,6 +180,7 @@ function PatientView({
         clinicId={clinicId}
         patientId={patientId}
         touchpoints={touchpoints}
+        thread={thread}
         onChanged={load}
       />
     </main>

@@ -16,3 +16,8 @@ export function clock(iso: string): string {
     minute: "2-digit",
   });
 }
+
+/** Date only ("8 Sep"), for the contact card where the time of day is noise. */
+export function shortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
