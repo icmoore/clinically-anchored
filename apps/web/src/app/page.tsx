@@ -2,7 +2,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { SignedInRedirect } from "@/components/signed-in-redirect";
-import { SiteNav, focus } from "@/components/site-nav";
+import { SiteNav } from "@/components/site-nav";
+import { StatusBadge } from "@/components/status-badge";
 
 export const metadata: Metadata = {
   title: "Clinically Anchored",
@@ -12,9 +13,9 @@ export const metadata: Metadata = {
 // Refresh the static page daily so the footer year doesn't go stale.
 export const revalidate = 86400;
 
-const buttonBase = `inline-flex items-center justify-center rounded-md px-5 py-2.5 text-sm font-medium ${focus}`;
-const primaryButton = `${buttonBase} bg-primary text-primary-foreground hover:opacity-90`;
-const secondaryButton = `${buttonBase} border border-border bg-background text-foreground hover:bg-muted`;
+const buttonBase = `inline-flex items-center justify-center rounded-md px-5 py-2.5 text-sm font-medium`;
+const primaryButton = `${buttonBase} bg-primary text-white hover:bg-primary-hover active:bg-primary-active`;
+const secondaryButton = `${buttonBase} border border-primary bg-surface text-primary hover:bg-primary-tint`;
 
 const steps = [
   {
@@ -67,7 +68,7 @@ export default function Home() {
             <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
               Post-op follow-up that puts the patients who need you first
             </h1>
-            <p className="mt-4 text-lg text-muted-foreground">
+            <p className="mt-4 text-lg text-muted">
               Structured check-ins from a secure link, red flags at the top, and replies you
               approve before anything is sent.
             </p>
@@ -82,13 +83,11 @@ export default function Home() {
           </div>
 
           {/* Decorative check-in card, plain CSS: no real data or product screenshot. */}
-          <div aria-hidden="true" className="rounded-xl border border-border bg-muted p-5">
-            <div className="rounded-lg border border-border bg-background p-4">
+          <div aria-hidden="true" className="rounded-xl border border-border bg-surface-subtle p-5">
+            <div className="rounded-lg border border-border bg-surface p-4">
               <div className="flex items-center justify-between">
                 <div className="h-3 w-28 rounded bg-border" />
-                <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
-                  Red flag
-                </span>
+                <StatusBadge variant="flag">Red flag</StatusBadge>
               </div>
               <div className="mt-4 space-y-2.5">
                 <div className="h-2.5 w-full rounded bg-border" />
@@ -96,7 +95,7 @@ export default function Home() {
                 <div className="h-2.5 w-2/3 rounded bg-border" />
               </div>
             </div>
-            <div className="mt-3 space-y-3 rounded-lg border border-border bg-background p-4">
+            <div className="mt-3 space-y-3 rounded-lg border border-border bg-surface p-4">
               <div className="h-3 w-24 rounded bg-border" />
               <div className="h-2.5 w-3/4 rounded bg-border" />
             </div>
@@ -106,7 +105,7 @@ export default function Home() {
         <section
           id="how-it-works"
           aria-labelledby="how-heading"
-          className="scroll-mt-20 border-y border-border bg-muted"
+          className="scroll-mt-20 border-y border-border bg-surface-subtle"
         >
           <div className="mx-auto max-w-5xl px-4 py-16">
             <h2 id="how-heading" className="text-2xl font-semibold tracking-tight">
@@ -114,15 +113,15 @@ export default function Home() {
             </h2>
             <ol className="mt-8 grid gap-4 md:grid-cols-3">
               {steps.map((step, i) => (
-                <li key={step.title} className="rounded-lg border border-border bg-background p-5">
+                <li key={step.title} className="rounded-lg border border-border bg-surface p-5">
                   <span
                     aria-hidden="true"
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-sm font-semibold text-primary-foreground"
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-semibold text-white"
                   >
                     {i + 1}
                   </span>
                   <h3 className="mt-4 font-semibold">{step.title}</h3>
-                  <p className="mt-2 text-sm text-muted-foreground">{step.body}</p>
+                  <p className="mt-2 text-sm text-muted">{step.body}</p>
                 </li>
               ))}
             </ol>
@@ -148,25 +147,25 @@ export default function Home() {
                   strokeWidth="1.75"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  className="mt-0.5 h-6 w-6 shrink-0 text-accent"
+                  className="mt-0.5 h-6 w-6 shrink-0 text-primary"
                 >
                   {f.icon}
                 </svg>
                 <div>
                   <h3 className="font-semibold">{f.title}</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">{f.body}</p>
+                  <p className="mt-1 text-sm text-muted">{f.body}</p>
                 </div>
               </li>
             ))}
           </ul>
         </section>
 
-        <section aria-labelledby="cta-heading" className="border-t border-border bg-muted">
+        <section aria-labelledby="cta-heading" className="border-t border-border bg-surface-subtle">
           <div className="mx-auto max-w-5xl px-4 py-14 text-center">
             <h2 id="cta-heading" className="text-2xl font-semibold tracking-tight">
               Clinician sign-in
             </h2>
-            <p className="mt-2 text-muted-foreground">Sign in to review your patients.</p>
+            <p className="mt-2 text-muted">Sign in to review your patients.</p>
             <div className="mt-6">
               <Link href="/login" className={primaryButton}>
                 Login
@@ -177,8 +176,8 @@ export default function Home() {
       </main>
 
       <footer className="border-t border-border">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2 px-4 py-6 text-sm text-muted-foreground">
-          <span className="font-semibold text-foreground">Clinically Anchored</span>
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2 px-4 py-6 text-sm text-muted">
+          <span className="font-semibold text-ink">Clinically Anchored</span>
           <span>&copy; {new Date().getFullYear()}</span>
         </div>
       </footer>

@@ -13,6 +13,7 @@ import {
   sendMessage,
 } from "@/lib/clinician-api";
 import { clock, timeAgo } from "@/lib/format";
+import { StatusBadge } from "./status-badge";
 
 // Matches the api's DECIDER_ROLES: delegates can read and request drafts, not decide.
 const DECIDER_ROLES = ["owner", "clinician"];
@@ -139,27 +140,27 @@ export function ComposeBox({
         rows={2}
         maxLength={5000}
         placeholder="Write a message to the patient..."
-        className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-base"
+        className="block w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-base"
       />
-      {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
+      {error && <p className="mt-1 text-sm text-flag-text">{error}</p>}
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={handleDraft}
           disabled={draftDisabled}
-          className="rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-800 disabled:opacity-60"
+          className="rounded-md border border-primary bg-surface text-primary enabled:hover:bg-primary-tint px-4 py-2 text-sm font-medium disabled:opacity-60"
         >
           {busy === "draft" ? "Drafting..." : "Draft a reply with AI"}
         </button>
         <button
           type="submit"
           disabled={busy !== null || !text.trim()}
-          className="ml-auto rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+          className="ml-auto rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
         >
           {busy === "send" ? "Sending..." : "Send"}
         </button>
       </div>
-      {draftHint && <p className="mt-1 text-xs text-zinc-500">{draftHint}</p>}
+      {draftHint && <p className="mt-1 text-xs text-muted">{draftHint}</p>}
     </form>
   );
 }
@@ -169,11 +170,11 @@ export function EarlierDrafts({ drafts }: { drafts: Draft[] | null }) {
   const decided = (drafts ?? []).filter((d) => d.status !== "pending").slice(0, 10);
   if (decided.length === 0) return null;
   return (
-    <details className="mt-3 rounded-lg border border-zinc-200 bg-white">
-      <summary className="cursor-pointer px-4 py-3 text-sm text-zinc-700">
+    <details className="mt-3 rounded-lg border border-border bg-surface">
+      <summary className="cursor-pointer px-4 py-3 text-sm text-muted">
         Earlier drafts ({decided.length})
       </summary>
-      <ul className="space-y-3 border-t border-zinc-200 p-4">
+      <ul className="space-y-3 border-t border-border p-4">
         {decided.map((d) => (
           <DecidedDraft key={d.id} draft={d} />
         ))}
@@ -223,121 +224,120 @@ function PendingDraft({
   }
 
   return (
-    <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-4">
-      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
-        <span className="rounded-full bg-blue-100 px-2 py-0.5 font-medium text-blue-800">
-          AI draft
-        </span>
-        <span className="text-zinc-500">
+    <div className="overflow-hidden rounded-lg border border-ai-border bg-surface">
+      <div className="flex flex-wrap items-center gap-2 border-b border-ai-border bg-ai-bg px-4 py-2 text-xs">
+        <StatusBadge variant="ai">AI draft</StatusBadge>
+        <span className="text-muted">
           {timeAgo(draft.created_at)} &middot; {draft.model_id} &middot; {draft.prompt_version}
         </span>
       </div>
+      <div className="p-4">
+        <div className="grid gap-3 md:grid-cols-2">
+          <div>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">
+              Patient wrote
+            </p>
+            <div className="rounded-lg border border-border bg-surface p-3 text-sm text-ink">
+              {source ? (
+                <>
+                  <p className="whitespace-pre-wrap">{source.body}</p>
+                  <p className="mt-1 text-xs text-muted">{clock(source.created_at)}</p>
+                </>
+              ) : (
+                <p className="text-muted">Original message not loaded yet.</p>
+              )}
+            </div>
+          </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
-        <div>
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-            Patient wrote
-          </p>
-          <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm text-zinc-900">
-            {source ? (
-              <>
-                <p className="whitespace-pre-wrap">{source.body}</p>
-                <p className="mt-1 text-xs text-zinc-400">{clock(source.created_at)}</p>
-              </>
+          <div>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">
+              {editing ? "Your edit" : "Draft reply"}
+            </p>
+            {editing ? (
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                rows={6}
+                maxLength={5000}
+                className="block w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-base"
+              />
             ) : (
-              <p className="text-zinc-500">Original message not loaded yet.</p>
+              <div className="whitespace-pre-wrap rounded-lg border border-border border-l-4 border-l-ai-solid bg-surface p-3 text-sm text-ink">
+                {draft.draft_text}
+              </div>
             )}
           </div>
         </div>
 
-        <div>
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-            {editing ? "Your edit" : "Draft reply"}
-          </p>
-          {editing ? (
-            <textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              rows={6}
-              maxLength={5000}
-              className="block w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-base"
-            />
-          ) : (
-            <div className="whitespace-pre-wrap rounded-lg border border-zinc-200 bg-white p-3 text-sm text-zinc-900">
-              {draft.draft_text}
-            </div>
-          )}
-        </div>
+        {error && <p className="mt-3 text-sm text-flag-text">{error}</p>}
+
+        {canDecide ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {editing ? (
+              <>
+                <button
+                  onClick={() => run(() => editDraft(clinicId, draft.id, text.trim()), "sent", "Couldn't send that edit.")}
+                  disabled={busy || !edited}
+                  className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                >
+                  {busy ? "Sending..." : "Send edited reply"}
+                </button>
+                <button
+                  onClick={() => {
+                    setEditing(false);
+                    setText(draft.draft_text);
+                  }}
+                  disabled={busy}
+                  className="rounded-md border border-primary bg-surface text-primary enabled:hover:bg-primary-tint px-3 py-2 text-sm disabled:opacity-60"
+                >
+                  Cancel edit
+                </button>
+                {!edited && (
+                  <span className="text-xs text-muted">
+                    Change the text to send an edit, or cancel and approve it as written.
+                  </span>
+                )}
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => run(() => approveDraft(clinicId, draft.id), "sent", "Couldn't send that reply.")}
+                  disabled={busy}
+                  className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                >
+                  {busy ? "Sending..." : "Approve and send"}
+                </button>
+                <button
+                  onClick={() => setEditing(true)}
+                  disabled={busy}
+                  className="rounded-md border border-primary bg-surface text-primary enabled:hover:bg-primary-tint px-3 py-2 text-sm disabled:opacity-60"
+                >
+                  Edit, then send
+                </button>
+                <button
+                  onClick={() => run(() => rejectDraft(clinicId, draft.id), "rejected", "Couldn't reject that draft.")}
+                  disabled={busy}
+                  className="rounded-md border border-flag-border bg-surface px-3 py-2 text-sm text-flag-text enabled:hover:bg-flag-bg disabled:opacity-60"
+                >
+                  Reject
+                </button>
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <p className="text-sm text-muted">
+              Only a clinician can approve, edit or reject a draft.
+            </p>
+            <button
+              onClick={onBack}
+              className="rounded-md border border-primary bg-surface text-primary enabled:hover:bg-primary-tint px-3 py-2 text-sm"
+            >
+              Back
+            </button>
+          </div>
+        )}
       </div>
-
-      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-
-      {canDecide ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          {editing ? (
-            <>
-              <button
-                onClick={() => run(() => editDraft(clinicId, draft.id, text.trim()), "sent", "Couldn't send that edit.")}
-                disabled={busy || !edited}
-                className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-              >
-                {busy ? "Sending..." : "Send edited reply"}
-              </button>
-              <button
-                onClick={() => {
-                  setEditing(false);
-                  setText(draft.draft_text);
-                }}
-                disabled={busy}
-                className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700 disabled:opacity-60"
-              >
-                Cancel edit
-              </button>
-              {!edited && (
-                <span className="text-xs text-zinc-500">
-                  Change the text to send an edit, or cancel and approve it as written.
-                </span>
-              )}
-            </>
-          ) : (
-            <>
-              <button
-                onClick={() => run(() => approveDraft(clinicId, draft.id), "sent", "Couldn't send that reply.")}
-                disabled={busy}
-                className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-              >
-                {busy ? "Sending..." : "Approve and send"}
-              </button>
-              <button
-                onClick={() => setEditing(true)}
-                disabled={busy}
-                className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700 disabled:opacity-60"
-              >
-                Edit, then send
-              </button>
-              <button
-                onClick={() => run(() => rejectDraft(clinicId, draft.id), "rejected", "Couldn't reject that draft.")}
-                disabled={busy}
-                className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-red-700 disabled:opacity-60"
-              >
-                Reject
-              </button>
-            </>
-          )}
-        </div>
-      ) : (
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <p className="text-sm text-zinc-600">
-            Only a clinician can approve, edit or reject a draft.
-          </p>
-          <button
-            onClick={onBack}
-            className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700"
-          >
-            Back
-          </button>
-        </div>
-      )}
     </div>
   );
 }
@@ -346,25 +346,23 @@ function DecidedDraft({ draft }: { draft: Draft }) {
   const edited = draft.status === "edited";
   return (
     <li className="text-sm">
-      <p className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-        <span
-          className={`rounded-full px-2 py-0.5 font-medium ${
-            draft.status === "rejected"
-              ? "bg-zinc-100 text-zinc-700"
-              : "bg-green-100 text-green-800"
-          }`}
-        >
-          {OUTCOME[draft.status]}
-        </span>
+      <p className="flex flex-wrap items-center gap-2 text-xs text-muted">
+        {draft.status === "rejected" ? (
+          <span className="rounded-full border border-border bg-surface-subtle px-2 py-0.5 font-medium text-muted">
+            {OUTCOME[draft.status]}
+          </span>
+        ) : (
+          <StatusBadge variant="clear">{OUTCOME[draft.status]}</StatusBadge>
+        )}
         {draft.decided_at ? clock(draft.decided_at) : clock(draft.created_at)}
       </p>
-      <p className="mt-1 whitespace-pre-wrap text-zinc-700">
-        <span className="text-zinc-400">AI wrote: </span>
+      <p className="mt-1 whitespace-pre-wrap text-muted">
+        <span className="text-muted">AI wrote: </span>
         {draft.draft_text}
       </p>
       {edited && draft.final_text && (
-        <p className="mt-1 whitespace-pre-wrap text-zinc-900">
-          <span className="text-zinc-400">Sent instead: </span>
+        <p className="mt-1 whitespace-pre-wrap text-ink">
+          <span className="text-muted">Sent instead: </span>
           {draft.final_text}
         </p>
       )}

@@ -6,6 +6,7 @@ import { useCallback, useRef, useState } from "react";
 import { AppHeader } from "@/components/app-header";
 import { ComposeBox, EarlierDrafts } from "@/components/compose-box";
 import { ContactLogSection } from "@/components/contact-log";
+import { StatusBadge } from "@/components/status-badge";
 import { SummarySection } from "@/components/summary-view";
 import { ApiError } from "@/lib/api";
 import {
@@ -34,8 +35,8 @@ const REFRESH_MS = 10000;
 export default function PatientPage() {
   const clinician = useClinician();
   const params = useParams<{ id: string }>();
-  if (clinician.status === "loading") return <p className="p-6 text-zinc-600">Loading...</p>;
-  if (clinician.status === "error") return <p className="p-6 text-red-600">{clinician.message}</p>;
+  if (clinician.status === "loading") return <p className="p-6 text-muted">Loading...</p>;
+  if (clinician.status === "error") return <p className="p-6 text-flag-text">{clinician.message}</p>;
   return (
     <>
       <AppHeader clinicName={clinician.clinic.name} email={clinician.email} />
@@ -105,10 +106,10 @@ function PatientView({
   const error = failed ? "Couldn't refresh. Retrying..." : null;
   const load = reload;
 
-  if (patient === undefined) return <p className="p-6 text-zinc-600">Loading...</p>;
+  if (patient === undefined) return <p className="p-6 text-muted">Loading...</p>;
   if (patient === null) {
     return (
-      <p className="p-6 text-zinc-700">
+      <p className="p-6 text-muted">
         Patient not found. <Link href="/dashboard" className="underline">Back to dashboard</Link>
       </p>
     );
@@ -117,12 +118,12 @@ function PatientView({
   return (
     <main className="mx-auto max-w-3xl space-y-8 px-4 py-6">
       <div>
-        <Link href="/dashboard" className="text-sm text-zinc-500 hover:underline">
+        <Link href="/dashboard" className="text-sm text-muted hover:underline">
           &larr; Dashboard
         </Link>
-        <h1 className="mt-1 text-xl font-semibold text-zinc-900">{patient.full_name}</h1>
-        {patient.contact && <p className="text-sm text-zinc-500">{patient.contact}</p>}
-        {error && <p className="mt-1 text-sm text-amber-700">{error}</p>}
+        <h1 className="mt-1 text-xl font-semibold text-ink">{patient.full_name}</h1>
+        {patient.contact && <p className="text-sm text-muted">{patient.contact}</p>}
+        {error && <p className="mt-1 text-sm text-flag-text">{error}</p>}
       </div>
 
       <LinksCard clinicId={clinicId} patientId={patientId} />
@@ -135,13 +136,13 @@ function PatientView({
       />
 
       <section>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted">
           Check-ins
         </h2>
         {checkIns === null ? (
-          <p className="text-zinc-600">Loading...</p>
+          <p className="text-muted">Loading...</p>
         ) : checkIns.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-zinc-300 p-4 text-zinc-600">
+          <p className="rounded-lg border border-dashed border-border-strong p-4 text-muted">
             No check-ins yet. Send this patient their check-in link above.
           </p>
         ) : (
@@ -154,7 +155,7 @@ function PatientView({
       </section>
 
       <section>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted">
           Messages
         </h2>
         <Thread
@@ -207,9 +208,9 @@ function LinksCard({ clinicId, patientId }: { clinicId: string; patientId: strin
   }
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-4">
-      <h2 className="text-sm font-semibold text-zinc-900">Send this patient a link</h2>
-      <p className="mt-1 text-sm text-zinc-600">
+    <section className="rounded-lg border border-border bg-surface p-4">
+      <h2 className="text-sm font-semibold text-ink">Send this patient a link</h2>
+      <p className="mt-1 text-sm text-muted">
         Creates a private link and copies it. Text or email it to the patient yourself; anyone with
         the link can use it until it expires.
       </p>
@@ -217,22 +218,22 @@ function LinksCard({ clinicId, patientId }: { clinicId: string; patientId: strin
         <button
           onClick={() => issue("checkin")}
           disabled={busy !== null}
-          className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+          className="rounded-md border border-primary text-primary enabled:hover:bg-primary-tint px-3 py-2 text-sm font-medium disabled:opacity-60"
         >
           Copy check-in link
         </button>
         <button
           onClick={() => issue("messages")}
           disabled={busy !== null}
-          className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+          className="rounded-md border border-primary text-primary enabled:hover:bg-primary-tint px-3 py-2 text-sm font-medium disabled:opacity-60"
         >
           Copy messages link
         </button>
       </div>
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {error && <p className="mt-2 text-sm text-flag-text">{error}</p>}
       {link && (
         <div className="mt-3 space-y-1">
-          <p className="text-xs text-zinc-600">
+          <p className="text-xs text-muted">
             {copied ? "Copied. " : "Copy this link: "}
             {link.scope === "checkin" ? "Check-in" : "Messages"} link, valid until{" "}
             {clock(link.expires_at)}.
@@ -241,7 +242,7 @@ function LinksCard({ clinicId, patientId }: { clinicId: string; patientId: strin
             readOnly
             value={link.url}
             onFocus={(e) => e.currentTarget.select()}
-            className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1.5 font-mono text-xs"
+            className="w-full rounded-md border border-border-strong bg-surface-subtle px-2 py-1.5 font-mono text-xs"
           />
         </div>
       )}
@@ -279,36 +280,34 @@ function CheckInCard({
   return (
     <li
       className={`rounded-lg border p-4 ${
-        checkIn.is_red_flag && !reviewed ? "border-red-300 bg-red-50/50" : "border-zinc-200 bg-white"
+        checkIn.is_red_flag && !reviewed ? "border-flag-border bg-flag-bg" : "border-border bg-surface"
       }`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-zinc-700">
+        <p className="text-sm text-muted">
           {clock(checkIn.created_at)}
-          <span className="text-zinc-400"> &middot; {timeAgo(checkIn.created_at)}</span>
+          <span className="text-muted"> &middot; {timeAgo(checkIn.created_at)}</span>
         </p>
         <div className="flex gap-2 text-xs">
           {checkIn.is_red_flag && (
-            <span className="rounded-full bg-red-600 px-2 py-0.5 font-medium text-white">
-              Red flag
-            </span>
+            <StatusBadge variant="flag">Red flag</StatusBadge>
           )}
           {reviewed && (
-            <span className="rounded-full bg-green-100 px-2 py-0.5 text-green-800">Reviewed</span>
+            <StatusBadge variant="clear">Reviewed</StatusBadge>
           )}
         </div>
       </div>
-      <p className="mt-1 text-sm text-zinc-600">
+      <p className="mt-1 text-sm text-muted">
         {[checkIn.procedure_name, checkIn.post_op_day !== null && `post-op day ${checkIn.post_op_day}`]
           .filter(Boolean)
           .join(" · ") || "No procedure or day given"}
       </p>
-      <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-900">{summary}</p>
+      <p className="mt-2 whitespace-pre-wrap text-sm text-ink">{summary}</p>
       {!reviewed && (
         <button
           onClick={review}
           disabled={busy}
-          className="mt-3 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+          className="mt-3 rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
         >
           {busy ? "Saving..." : "Mark reviewed"}
         </button>
@@ -335,12 +334,12 @@ function Thread({
   onChanged: () => void;
 }) {
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white">
+    <div className="rounded-lg border border-border bg-surface">
       <div className="max-h-96 space-y-2 overflow-y-auto p-4">
         {thread === null ? (
-          <p className="text-zinc-600">Loading...</p>
+          <p className="text-muted">Loading...</p>
         ) : thread.length === 0 ? (
-          <p className="text-zinc-600">No messages yet.</p>
+          <p className="text-muted">No messages yet.</p>
         ) : (
           thread.map((m) => (
             <div
@@ -348,23 +347,23 @@ function Thread({
               id={`message-${m.id}`}
               className={`rounded-lg p-1 transition-shadow ${
                 m.sender === "clinician" ? "text-right" : "text-left"
-              } ${highlighted === m.id ? "bg-amber-50 ring-2 ring-amber-400" : ""}`}
+              } ${highlighted === m.id ? "bg-primary-tint ring-2 ring-primary" : ""}`}
             >
               <div
                 className={`inline-block max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-left text-sm ${
-                  m.sender === "clinician" ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-900"
+                  m.sender === "clinician" ? "bg-ink text-white" : "bg-surface-subtle text-ink"
                 }`}
               >
                 {m.body}
               </div>
-              <p className="mt-0.5 text-xs text-zinc-400">
+              <p className="mt-0.5 text-xs text-muted">
                 {m.sender === "clinician" ? "You" : "Patient"} &middot; {clock(m.created_at)}
               </p>
             </div>
           ))
         )}
       </div>
-      <div className="border-t border-zinc-200 p-3">
+      <div className="border-t border-border p-3">
         <ComposeBox
           clinicId={clinicId}
           patientId={patientId}

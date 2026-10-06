@@ -40,11 +40,22 @@ their own repos without a rewrite.
 A first, basic trial UI for reviewing the clinician workflow (not the card-based
 dashboard from the Overview doc yet):
 
+**Styling.** Colors come only from the locked schema in `docs/planning/color-schema.md`
+(source of truth for names, hex values, roles and usage rules; change a color there first).
+Its tokens are CSS custom properties on `:root` in `app/globals.css`, with the same names, and
+are exposed to Tailwind through `@theme inline`, so components use utilities such as `bg-canvas`,
+`text-ink`, `bg-primary` / `hover:bg-primary-hover`, `bg-surface`, `bg-surface-subtle`,
+`border-border`, `border-border-strong`, `text-muted`, `text-disabled`, `bg-flag-bg`,
+`text-flag-text` and `border-ai-border`. No raw Tailwind palette classes and no hex values in
+components. `components/status-badge.tsx` is the one badge for clinical status (`flag`, `watch`,
+`clear`, `info`) and AI-generated content (`ai`); it always shows a label and a dot. Rules of
+thumb: red/amber/green only mean clinical status, teal is the brand and every action, errors and
+Reject use the flag text/border colors, metadata badges are neutral. Light scheme only (no dark
+mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globals.css`).
+
 - `/`: public landing page (`app/page.tsx`: hero, how it works, why it's different, sign-in
   call to action; nav with Login at far left). All copy is a draft, marked `COPY: DRAFT` at the
-  top of that file. Colors are design tokens (`--background`, `--foreground`, `--muted`,
-  `--border`, `--primary`, `--accent`, ...) in the `.landing` block of `app/globals.css`, so a
-  palette is swapped there only. It used to redirect to `/dashboard`; a visitor who already has
+  top of that file. It used to redirect to `/dashboard`; a visitor who already has
   a clinician session is still sent there (`components/signed-in-redirect.tsx`, client side,
   since the session lives in the browser). No middleware is involved.
 - `/login`: clinician email + password via Supabase Auth (session handling only; all data
