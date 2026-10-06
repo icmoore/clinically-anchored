@@ -67,6 +67,7 @@ class AIResult:
     prompt_version: str
     usage: TokenUsage
     stop_reason: str | None
+    retry_attempts: int = 0  # boto retries before this response (0 = first try worked)
 
 
 # --- daily cap ----------------------------------------------------------------
@@ -106,7 +107,13 @@ def _client():
     return boto3.client(
         "bedrock-runtime",
         region_name=BEDROCK_REGION,
-        config=Config(retries={"max_attempts": 2, "mode": "standard"}, read_timeout=60),
+        config=Config(
+            retries={"max_attempts": 2, "mode": "standard"},
+            connect_timeout=5,
+            # A stalled call is retried after 30s rather than 60s. A normal reply (at most
+            # max_tokens of output) finishes well inside this.
+            read_timeout=30,
+        ),
     )
 
 
@@ -152,6 +159,7 @@ def generate(
                 input_tokens=int(usage["inputTokens"]), output_tokens=int(usage["outputTokens"])
             ),
             stop_reason=response.get("stopReason"),
+            retry_attempts=int(response.get("ResponseMetadata", {}).get("RetryAttempts", 0)),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise AIInvocationError(f"Unexpected Bedrock response shape: {exc!r}") from exc

@@ -157,7 +157,8 @@ def _url(patient=PATIENT_A, clinic=CLINIC_A):
     return f"/clinics/{clinic}/patients/{patient}/summaries"
 
 
-GOOD = f"- Reports a red, itchy incision. [{mid(1)}]\n- Pain is improving. [{mid(3)}]"
+# The thread fixture is messages 1-3 of PATIENT_A, shown to the model as M1-M3.
+GOOD = "- Reports a red, itchy incision. [M1]\n- Pain is improving. [M3]"
 
 
 # --- happy path ------------------------------------------------------------------
@@ -172,7 +173,7 @@ def test_returns_a_verified_cited_summary(client, thread, model):
         {"text": "Reports a red, itchy incision.", "citations": [mid(1)]},
         {"text": "Pain is improving.", "citations": [mid(3)]},
     ]
-    assert (body["model_id"], body["prompt_version"]) == (MODEL, "summary_v2")
+    assert (body["model_id"], body["prompt_version"]) == (MODEL, "summary_v3")
     assert body["covers_messages"] == 3 and body["truncated"] is False
     assert body["patient_id"] == PATIENT_A and body["summary_id"]
 
@@ -181,9 +182,10 @@ def test_prompt_lists_the_patients_thread_only_one_message_per_line(client, thre
     model["text"] = GOOD
     client.post(_url(), headers=AUTH)
     call = model["calls"][0]
-    assert call["clinic_id"] == CLINIC_A and call["prompt_version"] == "summary_v2"
-    assert f"[{mid(1)}] patient: My incision is red. And it itches." in call["prompt"]
-    assert f"[{mid(2)}] clinician: How is the pain?" in call["prompt"]
+    assert call["clinic_id"] == CLINIC_A and call["prompt_version"] == "summary_v3"
+    assert "[M1] patient: My incision is red. And it itches." in call["prompt"]
+    assert "[M2] clinician: How is the pain?" in call["prompt"]
+    assert mid(1) not in call["prompt"]  # the model sees short labels, not full message ids
     assert "Another patient's message" not in call["prompt"]
     assert "{{" not in call["system"] + call["prompt"]
 
@@ -197,7 +199,7 @@ def test_audited_with_model_prompt_version_and_hashed_content(client, thread, mo
     assert call["metadata"] == {
         "ref_type": "summary", "ref_id": body["summary_id"], "patient_id": PATIENT_A,
         "actor": {"type": "member", "id": USER, "role": "delegate"},
-        "model_id": MODEL, "prompt_version": "summary_v2", "covers_messages": 3,
+        "model_id": MODEL, "prompt_version": "summary_v3", "covers_messages": 3,
         "input_tokens": 100, "output_tokens": 40,
     }
     assert call["payload"]["lines"][0]["citations"] == [mid(1)]
@@ -217,14 +219,15 @@ def _assert_discarded(response, audit_calls):
 def test_citation_to_a_nonexistent_message_discards_the_summary(
     client, thread, model, audit_calls
 ):
-    model["text"] = f"- Real. [{mid(1)}]\n- Invented. [{mid(77)}]"
+    model["text"] = "- Real. [M1]\n- Invented. [M77]"
     _assert_discarded(client.post(_url(), headers=AUTH), audit_calls)
 
 
 def test_citation_to_another_patients_message_discards_the_summary(
     client, thread, model, audit_calls
 ):
-    model["text"] = f"- Leaks. [{mid(90)}]"  # a real message, but in another patient's thread
+    # A real message id, but in another patient's thread -- and not a label it was given.
+    model["text"] = f"- Leaks. [{mid(90)}]"
     r = client.post(_url(), headers=AUTH)
     _assert_discarded(r, audit_calls)
     assert "Another patient" not in r.text
@@ -242,9 +245,10 @@ def test_citation_to_another_clinics_message_discards_the_summary(
     "text",
     [
         "- A claim with no citation at all",
-        f"Here is your summary:\n- Pain is improving. [{mid(3)}]",
-        "- Cites a short alias. [m3]",
-        f"- Empty citation. []\n- Fine. [{mid(1)}]",
+        "Here is your summary:\n- Pain is improving. [M3]",
+        f"- Cites a raw message id, not a label. [{mid(3)}]",
+        "- Cites a label that was never shown. [M4]",
+        "- Empty citation. []\n- Fine. [M1]",
         "",
     ],
 )
@@ -254,7 +258,7 @@ def test_malformed_output_discards_the_summary(client, thread, model, audit_call
 
 
 def test_one_bad_citation_does_not_get_silently_dropped(client, thread, model, audit_calls):
-    model["text"] = f"- Good. [{mid(1)}]\n- Mixed. [{mid(3)}, {mid(77)}]\n- Good. [{mid(2)}]"
+    model["text"] = "- Good. [M1]\n- Mixed. [M3, M77]\n- Good. [M2]"
     _assert_discarded(client.post(_url(), headers=AUTH), audit_calls)
 
 
@@ -295,20 +299,33 @@ def test_empty_thread_is_a_422_and_the_model_is_not_called(client, fake, model):
 def test_a_long_thread_is_truncated_to_the_most_recent_and_says_so(client, fake, model):
     for n in range(1, 61):
         _add(fake, n, "patient", f"message number {n}")
-    model["text"] = f"- Latest. [{mid(60)}]"
+    model["text"] = "- Latest. [M50]"  # the 50-message window is M1-M50; M50 is message 60
     body = client.post(_url(), headers=AUTH).json()
     assert body["covers_messages"] == 50 and body["truncated"] is True
     prompt = model["calls"][0]["prompt"]
     assert "message number 60" in prompt and "message number 11" in prompt
     assert "message number 10\n" not in prompt and prompt.count("] patient:") == 50
+    assert "[M1] patient: message number 11" in prompt
+    assert "[M50] patient: message number 60" in prompt
 
 
-def test_a_citation_older_than_the_window_that_does_exist_still_verifies(client, fake, model):
-    # Existence in the patient's thread is the rule, not "was in the prompt".
+def test_labels_resolve_to_the_right_messages_and_are_case_insensitive(client, fake, model):
     for n in range(1, 61):
         _add(fake, n, "patient", f"message number {n}")
+    model["text"] = "- Earliest in the window. [m1]\n- Latest. [M50]"
+    body = client.post(_url(), headers=AUTH).json()
+    assert [ln["citations"] for ln in body["lines"]] == [[mid(11)], [mid(60)]]
+
+
+def test_a_message_outside_the_window_cannot_be_cited(client, fake, model, audit_calls):
+    # The model is only shown (and so can only cite) the window. Neither a label past it nor the
+    # full id of an older real message is accepted.
+    for n in range(1, 61):
+        _add(fake, n, "patient", f"message number {n}")
+    model["text"] = "- Beyond the window. [M51]"
+    _assert_discarded(client.post(_url(), headers=AUTH), audit_calls)
     model["text"] = f"- Old but real. [{mid(5)}]"
-    assert client.post(_url(), headers=AUTH).status_code == 200
+    _assert_discarded(client.post(_url(), headers=AUTH), audit_calls)
 
 
 # --- access, and "only on demand" -----------------------------------------------------

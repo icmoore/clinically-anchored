@@ -183,3 +183,52 @@ def test_malformed_citations_never_reach_the_database():
 
 def test_uppercase_citations_still_verify_against_lowercase_ids():
     assert _verify(f"- Claim [{M1.upper()}]")[0].citations == (M1,)
+
+
+# --- short labels (summary_v3): the model cites M1, M2... and the server maps them back ----
+
+ALIASES = {"M1": M1, "M2": M2, "M3": M3}
+
+
+def test_labels_resolve_to_real_ids_case_insensitively():
+    lines = parse_summary("- First [M1]\n- Second [m2, M3]", ALIASES)
+    assert [ln.citations for ln in lines] == [(M1,), (M2, M3)]
+
+
+@pytest.mark.parametrize("bad", ["M4", "M0", "M1x", "X1", M1, "3"])
+def test_a_label_that_was_never_given_to_the_model_is_rejected(bad):
+    # Including a perfectly real full id: once labels are in use, only labels are citations.
+    with pytest.raises(CitationError) as exc:
+        parse_summary(f"- Claim [{bad}]", ALIASES)
+    assert "label" in exc.value.reason
+
+
+def test_one_bad_label_still_fails_the_whole_summary():
+    with pytest.raises(CitationError):
+        parse_summary("- Good [M1]\n- Mixed [M2, M9]\n- Good [M3]", ALIASES)
+
+
+def test_labelled_citations_are_still_checked_against_the_database():
+    # The labels map to ids; the existence check against the patient's thread still runs.
+    db = _Db()
+    lines = verify_summary(
+        db, clinic_id=CLINIC, patient_id=PATIENT, raw="- First [M1]\n- Second [M2]", aliases=ALIASES
+    )
+    assert [ln.citations for ln in lines] == [(M1,), (M2,)]
+    assert db.queries == 1
+    # A label whose message is not in this patient's thread (stale map) is rejected too.
+    with pytest.raises(CitationError) as exc:
+        verify_summary(
+            db, clinic_id=CLINIC, patient_id=PATIENT, raw="- Leaks [M9]",
+            aliases={**ALIASES, "M9": OTHER_PATIENT_MSG},
+        )
+    assert exc.value.message_ids == (OTHER_PATIENT_MSG,)
+
+
+def test_a_bad_label_never_reaches_the_database():
+    db = _Db()
+    with pytest.raises(CitationError):
+        verify_summary(
+            db, clinic_id=CLINIC, patient_id=PATIENT, raw="- Claim [M7]", aliases=ALIASES
+        )
+    assert db.queries == 0
