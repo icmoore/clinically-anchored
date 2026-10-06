@@ -1,55 +1,97 @@
 @import "tailwindcss";
 
+/* Color tokens: docs/planning/color-schema.md is the source of truth (names, values,
+   roles, usage rules). Change a color there first, then here. Light scheme only. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --ink: #0C2340;
+  --primary: #0E7C7B;
+  --canvas: #F6F4EF;
+
+  --primary-hover: #0C6969;
+  --primary-active: #0A5D5C;
+  --primary-tint: #ECF5F4;
+
+  --surface: #FFFFFF;
+  --surface-subtle: #EEEDE8;
+  --border: #DADBDA;
+  --border-strong: #75818F;
+  --text-muted: #526275;
+  --text-disabled: #A4ABB2;
+  --ink-raised: #1C2B4A;
+
+  --flag-text: #B42318;  --flag-bg: #FDECEA;  --flag-border: #F5C2BC;  --flag-solid: #D92D20;
+  --watch-text: #92400E; --watch-bg: #FEF3C7; --watch-border: #F6D68A; --watch-solid: #D97706;
+  --clear-text: #166534; --clear-bg: #E7F4EB; --clear-border: #B9DEC5; --clear-solid: #16A34A;
+  --info-text: #1E4FAF;  --info-bg: #EAF0FC;  --info-border: #C4D4F5;  --info-solid: #2563EB;
+
+  --ai-text: #5B21B6;    --ai-bg: #F1ECFD;    --ai-border: #D9CCF7;    --ai-solid: #7C3AED;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-border: var(--border);
+  --color-ink: var(--ink);
+  --color-ink-raised: var(--ink-raised);
+  --color-canvas: var(--canvas);
+
   --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-accent: var(--accent);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-tint: var(--primary-tint);
+
+  --color-surface: var(--surface);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-muted: var(--text-muted); /* text-muted */
+  --color-disabled: var(--text-disabled); /* text-disabled, disabled controls only */
+
+  --color-flag-text: var(--flag-text);
+  --color-flag-bg: var(--flag-bg);
+  --color-flag-border: var(--flag-border);
+  --color-flag-solid: var(--flag-solid);
+  --color-watch-text: var(--watch-text);
+  --color-watch-bg: var(--watch-bg);
+  --color-watch-border: var(--watch-border);
+  --color-watch-solid: var(--watch-solid);
+  --color-clear-text: var(--clear-text);
+  --color-clear-bg: var(--clear-bg);
+  --color-clear-border: var(--clear-border);
+  --color-clear-solid: var(--clear-solid);
+  --color-info-text: var(--info-text);
+  --color-info-bg: var(--info-bg);
+  --color-info-border: var(--info-border);
+  --color-info-solid: var(--info-solid);
+
+  --color-ai-text: var(--ai-text);
+  --color-ai-bg: var(--ai-bg);
+  --color-ai-border: var(--ai-border);
+  --color-ai-solid: var(--ai-solid);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--canvas);
+  color: var(--ink);
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* Landing page design tokens (app/page.tsx). Placeholder neutrals (slate) plus one
-   restrained accent; the real palette is swapped in here, and only here. Scoped to
-   .landing and the shared top bar (.site-nav) so the rest of the app is untouched. Light mode only, like the rest of the app. */
+/* The landing page and its top bar (also shown on /login) use Geist. */
 .landing,
 .site-nav {
-  --background: #ffffff;
-  --foreground: #0f172a; /* slate-900 */
-  --muted: #f8fafc; /* slate-50: soft surfaces */
-  --muted-foreground: #475569; /* slate-600: secondary text */
-  --border: #e2e8f0; /* slate-200 */
-  --primary: #0f172a; /* primary buttons */
-  --primary-foreground: #ffffff;
-  --accent: #0f766e; /* teal-700: numbers, icons, focus ring */
   font-family: var(--font-sans), system-ui, sans-serif;
 }
 
-.landing {
-  background: var(--background);
-  color: var(--foreground);
+::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+/* One visible keyboard focus ring for every interactive element: 2px primary with offset.
+   :where() keeps specificity at zero so a component can still override it deliberately. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: no-preference) {

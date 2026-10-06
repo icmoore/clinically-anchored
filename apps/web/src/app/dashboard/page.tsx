@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import { AppHeader } from "@/components/app-header";
+import { StatusBadge } from "@/components/status-badge";
 import { ApiError } from "@/lib/api";
 import { Patient, QueueItem, createPatient, getQueue, listPatients } from "@/lib/clinician-api";
 import { timeAgo } from "@/lib/format";
@@ -14,8 +15,8 @@ const REFRESH_MS = 15000;
 
 export default function DashboardPage() {
   const clinician = useClinician();
-  if (clinician.status === "loading") return <p className="p-6 text-zinc-600">Loading...</p>;
-  if (clinician.status === "error") return <p className="p-6 text-red-600">{clinician.message}</p>;
+  if (clinician.status === "loading") return <p className="p-6 text-muted">Loading...</p>;
+  if (clinician.status === "error") return <p className="p-6 text-flag-text">{clinician.message}</p>;
   return (
     <>
       <AppHeader clinicName={clinician.clinic.name} email={clinician.email} />
@@ -39,16 +40,16 @@ function Dashboard({ clinicId }: { clinicId: string }) {
 
   return (
     <main className="mx-auto max-w-3xl space-y-8 px-4 py-6">
-      {error && <p className="text-sm text-amber-700">{error}</p>}
+      {error && <p className="text-sm text-flag-text">{error}</p>}
 
       <section>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted">
           Needs attention
         </h2>
         {queue === null ? (
-          <p className="text-zinc-600">Loading...</p>
+          <p className="text-muted">Loading...</p>
         ) : queue.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-zinc-300 p-4 text-zinc-600">
+          <p className="rounded-lg border border-dashed border-border-strong p-4 text-muted">
             Nothing waiting. New check-ins and patient messages will show up here.
           </p>
         ) : (
@@ -57,36 +58,34 @@ function Dashboard({ clinicId }: { clinicId: string }) {
               <li key={item.patient_id}>
                 <Link
                   href={`/dashboard/patients/${item.patient_id}`}
-                  className={`block rounded-lg border p-4 hover:bg-zinc-50 ${
-                    item.has_red_flag ? "border-red-300 bg-red-50/50" : "border-zinc-200 bg-white"
+                  className={`block rounded-lg border p-4 hover:bg-surface-subtle ${
+                    item.has_red_flag ? "border-flag-border bg-flag-bg" : "border-border bg-surface"
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <p className="font-medium text-zinc-900">{item.patient_name ?? "Unknown"}</p>
-                    <span className="shrink-0 text-xs text-zinc-500">
+                    <p className="font-medium text-ink">{item.patient_name ?? "Unknown"}</p>
+                    <span className="shrink-0 text-xs text-muted">
                       {timeAgo(item.last_activity_at)}
                     </span>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-2 text-xs">
                     {item.has_red_flag && (
-                      <span className="rounded-full bg-red-600 px-2 py-0.5 font-medium text-white">
-                        Red flag
-                      </span>
+                      <StatusBadge variant="flag">Red flag</StatusBadge>
                     )}
                     {item.unreviewed_check_ins > 0 && (
-                      <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-700">
+                      <span className="rounded-full border border-border bg-surface-subtle px-2 py-0.5 text-muted">
                         {item.unreviewed_check_ins} check-in
                         {item.unreviewed_check_ins > 1 ? "s" : ""} to review
                       </span>
                     )}
                     {item.unread_messages > 0 && (
-                      <span className="rounded-full bg-blue-100 px-2 py-0.5 text-blue-800">
+                      <StatusBadge variant="info">
                         {item.unread_messages} unread message
                         {item.unread_messages > 1 ? "s" : ""}
-                      </span>
+                      </StatusBadge>
                     )}
                     {item.latest_post_op_day !== null && (
-                      <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-700">
+                      <span className="rounded-full border border-border bg-surface-subtle px-2 py-0.5 text-muted">
                         Post-op day {item.latest_post_op_day}
                       </span>
                     )}
@@ -99,22 +98,22 @@ function Dashboard({ clinicId }: { clinicId: string }) {
       </section>
 
       <section>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted">
           All patients
         </h2>
         <AddPatientForm clinicId={clinicId} />
         {patients === null ? null : patients.length === 0 ? (
-          <p className="mt-3 text-zinc-600">No patients yet. Add one above.</p>
+          <p className="mt-3 text-muted">No patients yet. Add one above.</p>
         ) : (
-          <ul className="mt-3 divide-y divide-zinc-200 rounded-lg border border-zinc-200 bg-white">
+          <ul className="mt-3 divide-y divide-border rounded-lg border border-border bg-surface">
             {patients.map((p) => (
               <li key={p.id}>
                 <Link
                   href={`/dashboard/patients/${p.id}`}
-                  className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-zinc-50"
+                  className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-surface-subtle"
                 >
-                  <span className="font-medium text-zinc-900">{p.full_name}</span>
-                  <span className="truncate text-sm text-zinc-500">{p.contact}</span>
+                  <span className="font-medium text-ink">{p.full_name}</span>
+                  <span className="truncate text-sm text-muted">{p.contact}</span>
                 </Link>
               </li>
             ))}
@@ -155,22 +154,22 @@ function AddPatientForm({ clinicId }: { clinicId: string }) {
         value={name}
         onChange={(e) => setName(e.target.value)}
         placeholder="Patient name (use a fake name for now)"
-        className="min-w-0 flex-1 rounded-md border border-zinc-300 px-3 py-2 text-base"
+        className="min-w-0 flex-1 rounded-md border border-border-strong bg-surface px-3 py-2 text-base"
       />
       <input
         value={contact}
         onChange={(e) => setContact(e.target.value)}
         placeholder="Phone or email (optional)"
-        className="min-w-0 flex-1 rounded-md border border-zinc-300 px-3 py-2 text-base"
+        className="min-w-0 flex-1 rounded-md border border-border-strong bg-surface px-3 py-2 text-base"
       />
       <button
         type="submit"
         disabled={busy || !name.trim()}
-        className="rounded-md bg-zinc-900 px-4 py-2 text-base font-medium text-white disabled:opacity-60"
+        className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-base font-medium text-white disabled:opacity-60"
       >
         Add patient
       </button>
-      {error && <p className="text-sm text-red-600 sm:basis-full">{error}</p>}
+      {error && <p className="text-sm text-flag-text sm:basis-full">{error}</p>}
     </form>
   );
 }

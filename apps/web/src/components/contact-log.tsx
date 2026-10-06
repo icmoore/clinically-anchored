@@ -83,14 +83,14 @@ export function ContactLogSection({
 
   return (
     <section>
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">Contact</h2>
-      <div className="rounded-lg border border-zinc-200 bg-white p-4">
+      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted">Contact</h2>
+      <div className="rounded-lg border border-border bg-surface p-4">
         {s === null ? (
-          <p className="text-sm text-zinc-600">Loading...</p>
+          <p className="text-sm text-muted">Loading...</p>
         ) : (
           <>
             <div className="mb-3 flex justify-end">
-              <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600">
+              <span className="rounded-full border border-border bg-surface-subtle px-2 py-0.5 text-xs text-muted">
                 counted
               </span>
             </div>
@@ -133,42 +133,42 @@ export function ContactLogSection({
               )}
             </div>
 
-            <div className="mt-4 rounded-md border border-zinc-200 bg-zinc-50 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            <div className="mt-4 rounded-md border border-border bg-surface-subtle p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted">
                 Your time on this patient
               </p>
               <div className="mt-2 flex flex-wrap items-baseline gap-x-3 text-sm">
                 {s.enteredEntries > 0 ? (
                   <>
-                    <span className="font-mono font-semibold text-zinc-900">
+                    <span className="font-mono font-semibold text-ink">
                       {s.enteredMinutes} min
                     </span>
-                    <span className="text-zinc-700">
+                    <span className="text-muted">
                       across {s.enteredEntries} logged{" "}
                       {s.enteredEntries === 1 ? "entry" : "entries"}
                     </span>
-                    <span className="rounded-full border border-dashed border-zinc-400 px-2 py-0.5 text-xs text-zinc-600">
+                    <span className="rounded-full border border-dashed border-border-strong px-2 py-0.5 text-xs text-muted">
                       entered
                     </span>
                   </>
                 ) : (
-                  <span className="text-zinc-600">No time entered yet.</span>
+                  <span className="text-muted">No time entered yet.</span>
                 )}
               </div>
               {s.medianReplyMs !== null && (
-                <p className="mt-2 text-right font-mono text-xs text-zinc-600">
+                <p className="mt-2 text-right font-mono text-xs text-muted">
                   median reply {duration(s.medianReplyMs)}
                 </p>
               )}
             </div>
-            <p className="mt-3 text-xs text-zinc-500">
+            <p className="mt-3 text-xs text-muted">
               Coverage: messages counted automatically · calls, visits and emails entered by you ·
               time in the app is not measured
             </p>
           </>
         )}
 
-        <div className="mt-4 border-t border-zinc-100 pt-3">
+        <div className="mt-4 border-t border-border pt-3">
           {formOpen ? (
             <form onSubmit={handleLog} className="space-y-2">
               <div className="flex flex-wrap gap-2">
@@ -176,7 +176,7 @@ export function ContactLogSection({
                   value={kind}
                   onChange={(e) => setKind(e.target.value as ManualTouchpointKind)}
                   aria-label="Type of contact"
-                  className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-base"
+                  className="rounded-md border border-border-strong bg-surface px-3 py-2 text-base"
                 >
                   {KINDS.map((k) => (
                     <option key={k.value} value={k.value}>
@@ -194,7 +194,7 @@ export function ContactLogSection({
                   onChange={(e) => setMinutes(e.target.value)}
                   aria-label="Duration in minutes (optional)"
                   placeholder="Minutes (optional)"
-                  className="w-44 rounded-md border border-zinc-300 px-3 py-2 text-base"
+                  className="w-44 rounded-md border border-border-strong bg-surface px-3 py-2 text-base"
                 />
               </div>
               <input
@@ -203,14 +203,14 @@ export function ContactLogSection({
                 maxLength={5000}
                 aria-label="Note (optional)"
                 placeholder="Note (optional)"
-                className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-base"
+                className="block w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-base"
               />
-              {error && <p className="text-sm text-red-600">{error}</p>}
+              {error && <p className="text-sm text-flag-text">{error}</p>}
               <div className="flex gap-2">
                 <button
                   type="submit"
                   disabled={busy}
-                  className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                  className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
                 >
                   {busy ? "Saving..." : "Log contact"}
                 </button>
@@ -220,7 +220,7 @@ export function ContactLogSection({
                     setFormOpen(false);
                     setError(null);
                   }}
-                  className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-50"
+                  className="rounded-md border border-primary bg-surface text-primary enabled:hover:bg-primary-tint px-4 py-2 text-sm font-medium"
                 >
                   Cancel
                 </button>
@@ -229,7 +229,7 @@ export function ContactLogSection({
           ) : (
             <button
               onClick={() => setFormOpen(true)}
-              className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-50"
+              className="rounded-md border border-primary bg-surface text-primary enabled:hover:bg-primary-tint px-3 py-2 text-sm font-medium"
             >
               Log a call, visit or email
             </button>
@@ -237,34 +237,28 @@ export function ContactLogSection({
         </div>
 
         {touchpoints !== null && (
-          <details className="mt-3 border-t border-zinc-100 pt-3">
-            <summary className="cursor-pointer text-sm text-zinc-700">
+          <details className="mt-3 border-t border-border pt-3">
+            <summary className="cursor-pointer text-sm text-muted">
               Contact history ({touchpoints.length})
             </summary>
             {touchpoints.length === 0 ? (
-              <p className="mt-2 text-sm text-zinc-600">No contact logged yet.</p>
+              <p className="mt-2 text-sm text-muted">No contact logged yet.</p>
             ) : (
-              <ul className="mt-2 divide-y divide-zinc-100">
+              <ul className="mt-2 divide-y divide-border">
                 {touchpoints.map((t) => (
                   <li key={t.id} className="py-2">
                     <div className="flex flex-wrap items-center gap-2 text-sm">
-                      <span className="font-medium text-zinc-900">{KIND_LABEL[t.kind]}</span>
-                      <span className="text-zinc-500">{clock(t.occurred_at)}</span>
+                      <span className="font-medium text-ink">{KIND_LABEL[t.kind]}</span>
+                      <span className="text-muted">{clock(t.occurred_at)}</span>
                       {t.duration_minutes !== null && (
-                        <span className="text-zinc-500">&middot; {t.duration_minutes} min</span>
+                        <span className="text-muted">&middot; {t.duration_minutes} min</span>
                       )}
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs ${
-                          t.source === "auto"
-                            ? "bg-blue-100 text-blue-800"
-                            : "bg-zinc-100 text-zinc-700"
-                        }`}
-                      >
+                      <span className="rounded-full border border-border bg-surface-subtle px-2 py-0.5 text-xs text-muted">
                         {t.source}
                       </span>
                     </div>
                     {t.note && (
-                      <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-700">{t.note}</p>
+                      <p className="mt-1 whitespace-pre-wrap text-sm text-muted">{t.note}</p>
                     )}
                   </li>
                 ))}
@@ -290,12 +284,12 @@ function Stat({
     <div>
       <p
         className={`font-mono text-2xl font-semibold tabular-nums ${
-          tone === "warn" ? "text-amber-700" : "text-zinc-900"
+          tone === "warn" ? "text-watch-text" : "text-ink"
         }`}
       >
         {value}
       </p>
-      <p className="text-xs text-zinc-600">{label}</p>
+      <p className="text-xs text-muted">{label}</p>
     </div>
   );
 }

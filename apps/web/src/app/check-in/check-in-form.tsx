@@ -122,22 +122,22 @@ export function CheckInForm() {
   }
 
   if (!token) {
-    return <p className="text-red-600">This link is missing its token.</p>;
+    return <p className="text-flag-text">This link is missing its token.</p>;
   }
 
   if (status === "loading") {
-    return <p className="text-zinc-600">Loading your check-in...</p>;
+    return <p className="text-muted">Loading your check-in...</p>;
   }
 
   if (status === "error" && !context) {
-    return <p className="text-red-600">{error}</p>;
+    return <p className="text-flag-text">{error}</p>;
   }
 
   if (status === "submitted") {
     return (
-      <div className="rounded-lg border border-green-200 bg-green-50 p-6">
-        <p className="font-medium text-green-900">Thanks -- your check-in was sent.</p>
-        <p className="mt-1 text-sm text-green-800">
+      <div className="rounded-lg border border-border bg-primary-tint p-6">
+        <p className="font-medium text-ink">Thanks -- your check-in was sent.</p>
+        <p className="mt-1 text-sm text-muted">
           Your care team will follow up if anything needs their attention.
         </p>
       </div>
@@ -147,14 +147,14 @@ export function CheckInForm() {
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6">
       <div>
-        <label htmlFor="procedure" className="mb-1 block text-sm font-medium text-zinc-900">
+        <label htmlFor="procedure" className="mb-1 block text-sm font-medium text-ink">
           Which procedure did you have?
         </label>
         <select
           id="procedure"
           value={procedureId}
           onChange={(e) => handleProcedureChange(e.target.value)}
-          className="w-full rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
+          className="w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-ink"
           required
         >
           <option value="" disabled>
@@ -169,7 +169,7 @@ export function CheckInForm() {
       </div>
 
       <div>
-        <label htmlFor="post-op-day" className="mb-1 block text-sm font-medium text-zinc-900">
+        <label htmlFor="post-op-day" className="mb-1 block text-sm font-medium text-ink">
           How many days since your surgery? (optional)
         </label>
         <input
@@ -178,7 +178,7 @@ export function CheckInForm() {
           min={0}
           value={postOpDay}
           onChange={(e) => setPostOpDay(e.target.value)}
-          className="w-full rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
+          className="w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-ink"
         />
       </div>
 
@@ -201,13 +201,13 @@ export function CheckInForm() {
 
       {category && (
         <fieldset>
-          <legend className="mb-2 text-sm font-medium text-zinc-900">
+          <legend className="mb-2 text-sm font-medium text-ink">
             Please indicate what your worrisome symptoms are:
           </legend>
           <div className="flex flex-col gap-3">
             {availableSymptoms.map((symptom) => (
               <div key={symptom.key}>
-                <label className="flex items-center gap-2 text-zinc-800">
+                <label className="flex items-center gap-2 text-ink">
                   <input
                     type="checkbox"
                     checked={Boolean(selectedSymptoms[symptom.key])}
@@ -216,7 +216,7 @@ export function CheckInForm() {
                   {symptom.label}
                 </label>
                 {selectedSymptoms[symptom.key] && (
-                  <div className="mt-2 ml-6 flex flex-col gap-3 border-l-2 border-zinc-200 pl-4">
+                  <div className="mt-2 ml-6 flex flex-col gap-3 border-l-2 border-border pl-4">
                     {symptom.fields.map((field) => (
                       <FieldBlock
                         key={field.key}
@@ -245,7 +245,7 @@ export function CheckInForm() {
 
       {category && (
         <div>
-          <label htmlFor="concerns" className="mb-1 block text-sm font-medium text-zinc-900">
+          <label htmlFor="concerns" className="mb-1 block text-sm font-medium text-ink">
             Anything else you&apos;d like to tell us, in your own words? (optional)
           </label>
           <textarea
@@ -254,18 +254,18 @@ export function CheckInForm() {
             maxLength={CONCERNS_TEXT_MAX_LENGTH}
             onChange={(e) => setConcernsText(e.target.value)}
             rows={3}
-            className="w-full rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
+            className="w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-ink"
           />
-          <p className="mt-1 text-right text-xs text-zinc-500">
+          <p className="mt-1 text-right text-xs text-muted">
             {concernsText.length}/{CONCERNS_TEXT_MAX_LENGTH}
           </p>
         </div>
       )}
 
       {showReview && (
-        <div className="rounded-lg border border-zinc-300 bg-zinc-50 p-4">
-          <p className="mb-2 text-sm font-medium text-zinc-900">Please review before sending:</p>
-          <pre className="whitespace-pre-wrap font-sans text-sm text-zinc-800">
+        <div className="rounded-lg border border-border bg-surface-subtle p-4">
+          <p className="mb-2 text-sm font-medium text-ink">Please review before sending:</p>
+          <pre className="whitespace-pre-wrap font-sans text-sm text-ink">
             {buildSummary({
               procedureName: selectedProcedure?.name ?? null,
               postOpDay: postOpDay ? Number(postOpDay) : null,
@@ -275,12 +275,12 @@ export function CheckInForm() {
         </div>
       )}
 
-      {status === "error" && error && <p className="text-sm text-red-600">{error}</p>}
+      {status === "error" && error && <p className="text-sm text-flag-text">{error}</p>}
 
       <button
         type="submit"
         disabled={status === "submitting" || !procedureId}
-        className="rounded-md bg-zinc-900 px-4 py-2 font-medium text-white disabled:opacity-50"
+        className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 font-medium text-white disabled:opacity-50"
       >
         {showReview
           ? status === "submitting"
@@ -307,10 +307,10 @@ function RadioGroup({
 }) {
   return (
     <fieldset>
-      <legend className="mb-2 text-sm font-medium text-zinc-900">{legend}</legend>
+      <legend className="mb-2 text-sm font-medium text-ink">{legend}</legend>
       <div className="flex flex-col gap-1">
         {options.map((opt) => (
-          <label key={opt.value} className="flex items-center gap-2 text-sm text-zinc-700">
+          <label key={opt.value} className="flex items-center gap-2 text-sm text-muted">
             <input
               type="radio"
               checked={value === opt.value}
@@ -340,11 +340,11 @@ function FieldBlock({
   if (field.type === "scale_1_10") {
     return (
       <div>
-        <label className="block text-sm text-zinc-800">{field.label}</label>
+        <label className="block text-sm text-ink">{field.label}</label>
         <select
           value={typeof value === "number" ? String(value) : ""}
           onChange={(e) => onChange(e.target.value ? Number(e.target.value) : undefined)}
-          className="mt-1 w-20 rounded-md border border-zinc-300 px-2 py-1 text-sm text-zinc-900"
+          className="mt-1 w-20 rounded-md border border-border-strong bg-surface px-2 py-1 text-sm text-ink"
         >
           <option value="">--</option>
           {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
@@ -360,13 +360,13 @@ function FieldBlock({
   if (field.type === "number") {
     return (
       <div>
-        <label className="block text-sm text-zinc-800">{field.label}</label>
+        <label className="block text-sm text-ink">{field.label}</label>
         <input
           type="number"
           min={0}
           value={typeof value === "number" ? value : ""}
           onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value))}
-          className="mt-1 w-24 rounded-md border border-zinc-300 px-2 py-1 text-sm text-zinc-900"
+          className="mt-1 w-24 rounded-md border border-border-strong bg-surface px-2 py-1 text-sm text-ink"
         />
       </div>
     );
@@ -375,13 +375,13 @@ function FieldBlock({
   if (field.type === "yes_no") {
     return (
       <div>
-        <p className="text-sm text-zinc-800">{field.label}</p>
+        <p className="text-sm text-ink">{field.label}</p>
         <div className="mt-1 flex gap-4">
           {[
             { v: true, l: "Yes" },
             { v: false, l: "No" },
           ].map((opt) => (
-            <label key={String(opt.v)} className="flex items-center gap-1 text-sm text-zinc-700">
+            <label key={String(opt.v)} className="flex items-center gap-1 text-sm text-muted">
               <input type="radio" checked={value === opt.v} onChange={() => onChange(opt.v)} />
               {opt.l}
             </label>
@@ -394,10 +394,10 @@ function FieldBlock({
   if (field.type === "radio") {
     return (
       <div>
-        <p className="text-sm text-zinc-800">{field.label}</p>
+        <p className="text-sm text-ink">{field.label}</p>
         <div className="mt-1 flex flex-col gap-1">
           {field.options?.map((opt) => (
-            <label key={opt.value} className="flex items-center gap-2 text-sm text-zinc-700">
+            <label key={opt.value} className="flex items-center gap-2 text-sm text-muted">
               <input type="radio" checked={value === opt.value} onChange={() => onChange(opt.value)} />
               {opt.label}
             </label>
@@ -411,13 +411,13 @@ function FieldBlock({
     const selected: string[] = Array.isArray(value) ? value : [];
     return (
       <div>
-        <p className="text-sm text-zinc-800">{field.label}</p>
+        <p className="text-sm text-ink">{field.label}</p>
         <div className="mt-1 flex flex-col gap-2">
           {field.options?.map((opt) => {
             const checked = selected.includes(opt.value);
             return (
               <div key={opt.value}>
-                <label className="flex items-center gap-2 text-sm text-zinc-700">
+                <label className="flex items-center gap-2 text-sm text-muted">
                   <input
                     type="checkbox"
                     checked={checked}
@@ -432,11 +432,11 @@ function FieldBlock({
                 </label>
                 {checked && field.perOptionFollowUp && (
                   <div className="mt-1 ml-6 flex items-center gap-2">
-                    <label className="text-xs text-zinc-600">{field.perOptionFollowUp.label}</label>
+                    <label className="text-xs text-muted">{field.perOptionFollowUp.label}</label>
                     <select
                       value={(nestedValue?.[opt.value] as string) ?? ""}
                       onChange={(e) => onNestedChange(opt.value, e.target.value)}
-                      className="rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-900"
+                      className="rounded-md border border-border-strong bg-surface px-2 py-1 text-xs text-ink"
                     >
                       <option value="">--</option>
                       {field.perOptionFollowUp.options.map((fo) => (
