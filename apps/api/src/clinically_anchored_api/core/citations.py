@@ -39,15 +39,27 @@ class SummaryLine:
     citations: tuple[str, ...]  # canonical lowercase message ids, in order, no duplicates
 
 
-def _canonical_id(raw: str) -> str:
+def _canonical_id(raw: str, aliases: dict[str, str] | None = None) -> str:
+    token = raw.strip()
+    if aliases is not None:
+        # Short labels ("M3"): the prompt showed the model labels instead of full ids, so a
+        # citation must be one of the labels it was given. Anything else is a bad citation.
+        resolved = aliases.get(token.upper())
+        if resolved is None:
+            raise CitationError("citation is not a message label from this thread", (token[:64],))
+        return resolved
     try:
-        return str(uuid.UUID(raw.strip()))
+        return str(uuid.UUID(token))
     except ValueError:
-        raise CitationError("citation is not a message id", (raw.strip()[:64],)) from None
+        raise CitationError("citation is not a message id", (token[:64],)) from None
 
 
-def parse_summary(raw: str) -> list[SummaryLine]:
-    """Split the model's output into cited lines. Raises CitationError."""
+def parse_summary(raw: str, aliases: dict[str, str] | None = None) -> list[SummaryLine]:
+    """Split the model's output into cited lines. Raises CitationError.
+
+    `aliases` maps the short labels shown to the model (upper-case, e.g. "M3") to canonical
+    message ids. When given, a citation must be one of those labels and is resolved here;
+    when omitted, citations must be full message ids (summary_v2 and earlier)."""
     lines: list[SummaryLine] = []
     for number, line in enumerate(raw.splitlines(), start=1):
         if not line.strip():
@@ -66,7 +78,7 @@ def parse_summary(raw: str) -> list[SummaryLine]:
             parts = [p for p in re.split(r"[,\s]+", group) if p]
             if not parts:
                 raise CitationError(f"line {number} has an empty citation")
-            ids.extend(_canonical_id(p) for p in parts)
+            ids.extend(_canonical_id(p, aliases) for p in parts)
         lines.append(SummaryLine(text=text, citations=tuple(dict.fromkeys(ids))))
     if not lines:
         raise CitationError("summary is empty")
@@ -84,11 +96,18 @@ def check_citations(lines: list[SummaryLine], thread_ids: set[str]) -> None:
         )
 
 
-def verify_summary(supabase, *, clinic_id: str, patient_id: str, raw: str) -> list[SummaryLine]:
-    """Parse `raw` and confirm, against the database, that every cited message
-    exists and belongs to this clinic's thread with this patient. Returns the
-    verified lines or raises CitationError."""
-    lines = parse_summary(raw)
+def verify_summary(
+    supabase,
+    *,
+    clinic_id: str,
+    patient_id: str,
+    raw: str,
+    aliases: dict[str, str] | None = None,
+) -> list[SummaryLine]:
+    """Parse `raw` (resolving short labels through `aliases`, if given) and confirm, against
+    the database, that every cited message exists and belongs to this clinic's thread with
+    this patient. Returns the verified lines or raises CitationError."""
+    lines = parse_summary(raw, aliases)
     cited = sorted({c for ln in lines for c in ln.citations})
     found = (
         supabase.table("messages")

@@ -13,6 +13,7 @@ summary text and its citations only in the hashed payload). If the audit write
 fails the summary is not returned either, so no AI text is ever shown unrecorded."""
 
 import logging
+import time
 import uuid
 from datetime import UTC, datetime
 
@@ -27,10 +28,13 @@ from clinically_anchored_api.core.db import get_supabase
 from clinically_anchored_api.schemas import SummaryLineOut, SummaryOut
 
 logger = logging.getLogger(__name__)
+# Timings go through uvicorn's logger so they actually print (the app's own loggers sit at the
+# default WARNING level). Durations and counts only -- never message or summary text.
+timing_log = logging.getLogger("uvicorn.error.summaries")
 
 router = APIRouter(tags=["summaries"])
 
-_TEMPLATE = ("summary", "v2")
+_TEMPLATE = ("summary", "v3")
 # The most recent messages the model is shown; older ones are left out and the
 # response says so (`truncated`).
 THREAD_LIMIT = 50
@@ -46,6 +50,7 @@ def _one_line(text: str) -> str:
 def generate_summary(
     clinic_id: str, patient_id: str, member: ClinicMember = Depends(require_clinic_member)
 ) -> SummaryOut:
+    started = time.perf_counter()
     supabase = get_supabase()
     _require_patient_in_clinic(supabase, clinic_id, patient_id)
 
@@ -63,10 +68,16 @@ def generate_summary(
         raise HTTPException(status_code=422, detail="This patient has no messages to summarise.")
     truncated = len(fetched) > THREAD_LIMIT
     thread = list(reversed(fetched[:THREAD_LIMIT]))  # oldest first
+    fetched_at = time.perf_counter()
 
+    # The model sees short labels (M1, M2, ...), not 36-character ids: it has far less to
+    # copy, and the server -- not the model -- maps each label back to the real message id.
+    aliases = {f"M{n}": str(uuid.UUID(str(m["id"]))) for n, m in enumerate(thread, start=1)}
     template = ai.load_template(*_TEMPLATE)
     system, prompt = template.render(
-        messages="\n".join(f"[{m['id']}] {m['sender']}: {_one_line(m['body'])}" for m in thread)
+        messages="\n".join(
+            f"[M{n}] {m['sender']}: {_one_line(m['body'])}" for n, m in enumerate(thread, start=1)
+        )
     )
     try:
         result = ai.generate(
@@ -81,10 +92,11 @@ def generate_summary(
         logger.error("summary generation failed for clinic %s: %s", clinic_id, exc)
         detail = "Summary generation failed. Try again."
         raise HTTPException(status_code=502, detail=detail) from exc
+    generated_at_t = time.perf_counter()
 
     try:
         lines = verify_summary(
-            supabase, clinic_id=clinic_id, patient_id=patient_id, raw=result.text
+            supabase, clinic_id=clinic_id, patient_id=patient_id, raw=result.text, aliases=aliases
         )
     except CitationError as exc:
         # Log why (ids and structure only, never the text); show nothing.
@@ -97,6 +109,7 @@ def generate_summary(
             "discarded. Try again.",
         ) from exc
 
+    verified_at = time.perf_counter()
     summary_id = str(uuid.uuid4())
     generated_at = datetime.now(UTC).isoformat()
     try:
@@ -129,6 +142,15 @@ def generate_summary(
         raise HTTPException(
             status_code=500, detail="Summary could not be recorded, so it was not shown."
         ) from exc
+
+    done = time.perf_counter()
+    timing_log.info(
+        "summary timings: messages=%d fetch=%.1fs model=%.1fs verify=%.1fs audit=%.1fs "
+        "total=%.1fs input_tokens=%d output_tokens=%d model_retries=%d",
+        len(thread), fetched_at - started, generated_at_t - fetched_at,
+        verified_at - generated_at_t, done - verified_at, done - started,
+        result.usage.input_tokens, result.usage.output_tokens, result.retry_attempts,
+    )
 
     return SummaryOut(
         summary_id=summary_id,
