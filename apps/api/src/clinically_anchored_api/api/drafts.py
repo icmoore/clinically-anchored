@@ -47,7 +47,12 @@ _MESSAGE_COLUMNS = "id, clinic_id, patient_id, sender, body, read_at, created_at
 # (e.g. a secretary) can still read drafts and ask for one. Widen deliberately.
 DECIDER_ROLES = frozenset({"owner", "clinician"})
 
-_TEMPLATE = ("draft_reply", "v1")
+# v2 added the NO_DRAFT instruction; v1 drafts stay in the audit trail under their own version.
+_TEMPLATE = ("draft_reply", "v2")
+# What the model answers (per the template) when there is nothing to reply to. Matched as a
+# token, never by reading its prose.
+NO_DRAFT_SENTINEL = "NO_DRAFT"
+_NOTHING_TO_REPLY_TO = "There is no patient message awaiting a reply."
 _CONVERSATION_LIMIT = 20
 # Clinic protocol notes (data-catalogue D13) aren't modelled yet.
 _PROTOCOL_NOTES = "(No clinic protocol notes have been configured yet.)"
@@ -153,29 +158,16 @@ def generate_draft(
     body: DraftCreate | None = None,
     member: ClinicMember = Depends(require_clinic_member),
 ) -> DraftOut:
-    """Ask the model for a reply to a patient message (default: the latest one) and
-    store it `pending`. Sends nothing. If that message already has a pending draft,
-    it is returned as-is and the model is not called again."""
+    """Ask the model for a reply to the patient's latest message and store it
+    `pending`. Sends nothing. Refused with 409 (before any model call, nothing stored)
+    when the latest message in the thread isn't the patient's, i.e. there is nothing
+    awaiting a reply; also 409 when the model itself answers NO_DRAFT. If the message
+    already has a pending draft, it is returned as-is and the model is not called again.
+
+    `message_id` names one specific patient message instead (an explicit override that
+    skips the awaiting-reply check; the web app doesn't use it)."""
     supabase = get_supabase()
     _require_patient_in_clinic(supabase, clinic_id, patient_id)
-
-    wanted = body.message_id if body else None
-    sources = supabase.table("messages").select(_MESSAGE_COLUMNS)
-    sources = sources.eq("clinic_id", clinic_id).eq("patient_id", patient_id)
-    sources = sources.eq("sender", "patient")
-    if wanted:
-        found = sources.eq("id", wanted).execute().data
-        if not found:
-            raise HTTPException(status_code=404, detail="Patient message not found.")
-    else:
-        found = sources.order("created_at", desc=True).limit(1).execute().data
-        if not found:
-            raise HTTPException(status_code=422, detail="This patient has no message to reply to.")
-    source = found[0]
-
-    existing = _pending_for(supabase, clinic_id, source["id"])
-    if existing:
-        return DraftOut(**existing)
 
     recent = (
         supabase.table("messages")
@@ -187,6 +179,27 @@ def generate_draft(
         .execute()
         .data
     )
+
+    wanted = body.message_id if body else None
+    if wanted:
+        sources = supabase.table("messages").select(_MESSAGE_COLUMNS)
+        sources = sources.eq("clinic_id", clinic_id).eq("patient_id", patient_id)
+        found = sources.eq("sender", "patient").eq("id", wanted).execute().data
+        if not found:
+            raise HTTPException(status_code=404, detail="Patient message not found.")
+        source = found[0]
+    else:
+        # Same rule as the web Contact card's "awaiting your reply": the latest
+        # (non-system) message is the patient's, so no clinician message follows it.
+        latest = next((m for m in recent if m["sender"] != "system"), None)
+        if latest is None or latest["sender"] != "patient":
+            raise HTTPException(status_code=409, detail=_NOTHING_TO_REPLY_TO)
+        source = latest
+
+    existing = _pending_for(supabase, clinic_id, source["id"])
+    if existing:
+        return DraftOut(**existing)
+
     conversation = "\n".join(f"{m['sender']}: {m['body']}" for m in reversed(recent))
     template = ai.load_template(*_TEMPLATE)
     system, prompt = template.render(
@@ -207,8 +220,13 @@ def generate_draft(
     except ai.AIInvocationError as exc:
         logger.error("draft generation failed for clinic %s: %s", clinic_id, exc)
         raise HTTPException(status_code=502, detail="Draft generation failed. Try again.") from exc
-    if not result.text.strip():
+    draft_text = result.text.strip()
+    if not draft_text:
         raise HTTPException(status_code=502, detail="The model returned an empty draft.")
+    if draft_text.startswith(NO_DRAFT_SENTINEL):
+        # The model found nothing to reply to. Never a draft, so nothing is stored; a
+        # reply that merely starts with the token is dropped too rather than risk showing it.
+        raise HTTPException(status_code=409, detail=_NOTHING_TO_REPLY_TO)
 
     try:
         inserted = (
@@ -218,7 +236,7 @@ def generate_draft(
                     "clinic_id": clinic_id,
                     "patient_id": patient_id,
                     "source_message_id": source["id"],
-                    "draft_text": result.text.strip(),
+                    "draft_text": draft_text,
                     "model_id": result.model_id,
                     "prompt_version": result.prompt_version,
                     "created_by": member.user_id,

@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 import { AppHeader } from "@/components/app-header";
+import { ComposeBox, EarlierDrafts } from "@/components/compose-box";
 import { ContactLogSection } from "@/components/contact-log";
-import { DraftsSection } from "@/components/draft-review";
 import { SummarySection } from "@/components/summary-view";
 import { ApiError } from "@/lib/api";
 import {
@@ -23,7 +23,6 @@ import {
   listTouchpoints,
   markRead,
   reviewCheckIn,
-  sendMessage,
 } from "@/lib/clinician-api";
 import { clock, timeAgo } from "@/lib/format";
 import { buildSummary } from "@/lib/symptoms";
@@ -154,15 +153,6 @@ function PatientView({
         )}
       </section>
 
-      <DraftsSection
-        clinicId={clinicId}
-        patientId={patientId}
-        role={role}
-        drafts={drafts}
-        thread={thread}
-        onChanged={load}
-      />
-
       <section>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
           Messages
@@ -170,10 +160,13 @@ function PatientView({
         <Thread
           clinicId={clinicId}
           patientId={patientId}
+          role={role}
           thread={thread}
+          drafts={drafts}
           highlighted={highlighted}
-          onSent={load}
+          onChanged={load}
         />
+        <EarlierDrafts drafts={drafts} />
       </section>
 
       <ContactLogSection
@@ -327,36 +320,20 @@ function CheckInCard({
 function Thread({
   clinicId,
   patientId,
+  role,
   thread,
+  drafts,
   highlighted,
-  onSent,
+  onChanged,
 }: {
   clinicId: string;
   patientId: string;
+  role: string;
   thread: Message[] | null;
+  drafts: Draft[] | null;
   highlighted: string | null;
-  onSent: () => void;
+  onChanged: () => void;
 }) {
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleSend(e: React.FormEvent) {
-    e.preventDefault();
-    if (!text.trim()) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await sendMessage(clinicId, patientId, text.trim());
-      setText("");
-      onSent();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't send that message.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <div className="rounded-lg border border-zinc-200 bg-white">
       <div className="max-h-96 space-y-2 overflow-y-auto p-4">
@@ -387,24 +364,16 @@ function Thread({
           ))
         )}
       </div>
-      <form onSubmit={handleSend} className="border-t border-zinc-200 p-3">
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          rows={2}
-          maxLength={5000}
-          placeholder="Write a message to the patient..."
-          className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-base"
+      <div className="border-t border-zinc-200 p-3">
+        <ComposeBox
+          clinicId={clinicId}
+          patientId={patientId}
+          role={role}
+          drafts={drafts}
+          thread={thread}
+          onChanged={onChanged}
         />
-        {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
-        <button
-          type="submit"
-          disabled={busy || !text.trim()}
-          className="mt-2 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-        >
-          {busy ? "Sending..." : "Send"}
-        </button>
-      </form>
+      </div>
     </div>
   );
 }
