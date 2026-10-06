@@ -110,7 +110,7 @@ Built (on `main`):
   is called and raises `AIDailyCapExceeded`; in-memory, per instance, UTC day, failed calls
   count. Prompt/reply text is never logged. Versioned prompt templates live in
   `clinically_anchored_api/templates/<name>_<version>.md` (`## System` + `## User`, `{{vars}}`),
-  loaded with `load_template(name, "v1")`; the shipped ones (`draft_reply_v1`, `summary_v1`, `summary_v2`) are
+  loaded with `load_template(name, "v1")`; the shipped ones (`draft_reply_v1`, `draft_reply_v2`, `summary_v1`, `summary_v2`) are
   **placeholder wording pending clinical review**. A wording change is a new version file.
   Inference location remains a product decision (see the hard constraints below): this wrapper
   assumes Bedrock in ca-central-1.
@@ -132,8 +132,18 @@ Built (on `main`):
   text to Bedrock, inert without AWS credentials. `summary_v1` is kept but unused; `summary_v2`
   pins the output format the parser expects. Placeholder wording, pending clinical review.
 - AI message drafts (`api/drafts.py`, migration 6, data-catalogue D8): `POST
-  /clinics/{id}/patients/{pid}/drafts` asks the model for a reply to a patient message (default:
-  the latest) and stores it `pending` -- it sends nothing. `GET .../drafts[?status=]` lists them.
+  /clinics/{id}/patients/{pid}/drafts` asks the model for a reply to the patient's latest message
+  and stores it `pending` -- it sends nothing. It is refused with **409 before any model call**
+  (no draft row, no Bedrock call, no audit event) when nothing awaits a reply: the thread is empty
+  or its latest non-system message isn't the patient's. The optional body `message_id` targets one
+  specific patient message instead and skips that check (an explicit override; the web app doesn't
+  use it). The model is also told (template `draft_reply_v2`) to answer exactly `NO_DRAFT` when it
+  has nothing to reply to; a response starting with that token (`NO_DRAFT_SENTINEL`, matched as a
+  token, never by reading prose) is likewise a 409 with nothing stored. Both 409s share one detail
+  ("There is no patient message awaiting a reply."), distinct from the 409 on a second decision.
+  **Template version:** the drafting template is now `draft_reply_v2` (v1 stays on disk, unused);
+  `draft.*` audit events record `prompt_version: "draft_reply_v2"` for drafts made from now on,
+  while existing drafts and their events keep `draft_reply_v1`. `GET .../drafts[?status=]` lists them.
   A draft leaves `pending` only by an explicit clinician action: `POST /clinics/{id}/drafts/{did}/`
   `approve` (sends the draft as written), `edit` (body `{final_text}`; sends the edit, keeps the
   model's original; the edit must differ), or `reject` (sends nothing). The decision is one DB

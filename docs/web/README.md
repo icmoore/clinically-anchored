@@ -44,7 +44,7 @@ dashboard from the Overview doc yet):
   goes through `apps/api`).
 - `/dashboard`: "Needs attention" queue (red flags first), add patient, all patients.
 - `/dashboard/patients/[id]`: copy a check-in or messages link for the patient, review
-  check-ins, read and reply to the message thread, plus two AI-assisted sections:
+  check-ins, read and reply to the message thread (one compose box, below), plus an AI summary:
   - **Summary** (`components/summary-view.tsx`): "Summarise this conversation" calls the api
     on demand (never automatic). Each line shows chips for the messages it cites; clicking a
     chip scrolls to and highlights that message in the thread. The api has already verified
@@ -53,13 +53,24 @@ dashboard from the Overview doc yet):
     arrived after the summary was written and when older messages were left out. The summary
     lives only in component state -- the api doesn't store it, and it holds patient content,
     so it is not put in browser storage either (a reload clears it).
-  - **Draft reply** (`components/draft-review.tsx`): "Draft a reply with AI" asks the api for a
-    draft. A pending draft is shown beside the patient message it answers with **Approve and
-    send**, **Edit, then send** (the edit must differ from the draft) and **Reject**; nothing
-    is sent until one of those is pressed. Only owners and clinicians can decide (delegates see
-    the draft and a note; the api enforces it with a 403). Decided drafts are listed under
-    "Earlier drafts" with what the AI wrote and, for edits, what was sent instead. Drafts load
-    separately from the rest of the page, so if that call fails the thread and check-ins still work.
+  - **Compose box** (`components/compose-box.tsx`, under the thread): the one place a clinician
+    writes to the patient, in two states so there is only one way to send at a time.
+    *Compose*: a textarea with **Draft a reply with AI** (left) and **Send** (right; disabled
+    while the textarea is empty; sends the typed text as-is, same path as before, so the auto
+    `message` touchpoint and audit event are unchanged). *Draft view* (after Draft a reply with
+    AI): the patient message beside the AI draft with **Approve and send**, **Edit, then send**
+    (the edit must differ from the draft) and **Reject**; no compose textarea and no Send. What
+    was typed is kept while the draft view is open: Reject returns to compose with it restored;
+    approve or edit-and-send returns with an empty textarea. **Draft a reply with AI** is enabled
+    only while a patient message awaits a reply (the latest non-system message is the patient's;
+    `awaitingReplyCount` in `lib/contact-stats.ts`, shared with the Contact card), otherwise it is
+    disabled with the hint "Nothing to reply to yet". If the api answers 409 anyway (the thread
+    changed, or the model had nothing to write) the same hint is shown. Reloading the page while a
+    draft is pending for the latest patient message reopens it in the draft view. Only owners and
+    clinicians can decide (delegates can request a draft and see it with a note and a Back button;
+    the api enforces it with a 403). Decided drafts are listed under "Earlier drafts" with what the
+    AI wrote and, for edits, what was sent instead. Drafts load separately from the rest of the
+    page, so if that call fails the thread, check-ins and plain Send still work.
   - **Contact** (`components/contact-log.tsx`, figures in `lib/contact-stats.ts`): the overview
     spec's Contact card. Counted, never inferred: messages (patient / you), clinic visits, calls
     (with minutes), first contact, time since last contact, patient messages awaiting your reply
@@ -71,7 +82,7 @@ dashboard from the Overview doc yet):
     Not shown yet because the data doesn't exist: post-op day on each contact (no procedure
     date is stored; dates are shown instead) and time measured inside the app (not tracked).
     Loads separately like drafts.
-  Summary and Draft reply need AWS credentials set on the api (Bedrock); without them they show the api's error.
+  Summary and Draft a reply with AI need AWS credentials set on the api (Bedrock); without them they show the api's error.
 - `/check-in?token=` (patient, structured check-in) and `/messages?token=` (patient chat).
   Patients are link-only for now; patient sign-in comes before real patients.
 

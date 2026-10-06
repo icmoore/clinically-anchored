@@ -37,10 +37,22 @@ function median(values: number[]): number | null {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+// The conversation as the card (and the draft button) sees it: oldest first, no system notes.
+const conversation = (thread: Message[]) =>
+  thread.filter((m) => m.sender !== "system").sort((a, b) => ms(a.created_at) - ms(b.created_at));
+
+/** Patient messages with no clinician message after them: the unbroken run of patient
+ *  messages at the end of the thread. Above zero means the latest message is the patient's
+ *  (the api's draft endpoint applies the same rule). */
+export function awaitingReplyCount(thread: Message[]): number {
+  const messages = conversation(thread);
+  let n = 0;
+  while (n < messages.length && messages[messages.length - 1 - n].sender === "patient") n += 1;
+  return n;
+}
+
 export function contactStats(thread: Message[], touchpoints: Touchpoint[]): ContactStats {
-  const messages = thread
-    .filter((m) => m.sender !== "system")
-    .sort((a, b) => ms(a.created_at) - ms(b.created_at));
+  const messages = conversation(thread);
   // `message` touchpoints are the api's own record of a clinician message being sent;
   // the thread is the source for messages, so counting them again would double up.
   const logged = touchpoints.filter((t) => t.kind !== "message");
@@ -52,16 +64,13 @@ export function contactStats(thread: Message[], touchpoints: Touchpoint[]): Cont
   // Walk the thread once: a run of patient messages is answered by the clinician's next
   // message; the reply time is measured from the first message in the run.
   let runStart: number | null = null;
-  let awaiting = 0;
   const replies: number[] = [];
   for (const m of messages) {
     if (m.sender === "patient") {
       if (runStart === null) runStart = ms(m.created_at);
-      awaiting += 1;
     } else if (runStart !== null) {
       replies.push(ms(m.created_at) - runStart);
       runStart = null;
-      awaiting = 0;
     }
   }
 
@@ -81,7 +90,7 @@ export function contactStats(thread: Message[], touchpoints: Touchpoint[]): Cont
     emails: logged.filter((t) => t.kind === "email").length,
     firstContactAt: times[0] ?? null,
     lastContactAt: times[times.length - 1] ?? null,
-    awaitingReply: awaiting,
+    awaitingReply: awaitingReplyCount(thread),
     medianReplyMs: median(replies),
     enteredMinutes: sum(withDuration),
     enteredEntries: withDuration.length,
