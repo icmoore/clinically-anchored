@@ -47,12 +47,14 @@ _MESSAGE_COLUMNS = "id, clinic_id, patient_id, sender, body, read_at, created_at
 # (e.g. a secretary) can still read drafts and ask for one. Widen deliberately.
 DECIDER_ROLES = frozenset({"owner", "clinician"})
 
-# v2 added the NO_DRAFT instruction; v1 drafts stay in the audit trail under their own version.
-_TEMPLATE = ("draft_reply", "v2")
+# v2 added the NO_DRAFT instruction; v3 narrowed it (v2 declined on messages that needed a reply).
+# Older drafts stay in the audit trail under their own version.
+_TEMPLATE = ("draft_reply", "v3")
 # What the model answers (per the template) when there is nothing to reply to. Matched as a
 # token, never by reading its prose.
 NO_DRAFT_SENTINEL = "NO_DRAFT"
 _NOTHING_TO_REPLY_TO = "There is no patient message awaiting a reply."
+_MODEL_DECLINED = "The AI had nothing to draft for this message. You can write a reply yourself."
 _CONVERSATION_LIMIT = 20
 # Clinic protocol notes (data-catalogue D13) aren't modelled yet.
 _PROTOCOL_NOTES = "(No clinic protocol notes have been configured yet.)"
@@ -161,7 +163,8 @@ def generate_draft(
     """Ask the model for a reply to the patient's latest message and store it
     `pending`. Sends nothing. Refused with 409 (before any model call, nothing stored)
     when the latest message in the thread isn't the patient's, i.e. there is nothing
-    awaiting a reply; also 409 when the model itself answers NO_DRAFT. If the message
+    awaiting a reply. If the model itself answers NO_DRAFT the result is a 422 (so a client can
+    tell "the thread has nothing to answer" from "the model declined"). If the message
     already has a pending draft, it is returned as-is and the model is not called again.
 
     `message_id` names one specific patient message instead (an explicit override that
@@ -224,9 +227,14 @@ def generate_draft(
     if not draft_text:
         raise HTTPException(status_code=502, detail="The model returned an empty draft.")
     if draft_text.startswith(NO_DRAFT_SENTINEL):
-        # The model found nothing to reply to. Never a draft, so nothing is stored; a
-        # reply that merely starts with the token is dropped too rather than risk showing it.
-        raise HTTPException(status_code=409, detail=_NOTHING_TO_REPLY_TO)
+        # The model declined. Never a draft, so nothing is stored; a reply that merely starts
+        # with the token is dropped too rather than risk showing it. Logged (no content) so a
+        # run of declines on messages that did need a reply is visible.
+        logger.warning(
+            "model declined to draft for clinic %s (%s, %s)",
+            clinic_id, result.model_id, result.prompt_version,
+        )
+        raise HTTPException(status_code=422, detail=_MODEL_DECLINED)
 
     try:
         inserted = (

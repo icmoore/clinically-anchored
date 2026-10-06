@@ -93,7 +93,8 @@ export function ComposeBox({
       setOpen(await generateDraft(clinicId, patientId));
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        // The thread changed since this page loaded, or the model had nothing to write.
+        // The thread changed since this page loaded: nothing awaits a reply any more. (A model
+        // that declines is a 422, which falls through to showing the api's message below.)
         setStale(true);
         onChanged();
       } else {
