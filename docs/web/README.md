@@ -83,7 +83,8 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
     only while a patient message awaits a reply (the latest non-system message is the patient's;
     `awaitingReplyCount` in `lib/contact-stats.ts`, shared with the Contact card), otherwise it is
     disabled with the hint "Nothing to reply to yet". If the api answers 409 anyway (the thread
-    changed, or the model had nothing to write) the same hint is shown. Reloading the page while a
+    changed since the page loaded) the same hint is shown; if the model itself declines (422) the
+    api's message ("The AI had nothing to draft for this message...") is shown instead. Reloading the page while a
     draft is pending for the latest patient message reopens it in the draft view. Only owners and
     clinicians can decide (delegates can request a draft and see it with a note and a Back button;
     the api enforces it with a 403). Decided drafts are listed under "Earlier drafts" with what the

@@ -224,7 +224,7 @@ def test_generate_stores_a_pending_draft_and_sends_nothing(client, thread, model
     assert d["status"] == "pending"
     assert d["draft_text"] == model["text"]
     assert d["source_message_id"] == "m3"  # defaults to the latest patient message
-    assert (d["model_id"], d["prompt_version"]) == (MODEL, "draft_reply_v2")
+    assert (d["model_id"], d["prompt_version"]) == (MODEL, "draft_reply_v3")
     assert d["final_text"] is None and d["sent_message_id"] is None
     assert d["created_by"] == DOCTOR and d["decided_by"] is None
     assert len(thread.tables["messages"]) == 3  # nothing was sent
@@ -233,7 +233,7 @@ def test_generate_stores_a_pending_draft_and_sends_nothing(client, thread, model
 def test_generate_prompt_has_the_thread_and_uses_clinic_and_template(client, thread, model):
     _generate(client)
     call = model["calls"][0]
-    assert call["clinic_id"] == CLINIC_A and call["prompt_version"] == "draft_reply_v2"
+    assert call["clinic_id"] == CLINIC_A and call["prompt_version"] == "draft_reply_v3"
     assert "patient: My incision is a bit red." in call["prompt"]
     assert "clinician: How is the pain?" in call["prompt"]
     assert "Pain is better but still red." in call["prompt"]
@@ -248,7 +248,7 @@ def test_generate_audits_with_model_prompt_version_and_usage(client, thread, aud
     assert call["metadata"] == {
         "ref_type": "draft", "ref_id": d["id"],
         "actor": {"type": "member", "id": DOCTOR, "role": "clinician"},
-        "model_id": MODEL, "prompt_version": "draft_reply_v2",
+        "model_id": MODEL, "prompt_version": "draft_reply_v3",
         "input_tokens": 11, "output_tokens": 22,
     }
     assert call["payload"]["draft_text"] == d["draft_text"]  # hashed by record_event
@@ -320,21 +320,32 @@ def test_a_reply_sent_after_a_draft_was_pending_blocks_a_new_draft(client, threa
 
 
 @pytest.mark.parametrize("reply", ["NO_DRAFT", "  NO_DRAFT\n", "NO_DRAFT\n\nNothing new to write."])
-def test_model_answering_no_draft_is_a_409_and_stores_nothing(
+def test_model_answering_no_draft_is_a_422_and_stores_nothing(
     client, thread, model, audit_calls, reply
 ):
     model["text"] = reply
     r = _generate(client)
-    assert r.status_code == 409 and "awaiting a reply" in r.json()["detail"]
+    # 422, not the gate's 409: the thread had something to answer, the model declined.
+    assert r.status_code == 422 and "nothing to draft" in r.json()["detail"]
     assert len(model["calls"]) == 1  # it was asked ...
     assert thread.tables["message_drafts"] == [] and audit_calls == []  # ... and nothing kept
 
 
-def test_the_prompt_tells_the_model_to_answer_no_draft_when_there_is_nothing_to_reply_to(
+def test_the_prompt_tells_the_model_to_answer_no_draft_only_when_already_answered(
     client, thread, model
 ):
     _generate(client)
-    assert drafts_module.NO_DRAFT_SENTINEL in model["calls"][0]["system"]
+    system = " ".join(model["calls"][0]["system"].split())  # the template wraps lines
+    assert drafts_module.NO_DRAFT_SENTINEL in system
+    assert "even if it is short" in system  # a brief update still gets a draft
+
+
+def test_a_model_decline_is_logged_without_content(client, thread, model, caplog):
+    model["text"] = "NO_DRAFT"
+    with caplog.at_level("WARNING", logger=drafts_module.logger.name):
+        _generate(client)
+    assert any("declined to draft" in r.getMessage() for r in caplog.records)
+    assert "redness" not in caplog.text and "incision" not in caplog.text
 
 
 def test_a_draft_that_only_mentions_the_token_is_kept(client, thread, model):
@@ -369,7 +380,7 @@ def test_generate_race_returns_the_winners_draft(client, thread, model, monkeypa
         if seen["n"] == 1:
             thread.insert("message_drafts", {
                 "clinic_id": CLINIC_A, "patient_id": PATIENT_A, "source_message_id": source_id,
-                "draft_text": "winner", "model_id": MODEL, "prompt_version": "draft_reply_v2",
+                "draft_text": "winner", "model_id": MODEL, "prompt_version": "draft_reply_v3",
                 "created_by": DOCTOR,
             })
             return None
@@ -435,7 +446,7 @@ def test_approve_sends_the_draft_text_as_written(client, thread, model, audit_ca
     approved = audit_calls[1]
     assert approved["metadata"]["ref_type"] == "draft" and approved["metadata"]["ref_id"] == did
     assert approved["metadata"]["model_id"] == MODEL
-    assert approved["metadata"]["prompt_version"] == "draft_reply_v2"
+    assert approved["metadata"]["prompt_version"] == "draft_reply_v3"
     assert approved["metadata"]["sent_message_id"] == msg["id"]
     assert approved["metadata"]["actor"] == {"type": "member", "id": DOCTOR, "role": "clinician"}
     assert audit_calls[0]["metadata"]["ref_id"] == msg["id"]
@@ -455,7 +466,7 @@ def test_edit_sends_the_edit_and_keeps_the_original(client, thread, model, audit
     payload = audit_calls[1]["payload"]
     assert payload["draft_text"] == model["text"]
     assert payload["final_text"] == "Please call us if the redness spreads."
-    assert audit_calls[1]["metadata"]["prompt_version"] == "draft_reply_v2"
+    assert audit_calls[1]["metadata"]["prompt_version"] == "draft_reply_v3"
 
 
 def test_reject_sends_nothing(client, thread, audit_calls):

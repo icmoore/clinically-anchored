@@ -110,7 +110,7 @@ Built (on `main`):
   is called and raises `AIDailyCapExceeded`; in-memory, per instance, UTC day, failed calls
   count. Prompt/reply text is never logged. Versioned prompt templates live in
   `clinically_anchored_api/templates/<name>_<version>.md` (`## System` + `## User`, `{{vars}}`),
-  loaded with `load_template(name, "v1")`; the shipped ones (`draft_reply_v1`, `draft_reply_v2`, `summary_v1`, `summary_v2`) are
+  loaded with `load_template(name, "v1")`; the shipped ones (`draft_reply_v1`, `draft_reply_v2`, `draft_reply_v3`, `summary_v1`, `summary_v2`) are
   **placeholder wording pending clinical review**. A wording change is a new version file.
   Inference location remains a product decision (see the hard constraints below): this wrapper
   assumes Bedrock in ca-central-1.
@@ -137,13 +137,17 @@ Built (on `main`):
   (no draft row, no Bedrock call, no audit event) when nothing awaits a reply: the thread is empty
   or its latest non-system message isn't the patient's. The optional body `message_id` targets one
   specific patient message instead and skips that check (an explicit override; the web app doesn't
-  use it). The model is also told (template `draft_reply_v2`) to answer exactly `NO_DRAFT` when it
-  has nothing to reply to; a response starting with that token (`NO_DRAFT_SENTINEL`, matched as a
-  token, never by reading prose) is likewise a 409 with nothing stored. Both 409s share one detail
-  ("There is no patient message awaiting a reply."), distinct from the 409 on a second decision.
-  **Template version:** the drafting template is now `draft_reply_v2` (v1 stays on disk, unused);
-  `draft.*` audit events record `prompt_version: "draft_reply_v2"` for drafts made from now on,
-  while existing drafts and their events keep `draft_reply_v1`. `GET .../drafts[?status=]` lists them.
+  use it). The model is also told (template `draft_reply_v3`) to answer exactly `NO_DRAFT` only when a
+  clinician message already follows the patient's latest one; a response starting with that token
+  (`NO_DRAFT_SENTINEL`, matched as a token, never by reading prose) is a **422** ("The AI had
+  nothing to draft for this message.") with nothing stored and a content-free warning in the log.
+  422 (model declined) is deliberately different from the 409 above (the thread has nothing to
+  answer), so the web app can tell them apart; both differ from the 409 on a second decision.
+  **Template versions:** v2 told the model to decline whenever there was "nothing left to reply
+  to", and in practice it declined on short patient updates that did need a reply, so v3 makes a
+  draft the default (v1 and v2 stay on disk, unused). `draft.*` audit events record
+  `prompt_version: "draft_reply_v3"` for drafts made from now on; existing drafts and their events
+  keep the version they were made with. `GET .../drafts[?status=]` lists them.
   A draft leaves `pending` only by an explicit clinician action: `POST /clinics/{id}/drafts/{did}/`
   `approve` (sends the draft as written), `edit` (body `{final_text}`; sends the edit, keeps the
   model's original; the edit must differ), or `reject` (sends nothing). The decision is one DB
