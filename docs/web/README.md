@@ -40,6 +40,13 @@ their own repos without a rewrite.
 A first, basic trial UI for reviewing the clinician workflow (not the card-based
 dashboard from the Overview doc yet):
 
+- `/`: public landing page (`app/page.tsx`: hero, how it works, why it's different, sign-in
+  call to action; nav with Login at far left). All copy is a draft, marked `COPY: DRAFT` at the
+  top of that file. Colors are design tokens (`--background`, `--foreground`, `--muted`,
+  `--border`, `--primary`, `--accent`, ...) in the `.landing` block of `app/globals.css`, so a
+  palette is swapped there only. It used to redirect to `/dashboard`; a visitor who already has
+  a clinician session is still sent there (`components/signed-in-redirect.tsx`, client side,
+  since the session lives in the browser). No middleware is involved.
 - `/login`: clinician email + password via Supabase Auth (session handling only; all data
   goes through `apps/api`).
 - `/dashboard`: "Needs attention" queue (red flags first), add patient, all patients.
