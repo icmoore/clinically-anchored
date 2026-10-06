@@ -2,6 +2,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { SignedInRedirect } from "@/components/signed-in-redirect";
+import { SiteNav, focus } from "@/components/site-nav";
 
 export const metadata: Metadata = {
   title: "Clinically Anchored",
@@ -11,12 +12,9 @@ export const metadata: Metadata = {
 // Refresh the static page daily so the footer year doesn't go stale.
 export const revalidate = 86400;
 
-const focus =
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 const buttonBase = `inline-flex items-center justify-center rounded-md px-5 py-2.5 text-sm font-medium ${focus}`;
 const primaryButton = `${buttonBase} bg-primary text-primary-foreground hover:opacity-90`;
 const secondaryButton = `${buttonBase} border border-border bg-background text-foreground hover:bg-muted`;
-const navLink = `rounded px-1 py-1 text-sm text-muted-foreground hover:text-foreground ${focus}`;
 
 const steps = [
   {
@@ -61,30 +59,7 @@ export default function Home() {
     <div className="landing min-h-screen">
       <SignedInRedirect />
 
-      <header className="sticky top-0 z-10 border-b border-border bg-background/90 backdrop-blur">
-        <nav
-          aria-label="Main"
-          className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-5 gap-y-1 px-4 py-3"
-        >
-          <Link
-            href="/login"
-            className={`rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted ${focus}`}
-          >
-            Login
-          </Link>
-          <Link href="/" className={`rounded text-sm font-semibold text-foreground ${focus}`}>
-            Clinically Anchored
-          </Link>
-          <div className="ml-auto flex items-center gap-4">
-            <a href="#how-it-works" className={navLink}>
-              How it works
-            </a>
-            <a href="#why-different" className={navLink}>
-              Why it&rsquo;s different
-            </a>
-          </div>
-        </nav>
-      </header>
+      <SiteNav />
 
       <main>
         <section className="mx-auto grid max-w-5xl items-center gap-10 px-4 py-16 sm:py-24 md:grid-cols-2">
