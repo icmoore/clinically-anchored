@@ -102,8 +102,27 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
     date is stored; dates are shown instead) and time measured inside the app (not tracked).
     Loads separately like drafts.
   Summary and Draft a reply with AI need AWS credentials set on the api (Bedrock); without them they show the api's error.
-- `/check-in?token=` (patient, structured check-in) and `/messages?token=` (patient chat).
+- **Patient screens (Messaging v2).** A patient gets ONE link for their whole post-op period,
+  `/care?token=` (the api's `GET /episode` says where they stand; `/messages?token=` is the same
+  screen, and `/check-in?token=` is the check-in). Nothing here decides what is allowed: the api
+  computes it from the schedule and the clock, and the page only shows it.
+  - `/care` (`components/patient-home.tsx`): a status panel (check-in first -> "your first window
+    opens ..." -> "you can send one message now, closes ..." -> "sent, next opens ...", with the
+    last window saying when the follow-up ends), the thread (patient messages carry their
+    category, replies say "Reply"), a reply box when the care team has written (one reply, outside
+    the window), and the scheduled form: pick one of the categories, then write. All times are
+    shown in the clinic's timezone (`inZone`), not the device's.
+  - Category labels (`lib/categories.ts`) are placeholders; the api stores the key.
+  - `/check-in`: the procedure is the clinic's choice (from the episode), so the picker and the
+    typed "days since surgery" are gone; the post-op day is worked out by the api. One check-in
+    per episode: a second visit says it was already sent.
+  - A reset link is "This link doesn't work"; a closed episode (last window ended, or discharged)
+    is "Your follow-up has ended". Every patient screen, locked and closed ones included, ends
+    with the urgent notice (call the office, with the clinic's number when the api has it, or go
+    to the nearest emergency department): `components/patient-frame.tsx`. All of this wording is
+    a first draft.
   Patients are link-only for now; patient sign-in comes before real patients.
+  The clinician screens still use the old link and add-patient calls until the next stage.
 
 Uses the user's first clinic. Polls the api every 10-15s (no realtime yet). `shadcn/ui`
 was not initialized.

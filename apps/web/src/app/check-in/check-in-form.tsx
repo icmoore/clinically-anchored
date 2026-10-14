@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ApiError, CheckInContext, getCheckInContext, submitCheckIn } from "@/lib/api";
+import { ClosedScreen, InvalidLinkScreen } from "@/components/patient-frame";
 import {
   CONCERNS_TEXT_MAX_LENGTH,
   CheckInAnswers,
@@ -16,16 +18,18 @@ import {
 
 type Status = "loading" | "ready" | "submitting" | "submitted" | "error";
 
+const buttonClass =
+  "inline-block rounded-md bg-primary hover:bg-primary-hover active:bg-primary-active px-4 py-2 font-medium text-white";
+
 export function CheckInForm() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
 
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
+  const [linkProblem, setLinkProblem] = useState<"invalid" | "closed" | null>(null);
   const [context, setContext] = useState<CheckInContext | null>(null);
 
-  const [procedureId, setProcedureId] = useState("");
-  const [postOpDay, setPostOpDay] = useState("");
   const [surgeryType, setSurgeryType] = useState<"" | "open" | "laparoscopic">("");
   const [woundClosure, setWoundClosure] = useState<"" | "staples" | "absorbing_sutures" | "unsure">("");
   const [selectedSymptoms, setSelectedSymptoms] = useState<Record<string, boolean>>({});
@@ -41,27 +45,19 @@ export function CheckInForm() {
         setStatus("ready");
       })
       .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 401) setLinkProblem("invalid");
+        else if (err instanceof ApiError && err.status === 410) setLinkProblem("closed");
         setStatus("error");
         setError(err instanceof ApiError ? err.message : "Couldn't load this check-in link.");
       });
   }, [token]);
 
-  const selectedProcedure = context?.procedures.find((p) => p.id === procedureId) ?? null;
-  const category = selectedProcedure?.category ?? null;
+  // The procedure is the clinic's choice for this episode, so the symptom set is known up front.
+  const procedure = context?.procedure ?? null;
+  const category = procedure?.category ?? null;
   const abdominal = category ? isAbdominal(category) : false;
   const availableSymptoms = category ? symptomsForCategory(category) : [];
   const reportedCount = Object.values(selectedSymptoms).filter(Boolean).length;
-
-  function handleProcedureChange(nextId: string) {
-    setProcedureId(nextId);
-    // A different procedure can mean a different symptom set -- clear
-    // answers that no longer apply rather than leave stale data behind.
-    setSelectedSymptoms({});
-    setSymptomAnswers({});
-    setSurgeryType("");
-    setWoundClosure("");
-    setShowReview(false);
-  }
 
   function toggleSymptom(key: string, checked: boolean) {
     setSelectedSymptoms((prev) => ({ ...prev, [key]: checked }));
@@ -109,21 +105,17 @@ export function CheckInForm() {
     }
     setStatus("submitting");
     try {
-      await submitCheckIn(token, {
-        procedure_id: procedureId || null,
-        post_op_day: postOpDay ? Number(postOpDay) : null,
-        answers: buildAnswers(),
-      });
+      await submitCheckIn(token, { answers: buildAnswers() });
       setStatus("submitted");
     } catch (err) {
+      if (err instanceof ApiError && err.status === 410) setLinkProblem("closed");
       setStatus("error");
       setError(err instanceof ApiError ? err.message : "Couldn't submit this check-in.");
     }
   }
 
-  if (!token) {
-    return <p className="text-flag-text">This link is missing its token.</p>;
-  }
+  if (!token || linkProblem === "invalid") return <InvalidLinkScreen />;
+  if (linkProblem === "closed") return <ClosedScreen />;
 
   if (status === "loading") {
     return <p className="text-muted">Loading your check-in...</p>;
@@ -133,54 +125,41 @@ export function CheckInForm() {
     return <p className="text-flag-text">{error}</p>;
   }
 
+  const messagesLink = (
+    <Link href={`/care?token=${encodeURIComponent(token)}`} className={`${buttonClass} mt-4`}>
+      Go to your messages
+    </Link>
+  );
+
   if (status === "submitted") {
     return (
       <div className="rounded-lg border border-border bg-primary-tint p-6">
         <p className="font-medium text-ink">Thanks -- your check-in was sent.</p>
         <p className="mt-1 text-sm text-muted">
-          Your care team will follow up if anything needs their attention.
+          Your care team will follow up if anything needs their attention. You can now write to
+          them in your message windows.
         </p>
+        {messagesLink}
+      </div>
+    );
+  }
+
+  if (context?.check_in_done) {
+    return (
+      <div className="rounded-lg border border-border bg-primary-tint p-6">
+        <p className="font-medium text-ink">You have already sent your check-in.</p>
+        {messagesLink}
       </div>
     );
   }
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6">
-      <div>
-        <label htmlFor="procedure" className="mb-1 block text-sm font-medium text-ink">
-          Which procedure did you have?
-        </label>
-        <select
-          id="procedure"
-          value={procedureId}
-          onChange={(e) => handleProcedureChange(e.target.value)}
-          className="w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-ink"
-          required
-        >
-          <option value="" disabled>
-            Select one
-          </option>
-          {context?.procedures.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div>
-        <label htmlFor="post-op-day" className="mb-1 block text-sm font-medium text-ink">
-          How many days since your surgery? (optional)
-        </label>
-        <input
-          id="post-op-day"
-          type="number"
-          min={0}
-          value={postOpDay}
-          onChange={(e) => setPostOpDay(e.target.value)}
-          className="w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-ink"
-        />
-      </div>
+      {procedure && (
+        <p className="text-sm text-muted">
+          Check-in after your <span className="font-medium text-ink">{procedure.name}</span>.
+        </p>
+      )}
 
       {abdominal && (
         <>
@@ -267,8 +246,8 @@ export function CheckInForm() {
           <p className="mb-2 text-sm font-medium text-ink">Please review before sending:</p>
           <pre className="whitespace-pre-wrap font-sans text-sm text-ink">
             {buildSummary({
-              procedureName: selectedProcedure?.name ?? null,
-              postOpDay: postOpDay ? Number(postOpDay) : null,
+              procedureName: procedure?.name ?? null,
+              postOpDay: context && context.post_op_day >= 0 ? context.post_op_day : null,
               answers: buildAnswers(),
             })}
           </pre>
@@ -279,7 +258,7 @@ export function CheckInForm() {
 
       <button
         type="submit"
-        disabled={status === "submitting" || !procedureId}
+        disabled={status === "submitting" || !procedure}
         className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 font-medium text-white disabled:opacity-50"
       >
         {showReview

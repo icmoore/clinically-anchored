@@ -21,3 +21,17 @@ export function clock(iso: string): string {
 export function shortDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
+
+/** A time as the clinic's own clock shows it ("Sat, Oct 3, 7:00 AM EDT"), whatever zone the
+ *  device is in: message windows open at a wall-clock time in the clinic's timezone. */
+export function inZone(iso: string, timeZone: string | null): string {
+  return new Date(iso).toLocaleString("en-CA", {
+    timeZone: timeZone ?? "America/Toronto",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+}
