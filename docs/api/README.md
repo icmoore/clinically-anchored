@@ -76,6 +76,14 @@ Built (on `main`):
   (`kind` scheduled|reply, `category`), `GET /check-ins/context`, `POST /check-ins` (the
   post-op day is computed, the procedure is the clinic's), `/consents`.
 - Check-in intake: `POST /check-ins`, `GET /check-ins/context` (see above).
+- **Demo data** (`seed_trial_patients.py`, run by hand, never by CI): 13 synthetic patients in a
+  separate demo clinic, one per engine state, written with backdated rows and the same audit
+  events the api writes (tagged `seed`). Its plan is replayed through `core/schedule.py` and the
+  database's own schedules before anything is written (`validate_plan`), and `tests/db/test_seed.py`
+  runs it against Postgres: every patient lands in the declared state, the chain verifies,
+  `reconcile` is clean, and the readable metadata of each event matches what the api writes
+  (a drift guard: change an event in the api and that test says to change the seed).
+  `--include-alternate-schedule` adds schedule v2, which then becomes the newest version.
 - **AI prompts under Messaging v2:** `draft_reply_v4` and `summary_v4` show each patient message's
   topic key and window next to the speaker, "patient (symptom_or_wound, window 3)" or "patient
   (reply)" (`core/thread_text.py`; parentheses, never square brackets, which the summary format
