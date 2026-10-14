@@ -92,6 +92,7 @@ class _FakeSupabase:
                 {"id": PATIENT_B, "clinic_id": CLINIC_B},
             ],
             "messages": [],
+            "thread_summaries": [],
         }
 
     def table(self, name):
@@ -380,4 +381,105 @@ def test_new_messages_never_trigger_a_summary(client, fake, model, audit_calls, 
 def test_the_only_route_that_summarises_is_the_explicit_post():
     paths = app.openapi()["paths"]
     summary_routes = {p: sorted(ops) for p, ops in paths.items() if "summar" in p}
-    assert summary_routes == {"/clinics/{clinic_id}/patients/{patient_id}/summaries": ["post"]}
+    assert summary_routes == {
+        "/clinics/{clinic_id}/patients/{patient_id}/summaries": ["post"],
+        # Reading back what was saved: a GET that never calls the model (tested below).
+        "/clinics/{clinic_id}/patients/{patient_id}/summaries/latest": ["get"],
+    }
+
+
+# --- saved summaries ----------------------------------------------------------------------
+
+
+def _latest(client, patient=PATIENT_A, clinic=CLINIC_A):
+    return client.get(f"{_url(patient, clinic)}/latest", headers=AUTH)
+
+
+def test_a_generated_summary_is_saved_after_it_was_audited(client, thread, model, audit_calls):
+    model["text"] = GOOD
+    body = client.post(_url(), headers=AUTH).json()
+    (saved,) = thread.tables["thread_summaries"]
+    assert saved["id"] == body["summary_id"] == audit_calls[0]["metadata"]["ref_id"]
+    assert (saved["clinic_id"], saved["patient_id"], saved["generated_by"]) == (
+        CLINIC_A, PATIENT_A, USER,
+    )
+    assert saved["lines"] == body["lines"]
+    assert (saved["covers_messages"], saved["truncated"]) == (3, False)
+    assert (saved["model_id"], saved["prompt_version"]) == (MODEL, "summary_v4")
+    assert saved["generated_at"] == body["generated_at"]
+
+
+def test_a_summary_whose_audit_failed_is_neither_shown_nor_saved(
+    client, thread, model, monkeypatch
+):
+    from clinically_anchored_api.core.audit import AuditWriteError
+
+    def boom(_db, **_kw):
+        raise AuditWriteError("down")
+
+    monkeypatch.setattr(summaries_module, "record_event", boom)
+    model["text"] = GOOD
+    assert client.post(_url(), headers=AUTH).status_code == 500
+    assert thread.tables["thread_summaries"] == []
+    assert _latest(client).json() is None
+
+
+def test_if_saving_fails_the_clinician_still_gets_the_summary(client, thread, model, monkeypatch):
+    def boom(self, *_a, **_k):
+        raise RuntimeError("table unavailable")
+
+    monkeypatch.setattr(thread, "table", lambda name: (
+        _Boom() if name == "thread_summaries" else _Query(thread, name)
+    ))
+    model["text"] = GOOD
+    r = client.post(_url(), headers=AUTH)
+    assert r.status_code == 200 and len(r.json()["lines"]) == 2
+
+
+class _Boom:
+    def insert(self, _payload):
+        return self
+
+    def execute(self):
+        raise RuntimeError("table unavailable")
+
+
+def test_latest_is_null_before_any_summary(client, thread):
+    r = _latest(client)
+    assert r.status_code == 200 and r.json() is None
+
+
+def test_latest_returns_what_was_saved_without_calling_the_model(
+    client, thread, model, audit_calls
+):
+    model["text"] = GOOD
+    made = client.post(_url(), headers=AUTH).json()
+    calls, events = len(model["calls"]), len(audit_calls)
+    again = _latest(client).json()
+    assert again == made
+    assert len(model["calls"]) == calls and len(audit_calls) == events  # read only
+
+
+def test_latest_is_the_newest_one_and_older_ones_are_kept(client, thread, model):
+    model["text"] = GOOD
+    first = client.post(_url(), headers=AUTH).json()
+    model["text"] = "- Pain is improving. [M3]"
+    second = client.post(_url(), headers=AUTH).json()
+    assert len(thread.tables["thread_summaries"]) == 2
+    got = _latest(client).json()
+    assert got["summary_id"] == second["summary_id"] != first["summary_id"]
+    assert [ln["text"] for ln in got["lines"]] == ["Pain is improving."]
+
+
+def test_latest_is_this_patients_and_this_clinics_only(client, thread, model):
+    model["text"] = GOOD
+    client.post(_url(), headers=AUTH)
+    assert _latest(client, patient=PATIENT_A2).json() is None  # another patient of the clinic
+    assert _latest(client, patient=PATIENT_B).status_code == 404  # another clinic's patient
+    assert _latest(client, patient=PATIENT_B, clinic=CLINIC_B).status_code == 403  # not a member
+
+
+def test_latest_needs_a_signed_in_member(client, thread):
+    url = f"{_url()}/latest"
+    assert client.get(url).status_code == 401
+    assert client.get(url, headers={"Authorization": "Bearer nope"}).status_code == 401

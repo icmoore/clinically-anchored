@@ -7,10 +7,14 @@ verified against the database (core/citations.py). A summary with an
 unverifiable citation is discarded whole -- not shown, not repaired, no citation
 silently dropped -- and the caller gets an error.
 
-Nothing is stored: a verified summary is returned and audited as
-`summary.generated` (model id and prompt version in readable metadata; the
-summary text and its citations only in the hashed payload). If the audit write
-fails the summary is not returned either, so no AI text is ever shown unrecorded."""
+A verified summary is returned and audited as `summary.generated` (model id and prompt
+version in readable metadata; the summary text and its citations only in the hashed payload).
+If the audit write fails the summary is not returned either, so no AI text is ever shown
+unrecorded. Only AFTER the audit write succeeds is the summary saved (migration 10,
+`thread_summaries`, one row per generation, never edited), so a saved summary has always been
+audited; the newest one is read back when a clinician opens the patient again
+(`GET .../summaries/latest`). Reading it back never calls the model. If saving fails the summary
+is still returned, and the failure is logged."""
 
 import logging
 import time
@@ -45,6 +49,56 @@ def _one_line(text: str) -> str:
     """Flatten a message so it stays on its own "[id] sender: text" line -- a
     message can't smuggle in extra lines that look like other messages."""
     return " ".join(text.split())
+
+
+def _save(supabase, **row) -> None:
+    """Keep the summary that was just shown (already audited). Never fails the request: the
+    clinician has their summary either way, and the next one will be saved."""
+    try:
+        supabase.table("thread_summaries").insert(
+            {"id": row.pop("summary_id"), **row}
+        ).execute()
+    except Exception:
+        logger.exception("summary generated and audited but not saved")
+
+
+@router.get(
+    "/clinics/{clinic_id}/patients/{patient_id}/summaries/latest",
+    response_model=SummaryOut | None,
+)
+def latest_summary(
+    clinic_id: str, patient_id: str, _member: ClinicMember = Depends(require_clinic_member)
+) -> SummaryOut | None:
+    """The newest saved summary for this patient, or null if none has been generated yet. It
+    reads what was saved; it never calls the model and writes nothing."""
+    supabase = get_supabase()
+    _require_patient_in_clinic(supabase, clinic_id, patient_id)
+    rows = (
+        supabase.table("thread_summaries")
+        .select(
+            "id, patient_id, lines, covers_messages, truncated, model_id, prompt_version, "
+            "generated_at"
+        )
+        .eq("clinic_id", clinic_id)
+        .eq("patient_id", patient_id)
+        .order("generated_at", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    )
+    if not rows:
+        return None
+    row = rows[0]
+    return SummaryOut(
+        summary_id=row["id"],
+        patient_id=row["patient_id"],
+        generated_at=row["generated_at"],
+        model_id=row["model_id"],
+        prompt_version=row["prompt_version"],
+        lines=[SummaryLineOut(**line) for line in row["lines"]],
+        covers_messages=row["covers_messages"],
+        truncated=row["truncated"],
+    )
 
 
 @router.post("/clinics/{clinic_id}/patients/{patient_id}/summaries", response_model=SummaryOut)
@@ -143,6 +197,15 @@ def generate_summary(
         raise HTTPException(
             status_code=500, detail="Summary could not be recorded, so it was not shown."
         ) from exc
+
+    _save(
+        supabase,
+        summary_id=summary_id, clinic_id=clinic_id, patient_id=patient_id,
+        generated_by=member.user_id, generated_at=generated_at,
+        lines=[{"text": ln.text, "citations": list(ln.citations)} for ln in lines],
+        covers_messages=len(thread), truncated=truncated,
+        model_id=result.model_id, prompt_version=result.prompt_version,
+    )
 
     done = time.perf_counter()
     timing_log.info(

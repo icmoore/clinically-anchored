@@ -183,9 +183,13 @@ Built (on `main`):
   repaired. A verified summary is returned (`lines[{text, citations}]`, `covers_messages`,
   `truncated`) and audited as `summary.generated` (model id and prompt version in readable
   metadata, text and citations in the hashed payload); if that audit write fails it is not shown
-  either. **Not stored** -- each call regenerates and spends a call from the daily cap; the audit
-  log holds only a hash, so what was shown can't be reproduced from the database. Persisting it
-  (a `summaries` table) is a follow-up if wanted. Same data-flow caveats as drafts: sends thread
+  either. **Saved after it is audited** (migration 10, `thread_summaries`): one row per generation, never
+  edited or deleted, `id` = the audit event's `summary_id`, so what a clinician was shown can be
+  reproduced and checked against the hash. `GET /clinics/{id}/patients/{pid}/summaries/latest` reads
+  the newest back (null if none) without calling the model, so the web app shows the last summary
+  when a patient is opened; each "Refresh" still spends a call from the daily cap and adds a row. If
+  saving fails the clinician still gets the summary and the failure is logged; reconcile checks
+  saved rows against `summary.generated`. Same data-flow caveats as drafts: sends thread
   text to Bedrock, inert without AWS credentials. Older versions are kept but unused; the
   template pins the output format the parser expects. Placeholder wording, pending clinical review.
 - AI message drafts (`api/drafts.py`, migration 6, data-catalogue D8): `POST

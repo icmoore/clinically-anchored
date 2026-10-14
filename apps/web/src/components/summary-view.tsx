@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ApiError } from "@/lib/api";
-import { Message, Summary, generateSummary } from "@/lib/clinician-api";
+import { Message, Summary, generateSummary, getLatestSummary } from "@/lib/clinician-api";
 import { clock, timeAgo } from "@/lib/format";
 import { StatusBadge } from "./status-badge";
 
@@ -10,8 +10,10 @@ import { StatusBadge } from "./status-badge";
  *  the api has already verified each citation against this patient's thread, and
  *  here each one is a link that jumps to (and highlights) that message.
  *
- *  The summary lives only in this component's state: the api doesn't store it, and
- *  it holds patient content, so it is not kept in browser storage either. */
+ *  The api saves every summary it generates. Opening the patient shows the newest saved one
+ *  (read back without calling the model), with how long ago it was written and a notice if
+ *  messages have arrived since; "Refresh summary" asks the model again. Patient content is not
+ *  kept in browser storage. */
 export function SummarySection({
   clinicId,
   patientId,
@@ -26,6 +28,20 @@ export function SummarySection({
   const [summary, setSummary] = useState<Summary | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Show the last saved summary when the patient is opened. If it can't be loaded the section
+  // simply starts empty, as before; a summary generated meanwhile is never overwritten by it.
+  useEffect(() => {
+    let cancelled = false;
+    getLatestSummary(clinicId, patientId)
+      .then((saved) => {
+        if (!cancelled && saved) setSummary((current) => current ?? saved);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [clinicId, patientId]);
 
   async function handleGenerate() {
     setBusy(true);

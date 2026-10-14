@@ -93,6 +93,12 @@ scheduled patient messaging. Read its header first. In short:
 - It refuses to run unless messages, check-ins and patients are empty: run
   `supabase/scripts/reset_trial_data.sh` first (see `supabase/README.md`).
 
+Migration `00000000000010_thread_summaries.sql` adds `thread_summaries`: every AI thread summary the api
+generates, saved after its `summary.generated` audit event (`id` = that event's `summary_id`). One row
+per generation, never updated or deleted (trigger; TRUNCATE by the reset script still works), RLS read
+for clinic members, writes revoked from `authenticated`/`anon`. The newest per patient is shown when a
+clinician opens the patient; older ones are kept.
+
 `audit_log` is append-only at the database level: `UPDATE`/`DELETE` are revoked for
 `authenticated`/`anon` entirely, not just gated by a policy. Only the service role
 (i.e. only `apps/api`) can write to it. Note the service role itself still *can*
