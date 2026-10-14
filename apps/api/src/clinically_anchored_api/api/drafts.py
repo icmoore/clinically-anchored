@@ -30,6 +30,7 @@ from clinically_anchored_api.core import ai, episodes
 from clinically_anchored_api.core.audit import AuditWriteError, record_event
 from clinically_anchored_api.core.auth import ClinicMember, require_clinic_member
 from clinically_anchored_api.core.db import get_supabase
+from clinically_anchored_api.core.thread_text import speaker
 from clinically_anchored_api.core.touchpoints import log_message_sent
 from clinically_anchored_api.schemas import (
     DraftCreate,
@@ -52,9 +53,10 @@ _COLUMNS = (
 # (e.g. a secretary) can still read drafts and ask for one. Widen deliberately.
 DECIDER_ROLES = frozenset({"owner", "clinician"})
 
-# v2 added the NO_DRAFT instruction; v3 narrowed it (v2 declined on messages that needed a reply).
+# v2 added the NO_DRAFT instruction; v3 narrowed it (v2 declined on messages that needed a reply);
+# v4 shows each patient message's category and message window (Messaging v2).
 # Older drafts stay in the audit trail under their own version.
-_TEMPLATE = ("draft_reply", "v3")
+_TEMPLATE = ("draft_reply", "v4")
 # What the model answers (per the template) when there is nothing to reply to. Matched as a
 # token, never by reading its prose.
 NO_DRAFT_SENTINEL = "NO_DRAFT"
@@ -210,7 +212,7 @@ def generate_draft(
     if existing:
         return DraftOut(**existing)
 
-    conversation = "\n".join(f"{m['sender']}: {m['body']}" for m in reversed(recent))
+    conversation = "\n".join(f"{speaker(m)}: {m['body']}" for m in reversed(recent))
     template = ai.load_template(*_TEMPLATE)
     system, prompt = template.render(
         protocol_notes=_PROTOCOL_NOTES,

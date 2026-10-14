@@ -45,6 +45,8 @@ export function ComposeBox({
   role,
   drafts,
   thread,
+  episodeClosed,
+  replyAvailable,
   onChanged,
 }: {
   clinicId: string;
@@ -52,6 +54,8 @@ export function ComposeBox({
   role: string;
   drafts: Draft[] | null; // null = not loaded or unavailable
   thread: Message[] | null;
+  episodeClosed: boolean; // discharged, or the schedule ran out: the patient's link is dead
+  replyAvailable: boolean; // the patient already has a reply open to the latest clinic message
   onChanged: () => void;
 }) {
   const canDecide = DECIDER_ROLES.includes(role);
@@ -112,6 +116,15 @@ export function ComposeBox({
     onChanged();
   }
 
+  if (episodeClosed) {
+    return (
+      <p className="text-sm text-muted">
+        This care period has ended, so the patient&apos;s link no longer works and messages can&apos;t
+        be sent. Earlier messages stay above.
+      </p>
+    );
+  }
+
   if (open) {
     return (
       <PendingDraft
@@ -162,6 +175,11 @@ export function ComposeBox({
         </button>
       </div>
       {draftHint && <p className="mt-1 text-xs text-muted">{draftHint}</p>}
+      <p className="mt-1 text-xs text-muted">
+        {replyAvailable
+          ? "The patient already has a reply open; a new message replaces it with a reply to this one."
+          : "Any message you send lets the patient send one reply."}
+      </p>
     </form>
   );
 }

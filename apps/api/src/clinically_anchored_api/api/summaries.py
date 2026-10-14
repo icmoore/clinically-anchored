@@ -25,6 +25,7 @@ from clinically_anchored_api.core.audit import AuditWriteError, record_event
 from clinically_anchored_api.core.auth import ClinicMember, require_clinic_member
 from clinically_anchored_api.core.citations import CitationError, verify_summary
 from clinically_anchored_api.core.db import get_supabase
+from clinically_anchored_api.core.thread_text import speaker
 from clinically_anchored_api.schemas import SummaryLineOut, SummaryOut
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,7 @@ timing_log = logging.getLogger("uvicorn.error.summaries")
 
 router = APIRouter(tags=["summaries"])
 
-_TEMPLATE = ("summary", "v3")
+_TEMPLATE = ("summary", "v4")
 # The most recent messages the model is shown; older ones are left out and the
 # response says so (`truncated`).
 THREAD_LIMIT = 50
@@ -56,7 +57,7 @@ def generate_summary(
 
     fetched = (
         supabase.table("messages")
-        .select("id, sender, body")
+        .select("id, sender, body, origin, interval_no, category")
         .eq("clinic_id", clinic_id)
         .eq("patient_id", patient_id)
         .order("created_at", desc=True)
@@ -76,7 +77,7 @@ def generate_summary(
     template = ai.load_template(*_TEMPLATE)
     system, prompt = template.render(
         messages="\n".join(
-            f"[M{n}] {m['sender']}: {_one_line(m['body'])}" for n, m in enumerate(thread, start=1)
+            f"[M{n}] {speaker(m)}: {_one_line(m['body'])}" for n, m in enumerate(thread, start=1)
         )
     )
     try:

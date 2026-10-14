@@ -149,6 +149,7 @@ class EpisodeOut(BaseModel):
     id: str
     patient_id: str
     procedure_id: str
+    procedure_name: str | None
     surgery_date: str
     schedule_version: int
     timezone: str

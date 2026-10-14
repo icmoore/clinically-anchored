@@ -1,0 +1,27 @@
+"""How message authors are shown to the model."""
+
+import pytest
+
+from clinically_anchored_api.core.thread_text import speaker
+
+
+@pytest.mark.parametrize(
+    ("message", "shown"),
+    [
+        ({"sender": "clinician", "origin": "clinician"}, "clinician"),
+        ({"sender": "patient", "origin": "scheduled", "interval_no": 3,
+          "category": "symptom_or_wound"}, "patient (symptom_or_wound, window 3)"),
+        ({"sender": "patient", "origin": "reply", "interval_no": None, "category": None},
+         "patient (reply)"),
+        ({"sender": "patient"}, "patient"),  # a row from before Messaging v2
+        ({"sender": "system"}, "system"),
+    ],
+)
+def test_speaker(message, shown):
+    assert speaker(message) == shown
+
+
+def test_never_uses_square_brackets_which_the_summary_format_reserves_for_citations():
+    message = {"sender": "patient", "origin": "scheduled", "interval_no": 1, "category": "admin"}
+    shown = speaker(message)
+    assert "[" not in shown and "]" not in shown

@@ -74,11 +74,17 @@ def episode_outs(
     now = now or clock.now()
     schedules = episodes.schedules_for(supabase, {r["schedule_version"] for r in rows})
     states = episodes.states_for(supabase, rows, now, schedules)
+    names = {
+        p["id"]: p["name"]
+        for p in supabase.table("procedures").select("id, name")
+        .in_("id", sorted({r["procedure_id"] for r in rows})).execute().data
+    }
     return {
         r["id"]: EpisodeOut(
             id=r["id"],
             patient_id=r["patient_id"],
             procedure_id=r["procedure_id"],
+            procedure_name=names.get(r["procedure_id"]),
             surgery_date=str(r["surgery_date"]),
             schedule_version=r["schedule_version"],
             timezone=schedules[r["schedule_version"]].timezone,

@@ -183,7 +183,7 @@ def test_returns_a_verified_cited_summary(client, thread, model):
         {"text": "Reports a red, itchy incision.", "citations": [mid(1)]},
         {"text": "Pain is improving.", "citations": [mid(3)]},
     ]
-    assert (body["model_id"], body["prompt_version"]) == (MODEL, "summary_v3")
+    assert (body["model_id"], body["prompt_version"]) == (MODEL, "summary_v4")
     assert body["covers_messages"] == 3 and body["truncated"] is False
     assert body["patient_id"] == PATIENT_A and body["summary_id"]
 
@@ -192,12 +192,26 @@ def test_prompt_lists_the_patients_thread_only_one_message_per_line(client, thre
     model["text"] = GOOD
     client.post(_url(), headers=AUTH)
     call = model["calls"][0]
-    assert call["clinic_id"] == CLINIC_A and call["prompt_version"] == "summary_v3"
+    assert call["clinic_id"] == CLINIC_A and call["prompt_version"] == "summary_v4"
     assert "[M1] patient: My incision is red. And it itches." in call["prompt"]
     assert "[M2] clinician: How is the pain?" in call["prompt"]
     assert mid(1) not in call["prompt"]  # the model sees short labels, not full message ids
     assert "Another patient's message" not in call["prompt"]
     assert "{{" not in call["system"] + call["prompt"]
+
+
+def test_prompt_shows_topic_and_window_but_keeps_brackets_for_citations(client, fake, model):
+    model["text"] = "- The patient asked about a drug. [M1]"
+    _add(fake, 1, "patient", "Can I take ibuprofen?")
+    fake.tables["messages"][-1].update(origin="scheduled", interval_no=2, category="medication")
+    _add(fake, 2, "clinician", "Yes, with food.")
+    r = client.post(_url(), headers=AUTH)
+    assert r.status_code == 200
+    prompt = model["calls"][0]["prompt"]
+    assert "[M1] patient (medication, window 2): Can I take ibuprofen?" in prompt
+    assert "[M2] clinician: Yes, with food." in prompt
+    lines = [ln for ln in prompt.splitlines() if ln.startswith("[M")]
+    assert len(lines) == 2 and all(ln.count("[") == 1 and ln.count("]") == 1 for ln in lines)
 
 
 def test_audited_with_model_prompt_version_and_hashed_content(client, thread, model, audit_calls):
@@ -209,7 +223,7 @@ def test_audited_with_model_prompt_version_and_hashed_content(client, thread, mo
     assert call["metadata"] == {
         "ref_type": "summary", "ref_id": body["summary_id"], "patient_id": PATIENT_A,
         "actor": {"type": "member", "id": USER, "role": "delegate"},
-        "model_id": MODEL, "prompt_version": "summary_v3", "covers_messages": 3,
+        "model_id": MODEL, "prompt_version": "summary_v4", "covers_messages": 3,
         "input_tokens": 100, "output_tokens": 40,
     }
     assert call["payload"]["lines"][0]["citations"] == [mid(1)]

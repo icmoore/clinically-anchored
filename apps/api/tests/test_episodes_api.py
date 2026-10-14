@@ -71,6 +71,7 @@ def close_handler(fake):
 def test_get_the_patients_episode_and_its_state(client):
     body = client.get(f"/clinics/{A}/patients/{PATIENT_A}/episode", headers=AUTH).json()
     assert body["id"] == EPISODE_A and body["state"]["phase"] == "locked_checkin"
+    assert body["procedure_name"] == "Colectomy"
     assert body["state"]["episode_closes_at"].startswith("2026-11-19T12:00:00")
 
 

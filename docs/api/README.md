@@ -76,6 +76,13 @@ Built (on `main`):
   (`kind` scheduled|reply, `category`), `GET /check-ins/context`, `POST /check-ins` (the
   post-op day is computed, the procedure is the clinic's), `/consents`.
 - Check-in intake: `POST /check-ins`, `GET /check-ins/context` (see above).
+- **AI prompts under Messaging v2:** `draft_reply_v4` and `summary_v4` show each patient message's
+  topic key and window next to the speaker, "patient (symptom_or_wound, window 3)" or "patient
+  (reply)" (`core/thread_text.py`; parentheses, never square brackets, which the summary format
+  keeps for citations). The draft prompt also says not to invite the patient to message again and
+  to point them to the office or the emergency department for anything urgent. **Wording is a
+  placeholder pending clinical review**; older versions stay as they were. A draft is refused (409)
+  for a patient whose care period has closed.
 - Red-flag rules (`core/rules.py`) -- **placeholder logic**, not Sarah's real list.
 - Clinician auth (`core/auth.py`): Supabase JWT + `clinic_members` check per clinic.
 - Messages: clinician side (list thread, send, mark read; JWT auth) and patient side
@@ -150,14 +157,15 @@ Built (on `main`):
   is called and raises `AIDailyCapExceeded`; in-memory, per instance, UTC day, failed calls
   count. Prompt/reply text is never logged. Versioned prompt templates live in
   `clinically_anchored_api/templates/<name>_<version>.md` (`## System` + `## User`, `{{vars}}`),
-  loaded with `load_template(name, "v1")`; the shipped ones (`draft_reply_v1`, `draft_reply_v2`, `draft_reply_v3`, `summary_v1`, `summary_v2`) are
+  loaded with `load_template(name, "v1")`; the shipped ones (`draft_reply_v1`-`v4`, `summary_v1`-`v4`; the newest of each is in use) are
   **placeholder wording pending clinical review**. A wording change is a new version file.
   Inference location remains a product decision (see the hard constraints below): this wrapper
   assumes Bedrock in ca-central-1.
 - Thread summaries (`api/summaries.py`, `core/citations.py`): `POST
   /clinics/{id}/patients/{pid}/summaries` -- on demand only, any clinic member, nothing automatic.
-  The model (template `summary_v2`) is shown the patient's last 50 messages as `[id] sender: text`
-  and must write one claim per line, each ending in the exact message id(s) in brackets. **Every
+  The model (template `summary_v4`) is shown the patient's last 50 messages as `[M1] speaker: text`
+  (short labels that the server maps back to message ids) and must write one claim per line, each
+  ending in the label(s) in brackets. **Every
   citation is verified before anything is returned:** it must parse as a message id and exist in
   *this clinic's thread with this patient* (checked in the database, not just against the prompt).
   An unverifiable summary -- uncited line, intro line, malformed or empty citation, bracket
@@ -169,8 +177,8 @@ Built (on `main`):
   either. **Not stored** -- each call regenerates and spends a call from the daily cap; the audit
   log holds only a hash, so what was shown can't be reproduced from the database. Persisting it
   (a `summaries` table) is a follow-up if wanted. Same data-flow caveats as drafts: sends thread
-  text to Bedrock, inert without AWS credentials. `summary_v1` is kept but unused; `summary_v2`
-  pins the output format the parser expects. Placeholder wording, pending clinical review.
+  text to Bedrock, inert without AWS credentials. Older versions are kept but unused; the
+  template pins the output format the parser expects. Placeholder wording, pending clinical review.
 - AI message drafts (`api/drafts.py`, migration 6, data-catalogue D8): `POST
   /clinics/{id}/patients/{pid}/drafts` asks the model for a reply to the patient's latest message
   and stores it `pending` -- it sends nothing. It is refused with **409 before any model call**
