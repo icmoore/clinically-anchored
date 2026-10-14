@@ -71,3 +71,7 @@ against the engine and the schedules in the database first and refuses to write 
 disagree (e.g. you edited v1's offsets). `--include-alternate-schedule` adds a v2 schedule and a
 v2 patient, **and makes v2 the schedule new dashboard patients get**; leave it off normally.
 Check afterwards with `python -m clinically_anchored_api.core.reconcile --clinic <demo clinic id>`.
+
+`--clinic dev` fills the shared dev clinic instead (the same 13 patients, so each account has its own
+copy). The dev clinic must already exist and the account must already be a member of it; the seed
+never adds a membership to it. Run it with the account that belongs to that clinic.
