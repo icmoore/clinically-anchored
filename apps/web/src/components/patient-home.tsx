@@ -1,0 +1,266 @@
+"use client";
+
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { useCallback, useState } from "react";
+import { ApiError, PatientMessage, PatientState, getPatientState, getPatientThread, sendPatientMessage } from "@/lib/api";
+import { categoryLabel } from "@/lib/categories";
+import { inZone } from "@/lib/format";
+import { usePolling } from "@/lib/use-polling";
+import { ClosedScreen, InvalidLinkScreen, PatientFrame } from "./patient-frame";
+
+const REFRESH_MS = 10000;
+
+/** The patient's home: their thread with the care team, when they can next write, and the
+ *  forms to do it. Everything about WHAT they may do comes from the api's state (it is
+ *  computed from the schedule and the clock there); this only shows it. */
+export function PatientHome() {
+  const token = useSearchParams().get("token") ?? "";
+  const fetchAll = useCallback(async () => {
+    const state = await getPatientState(token);
+    // A closed link opens nothing but its own "closed" answer.
+    const thread = state.phase === "closed" ? [] : await getPatientThread(token);
+    return { state, thread };
+  }, [token]);
+  const { data, failed, error, reload } = usePolling(fetchAll, REFRESH_MS);
+
+  if (!token) return <InvalidLinkScreen />;
+  if (data === null) {
+    if (error instanceof ApiError && error.status === 401) return <InvalidLinkScreen />;
+    if (error instanceof ApiError && error.status === 410) return <ClosedScreen />;
+    return (
+      <PatientFrame title="Messages with your care team">
+        <p className={failed ? "text-flag-text" : "text-muted"}>
+          {failed ? "Couldn't load your messages. Retrying..." : "Loading..."}
+        </p>
+      </PatientFrame>
+    );
+  }
+
+  const { state, thread } = data;
+  if (state.phase === "closed") return <ClosedScreen phone={state.office_phone} />;
+
+  return (
+    <PatientFrame title="Messages with your care team" phone={state.office_phone}>
+      {failed && <p className="mb-3 text-sm text-flag-text">Couldn&apos;t refresh. Retrying...</p>}
+      <StatusPanel state={state} token={token} />
+      <Thread thread={thread} timeZone={state.timezone} />
+      {state.can_reply && <ReplyForm token={token} onSent={reload} />}
+      {state.can_send_scheduled && <ScheduledForm token={token} state={state} onSent={reload} />}
+    </PatientFrame>
+  );
+}
+
+const PANEL = {
+  clear: "border-clear-border bg-clear-bg text-clear-text",
+  info: "border-info-border bg-info-bg text-info-text",
+  watch: "border-watch-border bg-watch-bg text-watch-text",
+};
+
+const buttonClass =
+  "rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2.5 text-base font-medium text-white disabled:opacity-60";
+
+function StatusPanel({ state, token }: { state: PatientState; token: string }) {
+  const when = (iso: string | null) => (iso ? inZone(iso, state.timezone) : "");
+  const day =
+    state.post_op_day === null
+      ? null
+      : state.post_op_day >= 0
+        ? `Day ${state.post_op_day} after surgery`
+        : `Surgery in ${-state.post_op_day} day${state.post_op_day === -1 ? "" : "s"}`;
+  const window =
+    state.interval_no !== null && state.intervals_total !== null
+      ? `Message window ${state.interval_no} of ${state.intervals_total}`
+      : null;
+
+  let tone: keyof typeof PANEL = "info";
+  let heading = "";
+  let detail: string | null = null;
+  let action: React.ReactNode = null;
+
+  if (state.phase === "locked_checkin") {
+    tone = "watch";
+    heading = "Messaging opens after your check-in";
+    detail = "Please complete your post-op check-in first. It only takes a few minutes.";
+    action = (
+      <Link href={`/check-in?token=${encodeURIComponent(token)}`} className={`${buttonClass} mt-3 inline-block`}>
+        Start your check-in
+      </Link>
+    );
+  } else if (state.phase === "waiting") {
+    heading = "Thanks for checking in";
+    detail = `You can send your first message from ${when(state.next_opens_at)}.`;
+  } else if (state.phase === "open") {
+    tone = "clear";
+    heading = "You can send one message now";
+    detail = `This window closes ${when(state.interval_closes_at)}. A message you don't send now can't be saved for later.`;
+  } else if (state.phase === "used") {
+    heading = "Your message for this window was sent";
+    detail = state.next_opens_at
+      ? `Your next window opens ${when(state.next_opens_at)}.`
+      : `That was your last message window. Your follow-up ends ${when(state.episode_closes_at)}.`;
+  }
+
+  return (
+    <section aria-live="polite" className={`mb-4 rounded-lg border p-4 ${PANEL[tone]}`}>
+      <p className="font-medium">{heading}</p>
+      {detail && <p className="mt-1 text-sm">{detail}</p>}
+      {action}
+      {(day || window) && (
+        <p className="mt-2 text-xs opacity-80">{[day, window].filter(Boolean).join(" · ")}</p>
+      )}
+    </section>
+  );
+}
+
+function Thread({ thread, timeZone }: { thread: PatientMessage[]; timeZone: string | null }) {
+  if (thread.length === 0) {
+    return <p className="mb-4 text-sm text-muted">No messages yet.</p>;
+  }
+  return (
+    <div className="mb-4 space-y-2">
+      {thread.map((m) => {
+        const mine = m.sender === "patient";
+        const kind =
+          m.origin === "reply" ? "Reply" : m.category ? categoryLabel(m.category) : null;
+        return (
+          <div key={m.id} className={mine ? "text-right" : "text-left"}>
+            <div
+              className={`inline-block max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-left text-sm ${
+                mine ? "bg-ink text-white" : "bg-surface-subtle text-ink"
+              }`}
+            >
+              {m.body}
+            </div>
+            <p className="mt-0.5 text-xs text-muted">
+              {mine ? "You" : "Care team"}
+              {kind ? ` · ${kind}` : ""} · {inZone(m.created_at, timeZone)}
+            </p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function useSender(token: string, onSent: () => void) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function send(body: { body: string; kind: "scheduled" | "reply"; category?: string }) {
+    setBusy(true);
+    setError(null);
+    try {
+      await sendPatientMessage(token, body);
+      onSent();
+      return true;
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't send your message.");
+      onSent(); // the window may have changed under us: show the new state
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+  return { busy, error, send };
+}
+
+const textarea = "block w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-base";
+
+function ReplyForm({ token, onSent }: { token: string; onSent: () => void }) {
+  const [text, setText] = useState("");
+  const { busy, error, send } = useSender(token, onSent);
+  return (
+    <form
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (await send({ body: text.trim(), kind: "reply" })) setText("");
+      }}
+      className="mb-4 rounded-lg border border-border bg-surface p-4"
+    >
+      <label htmlFor="reply" className="text-sm font-medium text-ink">
+        Reply to your care team
+      </label>
+      <p className="mb-2 text-xs text-muted">One reply. It doesn&apos;t use up your message window.</p>
+      <textarea
+        id="reply"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={3}
+        maxLength={5000}
+        className={textarea}
+      />
+      {error && <p className="mt-1 text-sm text-flag-text">{error}</p>}
+      <button type="submit" disabled={busy || !text.trim()} className={`${buttonClass} mt-2 w-full`}>
+        {busy ? "Sending..." : "Send reply"}
+      </button>
+    </form>
+  );
+}
+
+function ScheduledForm({
+  token,
+  state,
+  onSent,
+}: {
+  token: string;
+  state: PatientState;
+  onSent: () => void;
+}) {
+  const [category, setCategory] = useState("");
+  const [text, setText] = useState("");
+  const { busy, error, send } = useSender(token, onSent);
+  return (
+    <form
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (await send({ body: text.trim(), kind: "scheduled", category })) {
+          setText("");
+          setCategory("");
+        }
+      }}
+      className="rounded-lg border border-border bg-surface p-4"
+    >
+      <fieldset>
+        <legend className="mb-2 text-sm font-medium text-ink">What is your message about?</legend>
+        <div className="flex flex-col gap-1.5">
+          {state.categories.map((key) => (
+            <label
+              key={key}
+              className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-ink ${
+                category === key ? "border-primary bg-primary-tint" : "border-border"
+              }`}
+            >
+              <input
+                type="radio"
+                name="category"
+                checked={category === key}
+                onChange={() => setCategory(key)}
+              />
+              {categoryLabel(key)}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <label htmlFor="message" className="mt-4 block text-sm font-medium text-ink">
+        Your message
+      </label>
+      <textarea
+        id="message"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={4}
+        maxLength={5000}
+        className={`${textarea} mt-1`}
+      />
+      {error && <p className="mt-1 text-sm text-flag-text">{error}</p>}
+      <button
+        type="submit"
+        disabled={busy || !text.trim() || !category}
+        className={`${buttonClass} mt-2 w-full`}
+      >
+        {busy ? "Sending..." : "Send message"}
+      </button>
+      <p className="mt-2 text-xs text-muted">You can send one message in each window.</p>
+    </form>
+  );
+}

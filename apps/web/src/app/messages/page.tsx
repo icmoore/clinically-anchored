@@ -1,13 +1,11 @@
 import { Suspense } from "react";
-import { PatientMessages } from "./patient-messages";
+import { PatientHome } from "@/components/patient-home";
 
+// Older links point here; the patient's home is the same screen as /care.
 export default function MessagesPage() {
   return (
-    <div className="mx-auto flex min-h-screen max-w-md flex-col px-4 py-6">
-      <h1 className="mb-4 text-xl font-semibold text-ink">Messages with your care team</h1>
-      <Suspense fallback={<p className="text-muted">Loading...</p>}>
-        <PatientMessages />
-      </Suspense>
-    </div>
+    <Suspense fallback={<p className="p-6 text-muted">Loading...</p>}>
+      <PatientHome />
+    </Suspense>
   );
 }
