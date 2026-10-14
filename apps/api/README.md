@@ -23,6 +23,15 @@ uv run pytest
 uv run ruff check .
 ```
 
+The tests under `tests/db/` need a real Postgres and are skipped by default. To run them, start any
+local Postgres (the fixtures refuse a non-local host) and give them an admin URL:
+
+```
+TEST_DATABASE_URL=postgresql://postgres@localhost:5432/postgres uv run pytest -m db
+```
+
+They create and drop scratch databases, and also need `psql` and `pg_dump` on PATH.
+
 ## Deploying (Railway)
 
 - **Root Directory must be `/apps/api`** (Service -> Settings -> Source). Otherwise Railway

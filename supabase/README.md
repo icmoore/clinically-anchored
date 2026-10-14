@@ -28,3 +28,29 @@ npx supabase migration new <name>
   `authenticated`/`anon`), matching data-catalogue D16/D17.
 - Only synthetic data until the privacy review is done -- see the project's
   data-catalogue.md. Nothing here should be pointed at a real patient yet.
+
+## Resetting trial data
+
+`scripts/reset_trial_data.sh` wipes every clinic's patients, check-ins, messages, drafts,
+touchpoints, consents, episodes and audit log, and keeps clinics, memberships, procedures,
+message schedules and Supabase Auth users. A person runs it, on purpose (it refuses in CI and
+without a terminal; there is no `--yes`). Dev and production share one database, so it wipes both.
+
+```
+DATABASE_URL='postgresql://postgres:...@db.<ref>.supabase.co:5432/postgres' \
+  supabase/scripts/reset_trial_data.sh              # dry run: counts, changes nothing
+  supabase/scripts/reset_trial_data.sh --execute    # backup, type the host, wipe
+```
+
+Use the direct connection as `postgres` (the service-role REST key can't do this). It writes a
+data-only `pg_dump` to `scripts/.backups/` first (git-ignored). It uses one `TRUNCATE` over an
+explicit table list: that gets past `message_drafts`' delete trigger and its foreign keys, and a
+table missing from the list fails the statement instead of being wiped silently. Migration 9
+needs the data gone first, so the order is: reset, `db push` / psql migration 9, deploy api + web,
+re-seed. The scripts live outside `migrations/` and are not `seed.sql`, so nothing loads them.
+
+## Database tests
+
+`apps/api/tests/db/` runs the migrations and the reset script against a real Postgres. They are
+skipped unless `TEST_DATABASE_URL` points at a server on this machine (the fixtures refuse any
+other host, since they create and drop databases) and are not in CI yet. See `apps/api/README.md`.

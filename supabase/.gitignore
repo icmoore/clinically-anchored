@@ -6,3 +6,6 @@
 .env.keys
 .env.local
 .env.*.local
+
+# Local pg_dump backups taken by scripts/reset_trial_data.sh
+scripts/.backups/

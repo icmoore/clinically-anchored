@@ -63,6 +63,36 @@ foreign keys deliberately have no ON DELETE CASCADE (deleting a clinic/patient/m
 points at is refused). Relaxing that needs a deliberate migration once retention is decided.
 Like every migration it takes effect on the shared Supabase project only once applied (psql or `supabase db push`).
 
+Migration `00000000000009_messaging_v2.sql` (Messaging v2) adds **episodes** and the rules for
+scheduled patient messaging. Read its header first. In short:
+- `episodes`: one per patient surgery (`surgery_date` entered by the clinic, `procedure_id`,
+  `schedule_version`, `checkin_completed_at`, `link_generation` to revoke the patient link,
+  `closed_at` / `close_reason` / `closed_by`). One open episode per patient; retained (a trigger
+  blocks deletes, no `ON DELETE CASCADE`); closed episodes are frozen. The surgery date and
+  procedure can be corrected only before the check-in.
+- `message_schedules`: versioned data (`offsets_days`, `close_after_days`, `opens_at_local`,
+  `timezone`), global rather than per clinic. A version is editable until an episode uses it.
+  v1 = offsets 2,3,5,7,14,21,28,35,42 and a 7-day close, PLACEHOLDER pending confirmation.
+- `messages` gain `episode_id`, `origin` (`scheduled` / `reply` / `clinician`), `interval_no`,
+  `category` (a stored key, not a label) and `reply_to_message_id`. Unique indexes give one
+  scheduled message per interval and one reply per doctor message; a reply answers the LATEST
+  doctor message. Only `read_at` can change on a message. `check_ins` gain `episode_id` (one
+  check-in per episode).
+- Composite foreign keys make every episode, message and check-in agree with the clinic and
+  patient of the row they point at.
+- **Interval state is computed, never stored** (which interval is open, used, missed, when the
+  next opens): the api's engine (a later PR) does that from the schedule, the surgery date and
+  the clock. The database enforces only what a race could break and does not know the clock.
+- State changes are functions callable by the service role only, each locking the episode row:
+  `complete_check_in`, `send_patient_message`, `send_clinician_message`, `close_episode`
+  (idempotent, for both discharge and the lazy close of a naturally ended episode), and an updated
+  `decide_message_draft` that sends into the draft's episode and refuses a closed one.
+- Clinic members can no longer INSERT/UPDATE/DELETE `messages`, `patients` or `touchpoints`
+  directly (the old RLS policies allowed it, unaudited); all writes go through apps/api.
+  `TRUNCATE` on `audit_log` is revoked from `authenticated`/`anon` as well.
+- It refuses to run unless messages, check-ins and patients are empty: run
+  `supabase/scripts/reset_trial_data.sh` first (see `supabase/README.md`).
+
 `audit_log` is append-only at the database level: `UPDATE`/`DELETE` are revoked for
 `authenticated`/`anon` entirely, not just gated by a policy. Only the service role
 (i.e. only `apps/api`) can write to it. Note the service role itself still *can*
