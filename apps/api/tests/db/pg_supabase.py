@@ -67,6 +67,10 @@ class Query:
             self.where.append((f"{col}::text = %s", [str(val)]))
         return self
 
+    def neq(self, col, val):
+        self.where.append((f"{_ident(col)}::text <> %s", [str(val)]))
+        return self
+
     def is_(self, col, val):
         assert val == "null"
         self.where.append((f"{_ident(col)} is null", []))
@@ -108,10 +112,12 @@ class Query:
     def execute(self):
         where, params = self._where()
         if self.op == "insert":
-            cols = [_ident(c) for c in self.payload]
+            rows = self.payload if isinstance(self.payload, list) else [self.payload]
+            cols = [_ident(c) for c in rows[0]]
+            one = f"({', '.join(['%s'] * len(cols))})"
             sql = (f"insert into {self.table} ({', '.join(cols)}) "
-                   f"values ({', '.join(['%s'] * len(cols))}) returning *")
-            params = [_param(v) for v in self.payload.values()]
+                   f"values {', '.join([one] * len(rows))} returning *")
+            params = [_param(row[c]) for row in rows for c in rows[0]]
         elif self.op == "update":
             sets = [f"{_ident(c)} = %s" for c in self.payload]
             sql = f"update {self.table} set {', '.join(sets)}{where} returning *"

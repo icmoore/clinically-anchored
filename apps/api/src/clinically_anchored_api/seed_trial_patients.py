@@ -1,71 +1,98 @@
-"""Seed ten synthetic trial patients into a clinician's demo clinic.
+"""Seed synthetic trial patients into a clinician's demo clinic (Messaging v2).
 
-Creates (or reuses) a separate demo clinic, adds the clinician as its owner,
-copies the active procedure list from the dev clinic, then writes ten
-invented patients with backdated check-ins, message threads, contact-log
-entries and check-in reviews, ending in a state worth demoing:
+Creates (or reuses) a separate demo clinic, adds the clinician as its owner, copies the
+active procedure list from the dev clinic, then writes invented patients, each with an
+EPISODE (surgery date, procedure, schedule version), backdated check-in, messages,
+contact-log entries and reviews, chosen so that every state the schedule engine
+(core/schedule.py) can report is on screen:
 
-  * Trial Patient 1 -- Elena Marchetti, laparoscopic cholecystectomy, POD 7.
-    Uneventful. Latest check-in clear and not yet reviewed.
-  * Trial Patient 2 -- Gordon Whitlock, right hemicolectomy, POD 14. Red-flag
-    check-in on POD 7 (ileus): phone call, emergency visit, staple-removal
-    visit. Now recovering; latest check-in clear and not yet reviewed.
-  * Trial Patient 3 -- Nadia Haddad, hemorrhoid surgery, POD 6. Red-flag
-    check-in today (pain 8/10) and a patient message still awaiting a reply:
-    the one to try "Draft a reply with AI" on.
-  * Trial Patients 4-10 -- a wider mix (5 to 26 messages each):
-    4 Marcus Bennett, sigmoid resection, smooth recovery, staples out;
-    5 Priya Raman, fistulotomy, drainage questions, settling;
-    6 Walter Kowalski, inguinal hernia, all-clear check-in awaiting review
-      (a candidate to close out in one click);
-    7 Sophie Tremblay, appendectomy, wound infection on POD 5 (red flag),
-      call and same-day visit, now settled;
-    8 Raymond Ashby, rectal cancer surgery, longest thread, dizziness red flag
-      on POD 12 handled by call and visit;
-    9 Amara Nwosu, ventral hernia, a worried swelling question awaiting a reply;
-    10 Daniel Cho, fissure sphincterotomy, minimal contact: closed out from the
-      check-in.
+   1  Elena Marchetti      cholecystectomy: window 4 open, unused; late check-in (window 1 missed)
+   2  Gordon Whitlock      right hemicolectomy: window 5 open; red-flag check-in (ileus), call and
+                           ED visit
+   3  Nadia Haddad         hemorrhoid surgery: red-flag check-in today and a message awaiting a
+                           reply (the one to try "Draft a reply with AI" on)
+   4  Marcus Bennett       sigmoid resection: window 4 used; the clinic wrote last, a reply is open
+   5  Priya Raman          fistulotomy: window 5 used, window 6 opens tomorrow
+   6  Walter Kowalski      inguinal hernia: an all-clear check-in not yet reviewed; no messages
+   7  Sophie Tremblay      appendectomy: wound infection (red flag), call and same-day visit
+   8  Raymond Ashby        rectal cancer surgery: checked in on day 12 (windows 1-3 missed) with a
+                           dizziness red flag; the longest thread; window 7 open
+   9  Amara Nwosu          ventral hernia: a worried swelling question awaiting a reply
+  10  Daniel Cho           sphincterotomy: DISCHARGED by the clinic
+  11  Hannah Doucet        seton surgery: check-in pending (messaging locked); the clinic has
+                           written and she has a reply open
+  12  Tomas Reyes          anal advancement flap: checked in, waiting for window 1 to open
+  13  Beatrice Lang        colon resection: the schedule ran out and the care period closed itself
+  14  Gerald Fox           right hemicolectomy on schedule v2 (only with
+                           --include-alternate-schedule)
 
 Everything here is invented. No real patient data.
 
-Rows are written the way the api writes them, and every audit event the api
-would record is recorded (patient.created, check_in.submitted,
-check_in.reviewed, message.sent, message.read, touchpoint.logged), so
-`reconcile` stays clean and the chain still verifies. Two deliberate
+How the plan is built. Each patient's surgery date is `today - pod` days (Toronto), so what the
+engine reports depends on the day the seed runs, and each patient declares the state they should
+be in NOW. `validate_plan` runs every patient's facts through the real engine and refuses to write
+anything if the plan breaks a rule (one scheduled message per window, a reply answers the latest
+clinic message, nothing after a close) or lands in a different state than declared. It runs
+against the schedule versions in the database, so editing v1's offsets (they are still being
+confirmed) can make the plan refuse, with the reason. Run it between a morning and an evening: a
+few events are "an hour or two ago".
+
+Rows are written the way the api writes them, with the same audit events (patient.created,
+episode.created, check_in.submitted incl. missed_intervals, check_in.reviewed, message.sent with
+episode / origin / window / category, message.read, touchpoint.logged, episode.closed), so
+`reconcile` stays clean and the chain verifies. They are inserted directly, not through the
+database's send functions, because those stamp "now" and these are backdated. Two deliberate
 differences from live use, both visible in the log:
 
-  * business rows are backdated (created_at, occurred_at, read_at,
-    reviewed_at), but audit rows carry the real time the seed ran: the log
-    records when something was written, and this is when;
-  * the audit actor is SEED_ACTOR and metadata carries "seed": SEED_TAG, so a
-    seeded event is never mistaken for something the clinician did.
-    (reviewed_by / logged_by on the rows themselves name the clinician,
-    because the UI needs a user there.)
+  * business rows are backdated (created_at, occurred_at, read_at, reviewed_at, closed_at), but
+    audit rows carry the real time the seed ran: the log records when something was written;
+  * the audit actor is SEED_ACTOR and metadata carries "seed": SEED_TAG, so a seeded event is
+    never mistaken for something the clinician did. (reviewed_by / logged_by / closed_by on the
+    rows themselves name the clinician, because the UI needs a user there.)
 
 Usage, from apps/api with the same .env the api uses locally:
 
     uv run python -m clinically_anchored_api.seed_trial_patients --dry-run
     uv run python -m clinically_anchored_api.seed_trial_patients --email you@example.com
 
-Re-running is safe: the demo clinic, membership and procedures are reused,
-and a patient that already exists (matched by its synthetic contact address)
-is skipped, never duplicated. Times are relative to the day it runs, so the
-demo looks current whenever it's seeded.
+Needs migration 9 applied (after supabase/scripts/reset_trial_data.sh). Re-running is safe: the
+demo clinic, membership and procedures are reused, and a patient that already exists (matched by
+its synthetic contact address) is skipped, never duplicated.
+
+--include-alternate-schedule also adds schedule version 2 (offsets 2,5,10,17,...) and patient 14.
+Version 2 then becomes the NEWEST schedule, and every patient added from the dashboard afterwards
+gets it. Leave it off unless you mean that.
 """
 
 import argparse
 import sys
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+from clinically_anchored_api.core import categories
 from clinically_anchored_api.core.rules import evaluate_red_flags
+from clinically_anchored_api.core.schedule import (
+    EpisodeState,
+    Phase,
+    Schedule,
+    episode_end,
+    episode_state,
+    windows,
+)
 
 TORONTO = ZoneInfo("America/Toronto")
-SEED_TAG = "trial-patients-v1"
+SEED_TAG = "trial-patients-v2"
 SEED_ACTOR = {"type": "system", "id": "seed_trial_patients"}
 DEMO_CLINIC_NAME = "Major Mackenzie Surgery (demo)"
 SOURCE_CLINIC_ID = "00000000-0000-0000-0000-0000000000c1"  # dev clinic (migrations 2 and 7)
+
+# The schedule versions the plan is written for. The database's copies win when writing (see
+# the module docstring); these are what migration 9 seeds and what a dry run assumes.
+DEFAULT_SCHEDULES = {
+    1: Schedule(1, (2, 3, 5, 7, 14, 21, 28, 35, 42), 7, time(7, 0), "America/Toronto"),
+    2: Schedule(2, (2, 5, 10, 17, 24, 31, 38, 45, 52), 7, time(7, 0), "America/Toronto"),
+}
 
 
 # --- the plan (pure data; no database) ------------------------------------------------
@@ -76,13 +103,14 @@ class Msg:
     sender: str  # "patient" | "clinician"
     at: datetime
     body: str
+    category: str | None = None  # a patient's scheduled message: what they said it was about
+    reply: bool = False  # a patient's one reply to the clinic's latest message
     read_at: datetime | None = None  # patient messages only; set by _mark_reads
 
 
 @dataclass
 class CheckIn:
     at: datetime
-    post_op_day: int
     answers: dict
     reviewed_at: datetime | None = None
     expect_red_flag: bool = False
@@ -97,15 +125,34 @@ class ManualTouchpoint:
 
 
 @dataclass
+class Closed:
+    at: datetime | None  # None for a schedule that ran out: the engine says when
+    reason: str  # "discharged" | "schedule_complete"
+
+
+@dataclass
+class Expect:
+    """Where the patient must be NOW, per the engine."""
+
+    phase: Phase
+    missed: tuple[int, ...] = ()
+    reply: bool = False  # the patient can send a reply: a clinic message awaits one, not closed
+
+
+@dataclass
 class PatientPlan:
     label: str
     full_name: str
     contact: str
     procedure: str  # must match a procedure name in the clinic
+    surgery_date: date
+    schedule_version: int
     created_at: datetime
-    messages: list[Msg]
-    check_ins: list[CheckIn] = field(default_factory=list)
+    expect: Expect
+    check_in: CheckIn | None = None
+    messages: list[Msg] = field(default_factory=list)
     touchpoints: list[ManualTouchpoint] = field(default_factory=list)
+    closed: Closed | None = None
 
 
 class Clock:
@@ -124,1118 +171,549 @@ class Clock:
         return self.now - timedelta(minutes=minutes)
 
 
-def _mark_reads(messages: list[Msg]) -> None:
-    """A patient message counts as read shortly before the next clinician
-    reply; one with no reply after it stays unread (awaiting reply)."""
-    for i, msg in enumerate(messages):
-        if msg.sender != "patient":
-            continue
-        reply = next((m for m in messages[i + 1 :] if m.sender == "clinician"), None)
-        if reply is not None:
-            msg.read_at = max(msg.at + timedelta(minutes=2), reply.at - timedelta(minutes=4))
+class Surgery:
+    """One patient's timeline: `at(3, "08:30")` is post-op day 3 at 08:30 Toronto time, and
+    `pod` is today's post-op day (so today's events use `Clock.ago` instead)."""
+
+    def __init__(self, t: Clock, pod: int):
+        self.t, self.pod = t, pod
+        self.date = t.today - timedelta(days=pod)
+
+    def at(self, day: int, hhmm: str) -> datetime:
+        return self.t.day(day - self.pod, hhmm)
 
 
-def _p(at, body):
-    return Msg("patient", at, body)
+def _p(at, body, category):
+    return Msg("patient", at, body, category=category)
+
+
+def _r(at, body):
+    return Msg("patient", at, body, reply=True)
 
 
 def _c(at, body):
     return Msg("clinician", at, body)
 
 
-def _more_patients(t: Clock) -> list[PatientPlan]:
-    """Trial Patients 4-10: a broader mix of procedures and states."""
-
-    # Trial Patient 4: sigmoid colon resection, day -12. Smooth recovery, 18 messages.
-    p4 = PatientPlan(
-        label="Trial Patient 4",
-        full_name="Marcus Bennett",
-        contact="trial-patient-4@example.com",
-        procedure="Sigmoid colon resection",
-        created_at=t.day(-12, "15:30"),
-        messages=[
-            _p(t.day(-11, "09:05"),
-               "Hi Dr. Moore, it's Marcus Bennett. Home since last night after my sigmoid "
-               "resection. Is it normal to be this tired?"),
-            _c(t.day(-11, "12:40"),
-               "Hi Marcus, yes, very normal. Your body is putting a lot of energy into healing. "
-               "Short walks several times a day, small frequent meals, and rest when you need "
-               "to. Let me know if you get a fever, vomiting, or your belly swells up."),
-            _p(t.day(-10, "08:30"),
-               "Eating small amounts, no bowel movement yet but passing gas."),
-            _c(t.day(-10, "11:50"),
-               "Passing gas is the important sign. A bowel movement over the next few days is "
-               "expected. Keep walking and drinking fluids, and use the stool softener on your "
-               "discharge sheet."),
-            _p(t.day(-9, "18:20"),
-               "Filled in the check-in. Had a small loose bowel movement this afternoon."),
-            _c(t.day(-9, "20:15"),
-               "Thanks Marcus, that's a good sign and your check-in looks fine. Keep doing what "
-               "you're doing."),
-            _p(t.day(-7, "10:10"),
-               "Can I shower with the staples in? And do I need to cover them?"),
-            _c(t.day(-7, "13:30"),
-               "Yes, shower daily. Let the water run over the incision and pat it dry. No need "
-               "to cover it unless your clothes rub. No baths or swimming until the staples are "
-               "out and it's fully healed."),
-            _p(t.day(-6, "14:45"),
-               "I'm down to one oxycodone a day. Is it ok to stop?"),
-            _c(t.day(-6, "17:20"),
-               "Yes, stop it as soon as you're comfortable on Tylenol alone. It also helps "
-               "keep the bowels moving."),
-            _p(t.day(-5, "09:00"),
-               "Going to the bathroom 4-5 times a day now, pretty loose. Is that ok?"),
-            _c(t.day(-5, "12:10"),
-               "That's common for a few weeks after a sigmoid resection. A fibre supplement "
-               "and a bit more pasta and rice often firms things up. Call me if you see blood, "
-               "go more than 6-8 times a day, or feel dizzy or dried out."),
-            _p(t.day(-4, "11:45"),
-               "Check-in done. Stools are settling to 2-3 a day."),
-            _c(t.day(-4, "14:00"),
-               "Wonderful, thanks Marcus."),
-            _p(t.day(-3, "16:30"),
-               "When can I get back to golf? Asking for a friend."),
-            _c(t.day(-3, "19:05"),
-               "Putting and short walks are fine now. Full swings and carrying a bag after "
-               "about 6 weeks, when the incision has healed well."),
-            _p(t.day(-2, "10:20"),
-               "The nurse called, staples out tomorrow at 10. Anything I need to do?"),
-            _c(t.day(-2, "12:30"),
-               "Nothing special. Eat normally and take a Tylenol an hour beforehand if you "
-               "like. It takes just a few minutes."),
-        ],
-        check_ins=[
-            CheckIn(
-                at=t.day(-9, "18:00"),
-                post_op_day=3,
-                reviewed_at=t.day(-9, "20:00"),
-                answers={
-                    "symptoms": ["pain", "fatigue"],
-                    "surgery_type": "laparoscopic",
-                    "wound_closure": "staples",
-                    "pain": {
-                        "scale": 5,
-                        "trend": "better",
-                        "character": "coming_and_going",
-                        "medications": ["tylenol", "oxycodone"],
-                        "medication_frequency": {
-                            "tylenol": "several_times_a_day",
-                            "oxycodone": "several_times_a_day",
-                        },
-                    },
-                    "fatigue": {"trend": "same", "interfering_with_activities": True},
-                },
-            ),
-            CheckIn(
-                at=t.day(-4, "11:30"),
-                post_op_day=8,
-                reviewed_at=t.day(-4, "13:45"),
-                answers={
-                    "symptoms": ["pain", "diarrhea"],
-                    "surgery_type": "laparoscopic",
-                    "wound_closure": "staples",
-                    "pain": {
-                        "scale": 3,
-                        "trend": "better",
-                        "character": "coming_and_going",
-                        "medications": ["tylenol"],
-                        "medication_frequency": {"tylenol": "several_times_a_day"},
-                    },
-                    "diarrhea": {
-                        "frequency_per_day": 3,
-                        "blood_in_stool": False,
-                        "duration": "several_days",
-                    },
-                },
-            ),
-            CheckIn(
-                at=t.day(-1, "19:00"),
-                post_op_day=11,
-                answers={
-                    "symptoms": ["pain", "fatigue"],
-                    "surgery_type": "laparoscopic",
-                    "wound_closure": "staples",
-                    "pain": {
-                        "scale": 2,
-                        "trend": "better",
-                        "character": "coming_and_going",
-                        "medications": ["tylenol"],
-                        "medication_frequency": {"tylenol": "once_a_day"},
-                    },
-                    "fatigue": {"trend": "better", "interfering_with_activities": False},
-                },
-            ),
-        ],
-        touchpoints=[
-            ManualTouchpoint(
-                at=t.day(-1, "10:30"),
-                kind="visit",
-                duration_minutes=15,
-                note="Staple removal. Incision healing well.",
-            ),
-        ],
-    )
-
-    # Trial Patient 5: fistulotomy, day -9. Drainage questions, settling; 12 messages.
-    p5 = PatientPlan(
-        label="Trial Patient 5",
-        full_name="Priya Raman",
-        contact="trial-patient-5@example.com",
-        procedure="Fistulotomy for fistula",
-        created_at=t.day(-9, "13:50"),
-        messages=[
-            _p(t.day(-8, "10:15"),
-               "Hi Dr. Moore, Priya here. First day home after the fistula surgery. Is it "
-               "normal to have a lot of drainage on the pad?"),
-            _c(t.day(-8, "13:40"),
-               "Hi Priya, yes. Expect drainage for a few weeks while the wound heals from the "
-               "inside out. Wear a pad or gauze and change it when it's damp. Bright red "
-               "bleeding that soaks through, or fever, is when to call."),
-            _p(t.day(-7, "08:50"), "How often should I do the sitz baths?"),
-            _c(t.day(-7, "11:30"),
-               "3-4 times a day and after every bowel movement, for 10-15 minutes in a few "
-               "inches of warm water. Pat dry gently afterwards."),
-            _p(t.day(-6, "19:20"),
-               "Check-in done. Drainage is yellowish and more than yesterday. Should I worry?"),
-            _c(t.day(-5, "09:10"),
-               "I've looked at your check-in. Yellowish drainage that increases a bit in the "
-               "first week is expected as the wound cleans itself. Keep up the sitz baths. If "
-               "it turns thick and foul-smelling, or you get a fever, tell me."),
-            _p(t.day(-4, "12:00"), "Can I go to yoga or the gym?"),
-            _c(t.day(-4, "15:10"),
-               "Walking is great. Hold off on yoga and gym work for 2 weeks, mostly because of "
-               "the sitting and stretching. Then we'll see how it looks."),
-            _p(t.day(-3, "17:45"),
-               "Constipated since yesterday. I'm taking the softener."),
-            _c(t.day(-3, "20:00"),
-               "Add the laxative from your discharge sheet tonight, plenty of water, and a "
-               "sitz bath after you go. You want the stool soft, not hard."),
-            _p(t.day(-1, "09:40"),
-               "Much better. Pain is 1-2, drainage is less. Check-in done."),
-            _c(t.day(-1, "12:15"),
-               "That's great to hear, Priya. Your check-in looks good. Keep it up and message "
-               "me if anything changes."),
-        ],
-        check_ins=[
-            CheckIn(
-                at=t.day(-6, "19:00"),
-                post_op_day=3,
-                reviewed_at=t.day(-5, "09:00"),
-                answers={
-                    "symptoms": ["pain", "discharge"],
-                    "pain": {
-                        "scale": 4,
-                        "trend": "better",
-                        "character": "worse_with_bowel_movements",
-                        "medications": ["tylenol", "advil"],
-                        "medication_frequency": {
-                            "tylenol": "several_times_a_day",
-                            "advil": "several_times_a_day",
-                        },
-                    },
-                    "discharge": {
-                        "trend": "more",
-                        "character": "yellow_cloudy",
-                        "dressing_change_frequency": "several_times_a_day",
-                    },
-                },
-            ),
-            CheckIn(
-                at=t.day(-1, "09:30"),
-                post_op_day=8,
-                reviewed_at=t.day(-1, "12:05"),
-                answers={
-                    "symptoms": ["pain", "discharge"],
-                    "pain": {
-                        "scale": 1,
-                        "trend": "better",
-                        "character": "coming_and_going",
-                        "medications": ["tylenol"],
-                        "medication_frequency": {"tylenol": "once_a_day"},
-                    },
-                    "discharge": {
-                        "trend": "less",
-                        "character": "clear_watery",
-                        "dressing_change_frequency": "once_a_day",
-                    },
-                },
-            ),
-        ],
-    )
-
-    # Trial Patient 6: inguinal hernia repair, day -15. Quiet; latest check-in is all clear
-    # and unreviewed: a candidate to discharge from follow-up in one click. 6 messages.
-    p6 = PatientPlan(
-        label="Trial Patient 6",
-        full_name="Walter Kowalski",
-        contact="trial-patient-6@example.com",
-        procedure="Inguinal hernia repair (in the groin)",
-        created_at=t.day(-15, "11:20"),
-        messages=[
-            _p(t.day(-14, "10:00"),
-               "Dr. Moore, Walter Kowalski. I have bruising that's gone down into my scrotum. "
-               "Is that normal?"),
-            _c(t.day(-14, "13:30"),
-               "Yes, that's common after a groin hernia repair. Bruising and swelling travel "
-               "down with gravity and fade over 1-2 weeks. A snug supportive brief and an ice "
-               "pack wrapped in a towel for 15-20 minutes helps. Call me if the swelling "
-               "becomes tense and very painful."),
-            _p(t.day(-12, "18:15"),
-               "Check-in done, no issues. Walking about half an hour a day."),
-            _c(t.day(-11, "08:40"),
-               "Good. Keep walking. No lifting over 10 lb for the next 4-6 weeks."),
-            _p(t.day(-2, "09:20"),
-               "Two weeks out and feeling great. I work in a warehouse. When can I lift?"),
-            _c(t.day(-2, "12:00"),
-               "Light duty is fine now. Full lifting is best after 4-6 weeks so the repair can "
-               "strengthen. I can write a note for your employer if you need one."),
-        ],
-        check_ins=[
-            CheckIn(
-                at=t.day(-12, "18:00"),
-                post_op_day=3,
-                reviewed_at=t.day(-11, "08:30"),
-                answers={
-                    "symptoms": ["pain"],
-                    "surgery_type": "open",
-                    "wound_closure": "absorbing_sutures",
-                    "pain": {
-                        "scale": 3,
-                        "trend": "better",
-                        "character": "coming_and_going",
-                        "medications": ["tylenol"],
-                        "medication_frequency": {"tylenol": "several_times_a_day"},
-                    },
-                },
-            ),
-            CheckIn(
-                at=t.day(-1, "08:15"),
-                post_op_day=14,
-                answers={
-                    "symptoms": ["pain"],
-                    "surgery_type": "open",
-                    "wound_closure": "absorbing_sutures",
-                    "pain": {
-                        "scale": 1,
-                        "trend": "better",
-                        "character": "coming_and_going",
-                        "medications": [],
-                        "medication_frequency": {},
-                    },
-                },
-            ),
-        ],
-    )
-
-    # Trial Patient 7: appendectomy, day -10. Wound infection on POD 5 (fever, pus-like
-    # discharge): red flag, call, same-day visit. Now settled. 11 messages.
-    p7 = PatientPlan(
-        label="Trial Patient 7",
-        full_name="Sophie Tremblay",
-        contact="trial-patient-7@example.com",
-        procedure="Appendectomy",
-        created_at=t.day(-10, "18:00"),
-        messages=[
-            _p(t.day(-9, "10:30"),
-               "Hi Dr. Moore, Sophie here. Day 1 after my appendectomy. Sore but ok. Can I "
-               "shower?"),
-            _c(t.day(-9, "13:00"),
-               "Hi Sophie, yes, you can shower. Let the water run over the incisions and pat "
-               "them dry. No baths or swimming for 2 weeks."),
-            _p(t.day(-8, "09:15"),
-               "A bit constipated from the painkillers."),
-            _c(t.day(-8, "12:40"),
-               "Use the stool softener on your discharge sheet, drink lots of water, and cut "
-               "back on the oxycodone as soon as Tylenol is enough."),
-            _p(t.day(-5, "07:50"),
-               "Woke up with chills. My temp is 38.9. One of the incisions looks red and "
-               "there's yellow-green drainage."),
-            _c(t.day(-5, "08:25"),
-               "Sophie, thank you for telling me right away. I've seen your check-in. This "
-               "could be a wound infection and I'd like to see it today. I'm calling you now "
-               "to arrange a time."),
-            _c(t.day(-5, "14:00"),
-               "Good to see you today. As discussed: keep the wound open to drain, change the "
-               "gauze twice a day, take the antibiotics until they're finished, and call me "
-               "if the fever returns or the redness spreads."),
-            _p(t.day(-4, "09:30"),
-               "Fever is gone. The gauze change stings a bit. Is it ok for me to do it myself?"),
-            _c(t.day(-4, "11:45"),
-               "Yes, you're doing it right. Rinse gently with clean water and pat dry before "
-               "the gauze. Stinging is expected. Let me know if it gets more painful."),
-            _p(t.day(-2, "18:40"),
-               "Check-in done. No fever for 2 days and the drainage has almost stopped."),
-            _c(t.day(-1, "08:30"),
-               "Thanks Sophie, that's what I wanted to hear. Finish the antibiotics and keep "
-               "the area clean. We'll see how it's looking at your next visit."),
-        ],
-        check_ins=[
-            CheckIn(
-                at=t.day(-7, "19:00"),
-                post_op_day=3,
-                reviewed_at=t.day(-6, "08:00"),
-                answers={
-                    "symptoms": ["pain", "constipation"],
-                    "surgery_type": "laparoscopic",
-                    "wound_closure": "absorbing_sutures",
-                    "pain": {
-                        "scale": 4,
-                        "trend": "better",
-                        "character": "coming_and_going",
-                        "medications": ["tylenol", "oxycodone"],
-                        "medication_frequency": {
-                            "tylenol": "several_times_a_day",
-                            "oxycodone": "once_a_day",
-                        },
-                    },
-                    "constipation": {"days_since_bm": 2, "passing_gas": True, "distension": False},
-                },
-            ),
-            CheckIn(
-                at=t.day(-5, "07:40"),
-                post_op_day=5,
-                reviewed_at=t.day(-5, "08:15"),
-                expect_red_flag=True,
-                answers={
-                    "symptoms": ["fever", "discharge", "pain"],
-                    "surgery_type": "laparoscopic",
-                    "wound_closure": "absorbing_sutures",
-                    "pain": {
-                        "scale": 5,
-                        "trend": "same",
-                        "character": "constant",
-                        "medications": ["tylenol"],
-                        "medication_frequency": {"tylenol": "several_times_a_day"},
-                    },
-                    "fever": {"took_temperature": True, "temperature_c": 38.9, "chills": True},
-                    "discharge": {
-                        "trend": "more",
-                        "character": "pus_like",
-                        "dressing_change_frequency": "several_times_a_day",
-                    },
-                    "concerns_text": "Chills this morning and one incision is red with "
-                    "yellow-green drainage.",
-                },
-            ),
-            CheckIn(
-                at=t.day(-2, "18:30"),
-                post_op_day=8,
-                answers={
-                    "symptoms": ["pain", "discharge"],
-                    "surgery_type": "laparoscopic",
-                    "wound_closure": "absorbing_sutures",
-                    "pain": {
-                        "scale": 2,
-                        "trend": "better",
-                        "character": "coming_and_going",
-                        "medications": ["tylenol"],
-                        "medication_frequency": {"tylenol": "once_a_day"},
-                    },
-                    "fever": {"took_temperature": True, "temperature_c": 36.9, "chills": False},
-                    "discharge": {
-                        "trend": "less",
-                        "character": "clear_watery",
-                        "dressing_change_frequency": "once_a_day",
-                    },
-                },
-            ),
-        ],
-        touchpoints=[
-            ManualTouchpoint(
-                at=t.day(-5, "08:30"),
-                kind="call",
-                duration_minutes=7,
-                note="Red-flag check-in (fever 38.9, purulent drainage). Asked to come in today.",
-            ),
-            ManualTouchpoint(
-                at=t.day(-5, "10:30"),
-                kind="visit",
-                duration_minutes=20,
-                note="Superficial wound infection. Opened and drained in clinic; antibiotics "
-                "started; gauze changes twice daily.",
-            ),
-        ],
-    )
-
-    # Trial Patient 8: rectal cancer surgery, day -16. Longest thread (26 messages), bowel
-    # function questions, dizziness red flag on POD 12 handled by call and same-day visit.
-    p8 = PatientPlan(
-        label="Trial Patient 8",
-        full_name="Raymond Ashby",
-        contact="trial-patient-8@example.com",
-        procedure="Rectal cancer surgery",
-        created_at=t.day(-16, "14:00"),
-        messages=[
-            _p(t.day(-15, "09:00"),
-               "Hi Dr. Moore, Ray Ashby. Home after the rectal surgery. Not sure what to "
-               "expect with bowel movements."),
-            _c(t.day(-15, "12:30"),
-               "Hi Ray, good to hear you're home. Frequent small stools, urgency and some "
-               "leakage are common early on after rectal surgery and improve over weeks to "
-               "months. A fibre supplement and regular meals help."),
-            _p(t.day(-15, "20:10"),
-               "Am I allowed to lift my grandson? He's 12 kg."),
-            _c(t.day(-14, "08:20"),
-               "Not for about 6 weeks. No lifting over 10 lb. Let him climb into your lap "
-               "while you sit instead."),
-            _p(t.day(-14, "11:15"),
-               "Went 8 times today, small amounts each. Is that too many?"),
-            _c(t.day(-14, "13:50"),
-               "It's a lot but common at this stage. Try to space meals, add the fibre "
-               "supplement, and don't hold back on fluids. Call me if there's blood, you "
-               "can't keep fluids down, or you feel lightheaded."),
-            _p(t.day(-13, "09:30"),
-               "The skin around my bottom is sore from wiping. Any suggestions?"),
-            _c(t.day(-13, "12:10"),
-               "Barrier cream (zinc oxide) after each bowel movement, wipe by patting rather "
-               "than rubbing, or rinse with warm water. A sitz bath can also settle it."),
-            _p(t.day(-12, "18:45"), "Check-in done. Feeling ok."),
-            _c(t.day(-12, "20:30"), "Thanks Ray. Looks good."),
-            _p(t.day(-11, "15:00"),
-               "When will I hear about the pathology results?"),
-            _c(t.day(-11, "17:40"),
-               "Usually 1-2 weeks after surgery. My office will call to book a results visit "
-               "as soon as it's back. I'll go through it in detail with you then."),
-            _p(t.day(-10, "10:20"),
-               "Appetite is poor and I've lost about 4 lb."),
-            _c(t.day(-10, "14:15"),
-               "Common after major surgery. Small meals 5-6 times a day, protein shakes if "
-               "you need them. We'll keep an eye on it. Tell me if you can't eat at all."),
-            _p(t.day(-8, "08:50"),
-               "Eating more and the bowel movements are down to about 5 a day."),
-            _c(t.day(-8, "11:30"), "Good progress, Ray."),
-            _p(t.day(-7, "19:10"), "Check-in done."),
-            _c(t.day(-6, "09:00"),
-               "Reviewed, all looks as expected. Keep up the fluids."),
-            _p(t.day(-4, "09:20"),
-               "Dizzy when I stood up this morning, nearly fell. Check-in done."),
-            _c(t.day(-4, "09:50"),
-               "Ray, thanks for telling me right away. Dizziness after surgery can mean "
-               "dehydration or low blood count. Sit or lie down and drink fluids. I'm calling "
-               "you now, and I'd like to see you today and do some bloodwork."),
-            _p(t.day(-4, "10:35"), "Ok, I can come this afternoon. My wife will drive."),
-            _c(t.day(-4, "16:40"),
-               "Thanks for coming in. Your bloodwork is reassuring and mostly you're dry from "
-               "the frequent stools. Drink at least 2 litres a day, add an electrolyte drink, "
-               "and stand up slowly. Message me tomorrow either way."),
-            _p(t.day(-3, "08:30"),
-               "Dizziness much better this morning after all the fluids."),
-            _c(t.day(-3, "10:45"),
-               "Glad to hear it. Keep it up for the next few days."),
-            _p(t.day(-1, "11:00"),
-               "Check-in done, all fine. When is my results appointment?"),
-            _c(t.day(-1, "14:20"),
-               "It's booked for next Tuesday at 10:30. My office will confirm by phone."),
-        ],
-        check_ins=[
-            CheckIn(
-                at=t.day(-12, "18:30"),
-                post_op_day=4,
-                reviewed_at=t.day(-12, "20:15"),
-                answers={
-                    "symptoms": ["pain", "fatigue"],
-                    "surgery_type": "laparoscopic",
-                    "wound_closure": "absorbing_sutures",
-                    "pain": {
-                        "scale": 4,
-                        "trend": "better",
-                        "character": "coming_and_going",
-                        "medications": ["tylenol", "oxycodone"],
-                        "medication_frequency": {
-                            "tylenol": "several_times_a_day",
-                            "oxycodone": "once_a_day",
-                        },
-                    },
-                    "fatigue": {"trend": "same", "interfering_with_activities": True},
-                },
-            ),
-            CheckIn(
-                at=t.day(-7, "19:00"),
-                post_op_day=9,
-                reviewed_at=t.day(-6, "08:50"),
-                answers={
-                    "symptoms": ["pain", "diarrhea"],
-                    "surgery_type": "laparoscopic",
-                    "wound_closure": "absorbing_sutures",
-                    "pain": {
-                        "scale": 2,
-                        "trend": "better",
-                        "character": "coming_and_going",
-                        "medications": ["tylenol"],
-                        "medication_frequency": {"tylenol": "several_times_a_day"},
-                    },
-                    "diarrhea": {
-                        "frequency_per_day": 5,
-                        "blood_in_stool": False,
-                        "duration": "several_days",
-                    },
-                },
-            ),
-            CheckIn(
-                at=t.day(-4, "09:10"),
-                post_op_day=12,
-                reviewed_at=t.day(-4, "09:40"),
-                expect_red_flag=True,
-                answers={
-                    "symptoms": ["dizziness", "fatigue", "diarrhea"],
-                    "surgery_type": "laparoscopic",
-                    "wound_closure": "absorbing_sutures",
-                    "dizziness": {"trend": "worse", "orthostatic": True, "since": "today"},
-                    "fatigue": {"trend": "worse", "interfering_with_activities": True},
-                    "diarrhea": {
-                        "frequency_per_day": 6,
-                        "blood_in_stool": False,
-                        "duration": "several_days",
-                    },
-                    "concerns_text": "Lightheaded when I stand up, nearly fell this morning.",
-                },
-            ),
-            CheckIn(
-                at=t.day(-1, "10:50"),
-                post_op_day=15,
-                answers={
-                    "symptoms": ["fatigue", "diarrhea"],
-                    "surgery_type": "laparoscopic",
-                    "wound_closure": "absorbing_sutures",
-                    "fatigue": {"trend": "better", "interfering_with_activities": False},
-                    "diarrhea": {
-                        "frequency_per_day": 3,
-                        "blood_in_stool": False,
-                        "duration": "several_days",
-                    },
-                },
-            ),
-        ],
-        touchpoints=[
-            ManualTouchpoint(
-                at=t.day(-4, "09:55"),
-                kind="call",
-                duration_minutes=8,
-                note="Red-flag check-in (orthostatic dizziness). Asked to hydrate and come in "
-                "this afternoon.",
-            ),
-            ManualTouchpoint(
-                at=t.day(-4, "14:00"),
-                kind="visit",
-                duration_minutes=25,
-                note="Same-day assessment for dizziness. Bloodwork drawn, reassuring. "
-                "Dehydration from frequent stools; oral rehydration advised.",
-            ),
-        ],
-    )
-
-    # Trial Patient 9: ventral hernia repair, day -8. A question awaiting a reply that is
-    # not an emergency (swelling): a second one to try the AI draft on. 9 messages.
-    p9 = PatientPlan(
-        label="Trial Patient 9",
-        full_name="Amara Nwosu",
-        contact="trial-patient-9@example.com",
-        procedure="Ventral hernia repair (on the belly)",
-        created_at=t.day(-8, "12:00"),
-        messages=[
-            _p(t.day(-7, "09:30"),
-               "Hi Dr. Moore, Amara Nwosu. Do I need to wear the abdominal binder all the "
-               "time?"),
-            _c(t.day(-7, "13:15"),
-               "Hi Amara, wear it when you're up and about, and take it off to sleep and "
-               "shower. It supports the repair and eases the pulling feeling when you move."),
-            _p(t.day(-6, "16:00"),
-               "There's a firm swelling over the incision. Is that normal?"),
-            _c(t.day(-6, "18:20"),
-               "That's common after a ventral hernia repair, often a small fluid collection "
-               "(seroma). It usually goes away over a few weeks. Call me if it becomes red, "
-               "hot, very painful, or you get a fever."),
-            _p(t.day(-5, "19:30"), "Check-in done. Pain is about a 4."),
-            _c(t.day(-4, "08:45"),
-               "Thanks Amara, that's reasonable for this stage. Keep taking the Tylenol "
-               "regularly."),
-            _p(t.day(-2, "10:10"),
-               "Can I drive yet? I need to do the school run."),
-            _c(t.day(-2, "12:50"),
-               "Once you're off the oxycodone and can brake hard and turn the wheel without "
-               "pain, you're fine to drive. For most people that's around 1-2 weeks."),
-            _p(t.ago(75),
-               "Hi Dr. Moore, the swelling looks bigger this morning and it's a little tender "
-               "when I press on it. No redness and no fever. I'm a bit nervous. Should I come "
-               "in or just keep watching?"),
-        ],
-        check_ins=[
-            CheckIn(
-                at=t.day(-5, "19:00"),
-                post_op_day=3,
-                reviewed_at=t.day(-4, "08:40"),
-                answers={
-                    "symptoms": ["pain"],
-                    "surgery_type": "open",
-                    "wound_closure": "staples",
-                    "pain": {
-                        "scale": 4,
-                        "trend": "better",
-                        "character": "coming_and_going",
-                        "medications": ["tylenol", "oxycodone"],
-                        "medication_frequency": {
-                            "tylenol": "several_times_a_day",
-                            "oxycodone": "once_a_day",
-                        },
-                    },
-                },
-            ),
-            CheckIn(
-                at=t.day(-2, "10:00"),
-                post_op_day=6,
-                reviewed_at=t.day(-2, "12:40"),
-                answers={
-                    "symptoms": ["pain"],
-                    "surgery_type": "open",
-                    "wound_closure": "staples",
-                    "pain": {
-                        "scale": 3,
-                        "trend": "better",
-                        "character": "coming_and_going",
-                        "medications": ["tylenol"],
-                        "medication_frequency": {"tylenol": "several_times_a_day"},
-                    },
-                },
-            ),
-            CheckIn(
-                at=t.ago(95),
-                post_op_day=8,
-                answers={
-                    "symptoms": ["pain"],
-                    "surgery_type": "open",
-                    "wound_closure": "staples",
-                    "pain": {
-                        "scale": 5,
-                        "trend": "same",
-                        "character": "constant",
-                        "medications": ["tylenol"],
-                        "medication_frequency": {"tylenol": "several_times_a_day"},
-                    },
-                    "concerns_text": "The swelling over the incision seems bigger this "
-                    "morning.",
-                },
-            ),
-        ],
-    )
-
-    # Trial Patient 10: sphincterotomy for fissure, day -8. Minimal contact: the clinician
-    # confirms from the check-in that no further follow-up is needed. 5 messages.
-    p10 = PatientPlan(
-        label="Trial Patient 10",
-        full_name="Daniel Cho",
-        contact="trial-patient-10@example.com",
-        procedure="Sphincterotomy for fissure",
-        created_at=t.day(-8, "15:00"),
-        messages=[
-            _p(t.day(-6, "20:00"),
-               "Hi Dr. Moore, Daniel Cho. Sorry if this is a silly question, but the pain I "
-               "had before surgery is already gone. Is that normal?"),
-            _c(t.day(-5, "08:30"),
-               "Not a silly question at all, Daniel. Most people notice relief quickly "
-               "because the muscle spasm that caused the pain has been released. You'll still "
-               "have some soreness from the incision. Keep taking the stool softener and "
-               "drinking fluids."),
-            _p(t.day(-4, "12:00"),
-               "Can I get back to cycling and the gym?"),
-            _c(t.day(-4, "15:20"),
-               "Walking is fine now. Give it another week or two before cycling, mostly for "
-               "comfort. The gym is fine as soon as it feels ok, no heavy straining."),
-            _c(t.day(-1, "10:05"),
-               "Hi Daniel, I've looked at your check-in and everything looks great. You don't "
-               "need any further follow-up beyond your 6-week visit. Message me any time if "
-               "something changes."),
-        ],
-        check_ins=[
-            CheckIn(
-                at=t.day(-1, "08:00"),
-                post_op_day=7,
-                reviewed_at=t.day(-1, "10:00"),
-                answers={
-                    "symptoms": ["pain", "bleeding"],
-                    "pain": {
-                        "scale": 1,
-                        "trend": "better",
-                        "character": "worse_with_bowel_movements",
-                        "medications": ["tylenol"],
-                        "medication_frequency": {"tylenol": "once_a_day"},
-                    },
-                    "bleeding": {
-                        "trend": "same",
-                        "timing": "with_bowel_movements",
-                        "description": "tissue_paper_only",
-                        "dressing_change_frequency": "once_a_day",
-                        "started_prescribed_medication": False,
-                    },
-                },
-            ),
-        ],
-    )
-
-    return [p4, p5, p6, p7, p8, p9, p10]
+def _mark_reads(plan: PatientPlan) -> None:
+    """A patient message counts as read shortly before the next clinician message. One with no
+    answer stays unread (awaiting reply) -- unless it is only a courtesy reply, which the clinic
+    has seen, or the care period is closed and nothing is left waiting."""
+    messages = plan.messages
+    for i, msg in enumerate(messages):
+        if msg.sender != "patient":
+            continue
+        reply = next((m for m in messages[i + 1 :] if m.sender == "clinician"), None)
+        if reply is not None:
+            msg.read_at = max(msg.at + timedelta(minutes=2), reply.at - timedelta(minutes=4))
+        elif msg.reply:
+            msg.read_at = msg.at + timedelta(minutes=30)
+        elif plan.closed is not None:
+            msg.read_at = msg.at + timedelta(hours=1)
 
 
-def build_plan(now: datetime) -> list[PatientPlan]:
+def _pain(scale, trend="better", character="coming_and_going", meds=("tylenol",)):
+    return {
+        "scale": scale,
+        "trend": trend,
+        "character": character,
+        "medications": list(meds),
+        "medication_frequency": {m: "several_times_a_day" for m in meds},
+    }
+
+
+def _answers(symptoms, *, abdominal=True, wound="staples", surgery="laparoscopic", **parts):
+    answers: dict = {"symptoms": list(symptoms)}
+    if abdominal:
+        answers["surgery_type"] = surgery
+        answers["wound_closure"] = wound
+    answers.update(parts)
+    return answers
+
+
+def build_plan(now: datetime, include_alternate_schedule: bool = False) -> list[PatientPlan]:
     t = Clock(now)
+    plans: list[PatientPlan] = []
 
-    # Trial Patient 1: laparoscopic cholecystectomy, day -7. Uneventful.
-    p1 = PatientPlan(
-        label="Trial Patient 1",
-        full_name="Elena Marchetti",
-        contact="trial-patient-1@example.com",
-        procedure="Cholecystectomy",
-        created_at=t.day(-7, "15:10"),
+    def new(label, name, procedure, pod, expect, *, version=1, created="15:00", **kw):
+        s = Surgery(t, pod)
+        plan = PatientPlan(
+            label=label,
+            full_name=name,
+            contact=f"trial-patient-{label.split()[-1]}@example.com",
+            procedure=procedure,
+            surgery_date=s.date,
+            schedule_version=version,
+            created_at=s.at(0, created),
+            expect=expect,
+            **kw,
+        )
+        plans.append(plan)
+        return s, plan
+
+    # 1: laparoscopic cholecystectomy, day 8. Checked in on day 3, so window 1 went by.
+    s = Surgery(t, 8)
+    new(
+        "Trial Patient 1", "Elena Marchetti", "Cholecystectomy", 8,
+        Expect(Phase.OPEN, missed=(1,)),
+        created="15:10",
+        check_in=CheckIn(
+            s.at(3, "19:30"),
+            _answers(["pain", "fatigue"], wound="absorbing_sutures", pain=_pain(2),
+                     fatigue={"trend": "better", "interfering_with_activities": False}),
+        ),
         messages=[
-            _p(t.day(-5, "09:14"),
-               "Hi Dr. Moore, it's Elena. I had my gallbladder out two days ago. Is it okay to "
-               "shower? The nurse said something about the glue on my incisions but I can't "
-               "remember what."),
-            _c(t.day(-5, "18:40"),
-               "Hi Elena, yes, you can shower now. Let the water run over the incisions and pat "
-               "them dry, no scrubbing. The glue will peel off on its own over 1-2 weeks. No "
-               "baths, hot tubs or swimming for 2 weeks."),
-            _p(t.day(-4, "07:55"),
-               "Thanks. I have a sharp pain in my right shoulder, mostly when I lie down. The "
-               "incisions themselves feel ok. Is that normal?"),
-            _c(t.day(-4, "12:20"),
-               "That's very common after laparoscopic surgery. It's referred pain from the gas "
-               "we use during the operation and usually settles within a few days. Walking "
-               "helps. If you get a fever over 38.5, yellowing of your eyes or skin, or pain "
-               "that keeps getting worse, call the office or go to the emergency department."),
-            _p(t.day(-2, "20:05"),
-               "Shoulder pain is gone. When can I drive and go back to work? I have a desk job."),
-            _c(t.day(-1, "08:30"),
+            _p(s.at(3, "20:05"),
+               "Hi Dr. Moore, it's Elena. Is it okay to shower? Also a sharp pain in my right "
+               "shoulder, mostly when I lie down. The incisions themselves feel ok.",
+               "symptom_or_wound"),
+            _c(s.at(4, "08:30"),
+               "Hi Elena, yes, you can shower now; pat the incisions dry, no scrubbing. The "
+               "shoulder pain is referred pain from the gas used during surgery and usually "
+               "settles in a few days. Walking helps."),
+            _r(s.at(4, "08:52"), "Thanks, that's reassuring."),
+            _p(s.at(6, "20:05"),
+               "Shoulder pain is gone. When can I drive and go back to work? I have a desk job.",
+               "recovery_update"),
+            _c(s.at(7, "08:30"),
                "Glad to hear it. You can drive once you're off the oxycodone and can brake hard "
-               "without pain, usually about a week. Desk work is fine whenever you feel up to "
-               "it; most people go back in 1-2 weeks. No lifting over 10-15 lb for 4 weeks."),
-            _p(t.day(-1, "09:02"), "Perfect, thank you so much!"),
-            _c(t.day(-1, "10:15"),
-               "You're welcome, Elena. Your check-in looked good. Reach out if anything changes."),
-        ],
-        check_ins=[
-            CheckIn(
-                at=t.day(-2, "19:30"),
-                post_op_day=5,
-                answers={
-                    "symptoms": ["pain", "fatigue"],
-                    "surgery_type": "laparoscopic",
-                    "wound_closure": "absorbing_sutures",
-                    "pain": {
-                        "scale": 2,
-                        "trend": "better",
-                        "character": "coming_and_going",
-                        "medications": ["tylenol"],
-                        "medication_frequency": {"tylenol": "several_times_a_day"},
-                    },
-                    "fatigue": {"trend": "better", "interfering_with_activities": False},
-                },
-            ),
+               "without pain, usually about a week. Desk work whenever you feel up to it."),
+            _r(s.at(7, "09:02"), "Perfect, thank you so much!"),
         ],
     )
 
-    # Trial Patient 2: laparoscopic right hemicolectomy, day -14. Ileus on POD 7.
-    p2 = PatientPlan(
-        label="Trial Patient 2",
-        full_name="Gordon Whitlock",
-        contact="trial-patient-2@example.com",
-        procedure="Right hemicolectomy",
-        created_at=t.day(-14, "16:45"),
+    # 2: right hemicolectomy, day 15. Red-flag check-in on day 4 (ileus): call, ED visit.
+    s = Surgery(t, 15)
+    new(
+        "Trial Patient 2", "Gordon Whitlock", "Right hemicolectomy", 15,
+        Expect(Phase.OPEN, missed=(1,), reply=True),
+        created="14:00",
+        check_in=CheckIn(
+            s.at(4, "08:05"),
+            _answers(
+                ["pain", "nausea_vomiting", "no_bowel_movement", "distension"],
+                pain=_pain(6, "same", meds=("tylenol", "oxycodone")),
+                nausea_vomiting={"trend": "worse", "keeping_fluids_down": False,
+                                 "vomiting_episodes_today": 2},
+                no_bowel_movement={"days": 3, "distension": True, "nausea_vomiting": True},
+                distension={"trend": "worse", "associated_pain": True},
+            ),
+            reviewed_at=s.at(4, "08:38"),
+            expect_red_flag=True,
+        ),
         messages=[
-            _p(t.day(-10, "17:30"),
-               "Hello Dr. Moore, Gordon Whitlock here. Home today. The nurse said to message you "
-               "with questions. Is it ok to sleep in my recliner? Getting out of bed is hard."),
-            _c(t.day(-10, "20:10"),
-               "Hi Gordon, yes, the recliner is fine; many people find it easier for the first "
-               "week. Get up and walk every couple of hours during the day."),
-            _p(t.day(-9, "10:20"),
-               "Just filled in the check-in. Still haven't had a proper bowel movement, only "
-               "passing a bit of gas. Should I be worried?"),
-            _c(t.day(-9, "13:05"),
-               "Thanks for checking in. Passing gas is the important part, so that's reassuring. "
-               "Keep walking, drink plenty of fluids, and take the stool softener on your "
-               "discharge sheet. Let me know if you stop passing gas, your belly gets more "
-               "swollen, or you start vomiting."),
-            _p(t.day(-8, "21:40"),
-               "Belly is more bloated tonight. Still some gas. Only had soup for dinner."),
-            _c(t.day(-8, "22:15"),
-               "Thanks for letting me know. Stick to fluids tonight and keep walking. If the "
-               "bloating gets worse, you stop passing gas, or you vomit, go to the emergency "
-               "department and tell them you had bowel surgery last week."),
-            _p(t.day(-7, "08:15"),
-               "Didn't sleep. Very bloated and threw up twice this morning. No gas since "
-               "yesterday afternoon."),
-            _c(t.day(-7, "08:42"),
-               "Gordon, these are signs your bowel may have slowed down or become blocked. "
-               "Please go to the emergency department now and bring your discharge papers. "
-               "I'm calling you right now as well."),
-            _p(t.day(-7, "09:30"), "On our way. My daughter is driving."),
-            _p(t.day(-6, "12:10"),
-               "Hi Dr. Moore, this is Linda, Gordon's daughter. He's been admitted and they put "
-               "a tube in his nose. He wanted me to say thank you for the quick call."),
-            _c(t.day(-6, "13:00"),
-               "Thank you, Linda. I've been in touch with the team looking after him. This "
-               "usually settles in a few days. Encourage him to walk the halls when he can."),
-            _p(t.day(-4, "16:20"),
-               "Home again as of this afternoon. Things are moving now. They called it an ileus."),
-            _c(t.day(-4, "19:10"),
-               "Welcome home, Gordon. I'm glad it settled. Start slowly: small meals, low fibre "
-               "for the next week, and keep walking. Same rules as before: vomiting, swelling "
-               "or no gas means call or go back to emergency."),
-            _p(t.day(-3, "11:02"), "What can I eat? Is toast ok? Hospital food was awful."),
-            _c(t.day(-3, "14:30"),
-               "Toast is fine. Think soft and low fibre: eggs, white rice, pasta, chicken, fish, "
-               "bananas, yogurt. Avoid raw vegetables, nuts and corn for now. Small portions, "
-               "5-6 times a day."),
-            _p(t.day(-3, "14:41"), "Ok thank you. When do the staples come out?"),
-            _c(t.day(-3, "16:05"),
-               "Usually 10-14 days after surgery. My office will call you to book a quick visit "
-               "in the next couple of days."),
-            _p(t.day(-3, "16:20"), "Great, thanks."),
-            _p(t.day(-2, "15:20"),
-               "Thanks for taking the staples out this morning. There's a small red spot at the "
-               "bottom of the incision. Is that normal?"),
-            _c(t.day(-2, "18:45"),
-               "A little redness where the staples were is normal. Keep it clean and dry. If the "
-               "redness spreads, the area gets hot or swollen, you see pus, or you have a fever, "
-               "let me know right away or call the office."),
-            _p(t.day(-1, "09:10"),
-               "Redness looks smaller today. My energy is low though, I nap every afternoon."),
-            _c(t.day(-1, "12:25"),
-               "Good, that sounds like it's settling. Low energy is very normal for a few weeks "
-               "after bowel surgery, especially after the extra hospital stay. Short walks, "
-               "regular meals, and rest when you need to. It should improve week by week."),
-            _p(t.day(-1, "19:00"), "Is it ok to have a glass of wine with dinner?"),
-            _c(t.day(-1, "20:30"),
-               "One glass is fine now that you're off the oxycodone. Not while you're taking any "
-               "opioid pain medication."),
-        ],
-        check_ins=[
-            CheckIn(
-                at=t.day(-9, "10:15"),
-                post_op_day=5,
-                reviewed_at=t.day(-9, "13:00"),
-                answers={
-                    "symptoms": ["pain", "fatigue", "no_bowel_movement"],
-                    "surgery_type": "laparoscopic",
-                    "wound_closure": "staples",
-                    "pain": {
-                        "scale": 4,
-                        "trend": "better",
-                        "character": "coming_and_going",
-                        "medications": ["tylenol", "oxycodone"],
-                        "medication_frequency": {
-                            "tylenol": "several_times_a_day",
-                            "oxycodone": "once_a_day",
-                        },
-                    },
-                    "fatigue": {"trend": "same", "interfering_with_activities": True},
-                    "no_bowel_movement": {"days": 2, "distension": False, "nausea_vomiting": False},
-                },
-            ),
-            CheckIn(
-                at=t.day(-7, "08:10"),
-                post_op_day=7,
-                reviewed_at=t.day(-7, "08:38"),
-                expect_red_flag=True,
-                answers={
-                    "symptoms": ["pain", "nausea_vomiting", "no_bowel_movement", "distension"],
-                    "surgery_type": "laparoscopic",
-                    "wound_closure": "staples",
-                    "pain": {
-                        "scale": 6,
-                        "trend": "same",
-                        "character": "constant",
-                        "medications": ["tylenol", "oxycodone"],
-                        "medication_frequency": {
-                            "tylenol": "several_times_a_day",
-                            "oxycodone": "several_times_a_day",
-                        },
-                    },
-                    "nausea_vomiting": {
-                        "trend": "worse",
-                        "keeping_fluids_down": False,
-                        "vomiting_episodes_today": 2,
-                    },
-                    "no_bowel_movement": {"days": 4, "distension": True, "nausea_vomiting": True},
-                    "distension": {"trend": "worse", "associated_pain": True},
-                    "concerns_text": "Very bloated, threw up twice this morning, no gas since "
-                    "yesterday afternoon.",
-                },
-            ),
-            CheckIn(
-                at=t.day(-1, "08:30"),
-                post_op_day=13,
-                answers={
-                    "symptoms": ["pain", "fatigue"],
-                    "surgery_type": "laparoscopic",
-                    "wound_closure": "staples",
-                    "pain": {
-                        "scale": 2,
-                        "trend": "better",
-                        "character": "coming_and_going",
-                        "medications": ["tylenol"],
-                        "medication_frequency": {"tylenol": "once_a_day"},
-                    },
-                    "fatigue": {"trend": "same", "interfering_with_activities": False},
-                },
-            ),
+            _p(s.at(4, "08:20"),
+               "Belly is very swollen and I'm nauseous. No gas since yesterday. I just filled in "
+               "the check-in.", "symptom_or_wound"),
+            _c(s.at(4, "09:00"),
+               "Gordon, please go to the emergency department now. I've called ahead and they "
+               "are expecting you."),
+            _r(s.at(4, "09:25"), "Leaving now."),
+            _p(s.at(6, "10:10"),
+               "Home since this morning. Passing gas, and I kept down some soup.",
+               "recovery_update"),
+            _c(s.at(6, "12:30"), "That's what we wanted to hear. Small meals, keep walking."),
+            _r(s.at(6, "13:00"), "Will do, thanks."),
+            _p(s.at(12, "09:30"),
+               "Can I stop the oxycodone now? And is it ok to keep taking my aspirin?",
+               "medication"),
+            _c(s.at(12, "11:00"),
+               "Yes to stopping the oxycodone if Tylenol is enough. Restart the aspirin now; "
+               "take it with food."),
+            _r(s.at(12, "11:20"), "Great, thank you."),
+            _c(s.at(14, "12:00"),
+               "Staples are out and the incision looks good. See you in clinic."),
         ],
         touchpoints=[
-            ManualTouchpoint(
-                at=t.day(-7, "08:45"),
-                kind="call",
-                duration_minutes=10,
-                note="Red-flag check-in (distension, vomiting, no gas). Advised emergency "
-                "department; spoke with the on-call team.",
-            ),
-            ManualTouchpoint(
-                at=t.day(-2, "10:30"),
-                kind="visit",
-                duration_minutes=15,
-                note="Staple removal and wound check. Healing well.",
-            ),
+            ManualTouchpoint(s.at(4, "08:50"), "call", 12,
+                             "Called about no gas, distension, vomiting. Sent to ED."),
+            ManualTouchpoint(s.at(4, "11:30"), "visit", 240,
+                             "ED assessment: ileus, managed conservatively, discharged day 6."),
+            ManualTouchpoint(s.at(14, "10:00"), "visit", 15, "Staple removal."),
         ],
     )
 
-    # Trial Patient 3: hemorrhoid surgery, day -6. Red flag today, reply pending.
-    p3 = PatientPlan(
-        label="Trial Patient 3",
-        full_name="Nadia Haddad",
-        contact="trial-patient-3@example.com",
-        procedure="Hemorrhoid surgery",
-        created_at=t.day(-6, "14:20"),
+    # 3: hemorrhoid surgery, day 6. Red flag today and a message waiting for a reply.
+    new(
+        "Trial Patient 3", "Nadia Haddad", "Hemorrhoid surgery", 6,
+        Expect(Phase.USED, missed=(1, 2)),
+        created="10:00",
+        check_in=CheckIn(
+            t.ago(135),
+            _answers(
+                ["pain", "bleeding"], abdominal=False,
+                pain=_pain(8, "worse", "worse_with_bowel_movements",
+                           ("tylenol", "advil", "oxycodone")),
+                bleeding={"trend": "same", "timing": "with_bowel_movements",
+                          "description": "tissue_paper_only",
+                          "dressing_change_frequency": "once_a_day",
+                          "started_prescribed_medication": True},
+            ),
+            expect_red_flag=True,
+        ),
         messages=[
-            _p(t.day(-5, "11:30"),
-               "Hi Dr. Moore, I'm one day after my hemorrhoid surgery. The pain is a lot worse "
-               "than I expected, about 7/10 even with the medication. Is that normal?"),
-            _c(t.day(-5, "14:10"),
-               "Hi Nadia, unfortunately yes, this surgery is known for being painful for the "
-               "first week. Take Tylenol and Advil regularly on a schedule and use the oxycodone "
-               "for breakthrough pain. Sitz baths (a few inches of warm water) for 10-15 minutes, "
-               "3-4 times a day and after bowel movements, help a lot."),
-            _p(t.day(-5, "14:25"), "Ok. Should I alternate the Tylenol and Advil?"),
-            _c(t.day(-5, "17:50"),
-               "Yes, you can stagger them so you're taking something every 3 hours or so. "
-               "Follow the doses on your discharge sheet and don't go over the daily maximum of "
-               "either."),
-            _p(t.day(-4, "09:00"), "Haven't had a bowel movement yet and I'm scared to go."),
-            _c(t.day(-4, "12:15"),
-               "That's a very common fear. Keep taking the stool softener and the laxative on "
-               "your discharge sheet, and drink at least 8 glasses of water a day. The "
-               "oxycodone makes constipation worse, so use it only when you need it. Going "
-               "sooner keeps the stool softer, which makes it less painful."),
-            _p(t.day(-3, "15:20"),
-               "Still nothing, day 3. Bloated but passing gas. Could someone call me?"),
-            _c(t.day(-3, "16:12"),
-               "Thanks for the chat, Nadia. As discussed: a second dose of the laxative today "
-               "and tomorrow, keep up the fluids, and a sitz bath right after you go. If you're "
-               "not passing gas, or still nothing by tomorrow evening, call the office."),
-            _p(t.day(-2, "09:50"),
-               "Filled in the check-in. Small bowel movement this morning, finally. Painful but "
-               "ok. A bit of blood on the toilet paper."),
-            _c(t.day(-2, "12:05"),
-               "Good news that things are moving. A small amount of blood on the toilet paper is "
-               "expected for a couple of weeks. Keep up the softener and sitz baths. Bleeding "
-               "that soaks a pad, clots, or feeling faint means go to emergency."),
-            _p(t.day(-1, "13:30"),
-               "Is it normal to have some leakage? There's yellowish fluid on my pad."),
-            _c(t.day(-1, "17:40"),
-               "Yes, some yellowish or slightly blood-tinged drainage is normal while the area "
-               "heals. Wear a pad or gauze and change it as needed. If it becomes thick or "
-               "foul-smelling, or you get a fever, let me know."),
-            _p(t.day(-1, "20:10"),
-               "Thank you. Can I go back to work next week? I'm a teacher."),
-            _c(t.day(-1, "20:45"),
-               "Most people need 1-2 weeks off after this surgery, mainly for pain and sitting "
-               "comfortably. If you're off the oxycodone and can sit through a class period, "
-               "next week is reasonable. A cushion helps."),
-            _p(t.ago(110),
-               "Had my first proper bowel movement this morning and the pain was a 9, now it's "
-               "down to about a 6. There was some blood dripping into the toilet after. Is this "
-               "normal or should I come in?"),
+            _p(t.ago(120),
+               "The pain is much worse today, 8 out of 10, especially after going to the "
+               "bathroom. Tylenol and Advil aren't touching it. Should I be doing something "
+               "different?", "symptom_or_wound"),
         ],
-        check_ins=[
-            CheckIn(
-                at=t.day(-2, "09:40"),
-                post_op_day=4,
-                reviewed_at=t.day(-2, "12:00"),
-                answers={
-                    "symptoms": ["pain", "bleeding"],
-                    "pain": {
-                        "scale": 7,
-                        "trend": "same",
-                        "character": "worse_with_bowel_movements",
-                        "medications": ["tylenol", "advil", "oxycodone"],
-                        "medication_frequency": {
-                            "tylenol": "several_times_a_day",
-                            "advil": "several_times_a_day",
-                            "oxycodone": "several_times_a_day",
-                        },
-                    },
-                    "bleeding": {
-                        "trend": "same",
-                        "timing": "with_bowel_movements",
-                        "description": "tissue_paper_only",
-                        "dressing_change_frequency": "once_a_day",
-                        "started_prescribed_medication": True,
-                    },
-                },
+    )
+
+    # 4: sigmoid colon resection, day 12. The clinic wrote last; she has a reply open.
+    s = Surgery(t, 12)
+    new(
+        "Trial Patient 4", "Marcus Bennett", "Sigmoid colon resection", 12,
+        Expect(Phase.USED, missed=(1,), reply=True),
+        created="15:30",
+        check_in=CheckIn(
+            s.at(3, "18:00"),
+            _answers(["pain", "fatigue"],
+                     pain=_pain(5, meds=("tylenol", "oxycodone")),
+                     fatigue={"trend": "same", "interfering_with_activities": True}),
+            reviewed_at=s.at(3, "20:00"),
+        ),
+        messages=[
+            _p(s.at(3, "18:20"),
+               "Home since last night after my sigmoid resection. Is it normal to be this "
+               "tired? Small loose bowel movement this afternoon.", "recovery_update"),
+            _c(s.at(3, "20:15"),
+               "Very normal, and the bowel movement is a good sign. Short walks, small frequent "
+               "meals, rest when you need to."),
+            _r(s.at(4, "08:30"), "Thanks, will do."),
+            _p(s.at(6, "10:10"),
+               "Can I shower with the staples in? Do I need to cover them?", "recovery_update"),
+            _c(s.at(6, "13:30"),
+               "Yes, shower daily and pat dry. No baths or swimming until the staples are out."),
+            _p(s.at(9, "16:30"), "When can I get back to golf? Asking for a friend.",
+               "recovery_update"),
+            _c(s.at(9, "19:05"),
+               "Putting and short walks now. Full swings and carrying a bag after about 6 weeks."),
+            _r(s.at(10, "09:00"), "Ha, thanks. Staples out tomorrow at 10."),
+            _c(s.at(11, "12:30"),
+               "Nothing special to do. Eat normally and take a Tylenol an hour beforehand."),
+        ],
+        touchpoints=[ManualTouchpoint(s.at(11, "10:20"), "visit", 15, "Staples removed.")],
+    )
+
+    # 5: fistulotomy, day 20. Window 5 used; window 6 opens tomorrow.
+    s = Surgery(t, 20)
+    new(
+        "Trial Patient 5", "Priya Raman", "Fistulotomy for fistula", 20,
+        Expect(Phase.USED, missed=(1, 2)),
+        created="11:00",
+        check_in=CheckIn(
+            s.at(5, "09:40"),
+            _answers(["pain", "discharge"], abdominal=False, pain=_pain(4),
+                     discharge={"trend": "better", "character": "clear",
+                                "dressing_change_frequency": "twice_a_day"}),
+            reviewed_at=s.at(5, "10:30"),
+        ),
+        messages=[
+            _p(s.at(5, "10:15"),
+               "There's a fair bit of drainage on the dressing. Is that expected?",
+               "symptom_or_wound"),
+            _c(s.at(5, "13:00"),
+               "Yes, a fistulotomy wound drains for a few weeks. Change the dressing when it is "
+               "damp, and call us if it turns thick, foul-smelling or the pain jumps."),
+            _p(s.at(9, "08:45"), "How often should I be changing the dressing now?",
+               "recovery_update"),
+            _c(s.at(9, "11:20"), "Once or twice a day is fine, whenever it's wet."),
+            _p(s.at(16, "19:10"), "Settling nicely. Almost no drainage now.", "recovery_update"),
+            _c(s.at(17, "09:00"), "Excellent. You can drop to one dressing a day."),
+            _r(s.at(17, "09:30"), "Thank you!"),
+        ],
+    )
+
+    # 6: inguinal hernia repair, day 4. An all-clear check-in waiting to be closed out.
+    s = Surgery(t, 4)
+    new(
+        "Trial Patient 6", "Walter Kowalski", "Inguinal hernia repair (in the groin)", 4,
+        Expect(Phase.OPEN, missed=(1,)),
+        created="13:00",
+        check_in=CheckIn(
+            s.at(3, "14:00"),
+            _answers(["pain"], wound="absorbing_sutures", pain=_pain(3)),
+        ),
+    )
+
+    # 7: appendectomy, day 9. Wound infection on day 5: call and same-day visit.
+    s = Surgery(t, 9)
+    new(
+        "Trial Patient 7", "Sophie Tremblay", "Appendectomy", 9,
+        Expect(Phase.USED, missed=(1, 2)),
+        created="12:00",
+        check_in=CheckIn(
+            s.at(5, "07:40"),
+            _answers(
+                ["fever", "discharge", "pain"], wound="absorbing_sutures",
+                fever={"took_temperature": True, "temperature_c": 39.1, "chills": True},
+                discharge={"trend": "worse", "character": "pus_like",
+                           "dressing_change_frequency": "every_2_3_hours"},
+                pain=_pain(5, "worse"),
             ),
-            CheckIn(
-                at=t.ago(135),
-                post_op_day=6,
-                expect_red_flag=True,
-                answers={
-                    "symptoms": ["pain", "bleeding"],
-                    "pain": {
-                        "scale": 8,
-                        "trend": "same",
-                        "character": "worse_with_bowel_movements",
-                        "medications": ["tylenol", "advil", "oxycodone"],
-                        "medication_frequency": {
-                            "tylenol": "several_times_a_day",
-                            "advil": "several_times_a_day",
-                            "oxycodone": "once_a_day",
-                        },
-                    },
-                    "bleeding": {
-                        "trend": "same",
-                        "timing": "with_bowel_movements",
-                        "description": "dripping_into_toilet",
-                        "dressing_change_frequency": "several_times_a_day",
-                        "started_prescribed_medication": True,
-                    },
-                    "concerns_text": "First proper bowel movement this morning. Pain was a 9 "
-                    "and some blood dripped into the toilet after.",
-                },
-            ),
+            reviewed_at=s.at(5, "08:15"),
+            expect_red_flag=True,
+        ),
+        messages=[
+            _p(s.at(5, "07:55"),
+               "Fever of 39.1 this morning and the wound is red and leaking yellow fluid.",
+               "symptom_or_wound"),
+            _c(s.at(5, "08:25"),
+               "Sophie, please come to the clinic this morning. I've booked you at 10:30."),
+            _r(s.at(5, "08:50"), "On my way."),
+            _p(s.at(8, "09:10"),
+               "The antibiotic is upsetting my stomach. Should I take it with food?",
+               "medication"),
+            _c(s.at(8, "11:00"),
+               "Yes, take it with a meal and keep going to the end of the course."),
+            _r(s.at(8, "11:20"), "Thanks, that helped."),
         ],
         touchpoints=[
-            ManualTouchpoint(
-                at=t.day(-3, "16:00"),
-                kind="call",
-                duration_minutes=8,
-                note="Constipation and pain plan reviewed by phone.",
-            ),
+            ManualTouchpoint(s.at(5, "08:20"), "call", 10, "Fever 39.1 and purulent discharge."),
+            ManualTouchpoint(s.at(5, "10:30"), "visit", 35,
+                             "Wound opened and drained, antibiotics started."),
         ],
     )
 
-    plans = [p1, p2, p3, *_more_patients(t)]
+    # 8: rectal cancer surgery, day 30. Late check-in on day 12 (dizziness): the longest thread.
+    s = Surgery(t, 30)
+    new(
+        "Trial Patient 8", "Raymond Ashby", "Rectal cancer surgery", 30,
+        Expect(Phase.OPEN, missed=(1, 2, 3)),
+        created="09:30",
+        check_in=CheckIn(
+            s.at(12, "09:10"),
+            _answers(["dizziness", "fatigue", "diarrhea"], wound="absorbing_sutures",
+                     dizziness={"trend": "worse", "orthostatic": True, "since": "yesterday"},
+                     fatigue={"trend": "worse", "interfering_with_activities": True},
+                     diarrhea={"frequency_per_day": 7, "blood_in_stool": False,
+                               "duration": "several_days"}),
+            reviewed_at=s.at(12, "09:40"),
+            expect_red_flag=True,
+        ),
+        messages=[
+            _p(s.at(12, "09:20"),
+               "I get dizzy every time I stand up, since yesterday. Bowels are going 7 times "
+               "a day.", "symptom_or_wound"),
+            _c(s.at(12, "09:55"),
+               "Raymond, please come to the clinic today so we can check your bloodwork."),
+            _r(s.at(12, "10:15"), "Coming at noon."),
+            _p(s.at(16, "08:40"),
+               "Dizziness is gone. Bowels are still frequent. Would a fibre supplement help?",
+               "medication"),
+            _c(s.at(16, "11:30"), "Yes, start psyllium once a day and drink plenty of fluids."),
+            _r(s.at(16, "12:00"), "Will do."),
+            _p(s.at(24, "18:20"),
+               "Who do I call about the pathology appointment? Nobody has phoned me.",
+               "admin"),
+            _c(s.at(24, "19:40"),
+               "The office books it. I've asked them to call you tomorrow morning."),
+            _c(s.at(28, "10:00"), "Just checking in. How are you feeling this week?"),
+            _r(s.at(28, "10:30"), "Doing well, thanks for checking."),
+        ],
+        touchpoints=[
+            ManualTouchpoint(s.at(12, "09:50"), "call", 15,
+                             "Dizziness on standing, 7 loose stools a day."),
+            ManualTouchpoint(s.at(12, "13:00"), "visit", 60,
+                             "Dehydrated; IV fluids, bloodwork, held the diuretic."),
+        ],
+    )
+
+    # 9: ventral hernia repair, day 6. A worried swelling question awaiting a reply.
+    s = Surgery(t, 6)
+    new(
+        "Trial Patient 9", "Amara Nwosu", "Ventral hernia repair (on the belly)", 6,
+        Expect(Phase.USED, missed=(1,)),
+        created="14:00",
+        check_in=CheckIn(
+            s.at(4, "17:30"),
+            _answers(["pain"], wound="absorbing_sutures", pain=_pain(4)),
+            reviewed_at=s.at(4, "18:30"),
+        ),
+        messages=[
+            _p(s.at(4, "17:50"), "Pain is fine. A bit of bruising around the incision.",
+               "recovery_update"),
+            _c(s.at(4, "19:30"), "Bruising is normal and fades over a couple of weeks."),
+            _r(s.at(4, "20:00"), "Thanks."),
+            _p(t.ago(100),
+               "The area above my incision has swollen up since this morning and feels firm. "
+               "I'm worried something's wrong.", "symptom_or_wound"),
+        ],
+    )
+
+    # 10: sphincterotomy for fissure, day 10. Minimal contact, then discharged by the clinic.
+    s = Surgery(t, 10)
+    new(
+        "Trial Patient 10", "Daniel Cho", "Sphincterotomy for fissure", 10,
+        Expect(Phase.CLOSED, missed=(1,)),
+        created="11:00",
+        check_in=CheckIn(
+            s.at(3, "20:00"),
+            _answers(["pain"], abdominal=False, pain=_pain(2)),
+            reviewed_at=s.at(3, "20:30"),
+        ),
+        messages=[
+            _p(s.at(3, "20:15"),
+               "Is it normal to have a little bleeding with bowel movements?", "symptom_or_wound"),
+            _c(s.at(3, "21:00"),
+               "A little on the tissue is expected for a week or two. Call if it's more."),
+            _r(s.at(4, "07:50"), "Ok, thanks."),
+        ],
+        closed=Closed(s.at(6, "11:00"), "discharged"),
+    )
+
+    # 11: seton surgery, day 1. Check-in pending, so messaging is locked; the clinic has written.
+    new(
+        "Trial Patient 11", "Hannah Doucet", "Seton surgery for fistula", 1,
+        Expect(Phase.LOCKED_CHECKIN, reply=True),
+        created="16:00",
+        messages=[
+            _c(t.ago(200),
+               "Welcome, Hannah. Please complete your check-in when you can, then you can write "
+               "to us in your message windows."),
+        ],
+    )
+
+    # 12: anal advancement flap, day 1. Checked in; waiting for window 1 to open.
+    new(
+        "Trial Patient 12", "Tomas Reyes", "Anal advancement flap", 1,
+        Expect(Phase.WAITING),
+        created="14:30",
+        check_in=CheckIn(t.ago(90), _answers(["pain"], abdominal=False, pain=_pain(3))),
+    )
+
+    # 13: colon resection, day 52. The schedule ran out three days ago and closed itself.
+    s = Surgery(t, 52)
+    new(
+        "Trial Patient 13", "Beatrice Lang", "Other colon resection", 52,
+        Expect(Phase.CLOSED, missed=(1, 3, 4, 7, 8, 9)),
+        created="10:30",
+        check_in=CheckIn(
+            s.at(3, "11:00"),
+            _answers(["fatigue"],
+                     fatigue={"trend": "better", "interfering_with_activities": False}),
+            reviewed_at=s.at(3, "12:00"),
+        ),
+        messages=[
+            _p(s.at(4, "10:00"), "Feeling tired but eating well.", "recovery_update"),
+            _c(s.at(4, "15:00"), "Good. Keep up the walking."),
+            _r(s.at(4, "16:00"), "Will do."),
+            _p(s.at(15, "09:30"), "Back to short walks outside. Any limits on lifting?",
+               "recovery_update"),
+            _c(s.at(15, "13:00"), "Nothing over 10 lb until six weeks."),
+            _p(s.at(22, "10:30"), "Nothing heavy, all good. Thank you for everything.", "admin"),
+        ],
+        closed=Closed(None, "schedule_complete"),
+    )
+
+    if include_alternate_schedule:
+        # 14: right hemicolectomy on schedule v2, day 11 (v2 opens on days 2, 5, 10, 17, ...).
+        s = Surgery(t, 11)
+        new(
+            "Trial Patient 14", "Gerald Fox", "Right hemicolectomy", 11,
+            Expect(Phase.OPEN), version=2, created="14:00",
+            check_in=CheckIn(
+                s.at(2, "08:30"),
+                _answers(["pain"], pain=_pain(4)),
+                reviewed_at=s.at(2, "09:15"),
+            ),
+            messages=[
+                _p(s.at(2, "08:50"), "Home, sore but managing. Is the swelling by the incision "
+                   "normal?", "symptom_or_wound"),
+                _c(s.at(2, "11:30"),
+                   "Some swelling is expected. Call us if it becomes hot or red."),
+                _r(s.at(2, "11:50"), "Thanks."),
+                _p(s.at(7, "19:00"), "Eating normally again.", "recovery_update"),
+                _c(s.at(7, "20:10"), "Wonderful."),
+                _r(s.at(7, "20:30"), "Thanks!"),
+            ],
+        )
+
     for plan in plans:
-        _mark_reads(plan.messages)
+        _mark_reads(plan)
     return plans
 
 
-def validate_plan(plans: list[PatientPlan], now: datetime) -> list[str]:
+# --- checking the plan against the engine ------------------------------------------------
+
+
+def interval_at(plan: PatientPlan, schedule: Schedule, at: datetime) -> int | None:
+    """The message window that was open at `at`, if any."""
+    return next(
+        (w.number for w in windows(plan.surgery_date, schedule) if w.opens_at <= at < w.closes_at),
+        None,
+    )
+
+
+def _closed_at(plan: PatientPlan, schedule: Schedule) -> datetime | None:
+    if plan.closed is None:
+        return None
+    return plan.closed.at or episode_end(plan.surgery_date, schedule)
+
+
+def simulate(
+    plan: PatientPlan, schedule: Schedule, now: datetime
+) -> tuple[EpisodeState, list[str]]:
+    """Replay the patient's messages under the rules and return the engine's state for `now`
+    plus any rule broken along the way."""
+    problems: list[str] = []
+    used: set[int] = set()
+    latest_clinic: Msg | None = None
+    answered: set[int] = set()  # id() of clinic messages that already got their reply
+    check_in_at = plan.check_in.at if plan.check_in else None
+    for m in sorted(plan.messages, key=lambda m: m.at):
+        if m.sender == "clinician":
+            latest_clinic = m
+        elif m.reply:
+            if latest_clinic is None:
+                problems.append(f"{plan.label}: a reply at {m.at:%b %d %H:%M} answers nothing")
+            elif id(latest_clinic) in answered:
+                problems.append(f"{plan.label}: a second reply to the same clinic message")
+            else:
+                answered.add(id(latest_clinic))
+        else:
+            if check_in_at is None or m.at <= check_in_at:
+                problems.append(f"{plan.label}: a scheduled message before the check-in")
+            if not categories.is_offered(m.category):
+                problems.append(f"{plan.label}: unknown category {m.category!r}")
+            n = interval_at(plan, schedule, m.at)
+            if n is None:
+                problems.append(f"{plan.label}: a message at {m.at:%b %d %H:%M} is in no window")
+            elif n in used:
+                problems.append(f"{plan.label}: two scheduled messages in window {n}")
+            else:
+                used.add(n)
+    reply_available = latest_clinic is not None and id(latest_clinic) not in answered
+    state = episode_state(
+        surgery_date=plan.surgery_date,
+        schedule=schedule,
+        now=now,
+        checkin_completed_at=check_in_at,
+        closed_at=_closed_at(plan, schedule),
+        close_reason=plan.closed.reason if plan.closed else None,
+        used_intervals=used,
+        reply_available=reply_available,
+    )
+    return state, problems
+
+
+def validate_plan(
+    plans: list[PatientPlan],
+    now: datetime,
+    schedules: dict[int, Schedule] | None = None,
+) -> list[str]:
     """Problems with the plan, or [] if it's fine to write."""
+    schedules = schedules or DEFAULT_SCHEDULES
     problems: list[str] = []
     for plan in plans:
-        n = len(plan.messages)
-        if not 5 <= n <= 30:
-            problems.append(f"{plan.label}: {n} messages, expected 5-30")
+        schedule = schedules.get(plan.schedule_version)
+        if schedule is None:
+            problems.append(f"{plan.label}: schedule version {plan.schedule_version} not found")
+            continue
         events = (
             [plan.created_at]
             + [m.at for m in plan.messages]
-            + [c.at for c in plan.check_ins]
+            + ([plan.check_in.at] if plan.check_in else [])
             + [tp.at for tp in plan.touchpoints]
         )
         if any(e >= now for e in events):
@@ -1245,15 +723,38 @@ def validate_plan(plans: list[PatientPlan], now: datetime) -> list[str]:
         times = [m.at for m in plan.messages]
         if times != sorted(times):
             problems.append(f"{plan.label}: messages out of order")
-        for c in plan.check_ins:
+        c = plan.check_in
+        if c is not None:
             flagged, _ = evaluate_red_flags(c.answers)
             if flagged != c.expect_red_flag:
-                problems.append(
-                    f"{plan.label}: POD {c.post_op_day} check-in red flag is {flagged}, "
-                    f"expected {c.expect_red_flag}"
-                )
-            if c.reviewed_at is not None and c.reviewed_at <= c.at:
-                problems.append(f"{plan.label}: POD {c.post_op_day} reviewed before submitted")
+                problems.append(f"{plan.label}: check-in red flag is {flagged}, expected "
+                                f"{c.expect_red_flag}")
+            if c.reviewed_at is not None and not c.at < c.reviewed_at < now:
+                problems.append(f"{plan.label}: check-in reviewed before it was submitted")
+        if any(m.read_at is not None and not m.at < m.read_at < now for m in plan.messages):
+            problems.append(f"{plan.label}: a message is read before it was sent, or in the future")
+
+        state, rule_problems = simulate(plan, schedule, now)
+        problems += rule_problems
+        closed_at = _closed_at(plan, schedule)
+        if plan.closed is not None:
+            if closed_at is None or closed_at > now:
+                problems.append(f"{plan.label}: closed in the future")
+            elif any(e > closed_at for e in events):
+                problems.append(f"{plan.label}: something happened after the care period closed")
+            if plan.closed.reason == "schedule_complete" and closed_at != episode_end(
+                plan.surgery_date, schedule
+            ):
+                problems.append(f"{plan.label}: a natural close must be when the schedule ends")
+        want = plan.expect
+        if (state.phase, state.missed, state.can_reply) != (
+            want.phase, want.missed, want.reply,
+        ):
+            problems.append(
+                f"{plan.label}: the engine says {state.phase.value}, missed {list(state.missed)}, "
+                f"reply open {state.can_reply}; the plan expects {want.phase.value}, "
+                f"missed {list(want.missed)}, reply open {want.reply}"
+            )
     return problems
 
 
@@ -1262,15 +763,17 @@ def describe(plans: list[PatientPlan]) -> str:
     for plan in plans:
         patient = sum(m.sender == "patient" for m in plan.messages)
         unread = sum(m.sender == "patient" and m.read_at is None for m in plan.messages)
-        flags = [c.post_op_day for c in plan.check_ins if evaluate_red_flags(c.answers)[0]]
-        pending = [c.post_op_day for c in plan.check_ins if c.reviewed_at is None]
+        flagged = plan.check_in is not None and evaluate_red_flags(plan.check_in.answers)[0]
+        unreviewed = plan.check_in is not None and plan.check_in.reviewed_at is None
         lines.append(
-            f"{plan.label}: {plan.full_name} ({plan.procedure}), "
+            f"{plan.label}: {plan.full_name} ({plan.procedure}), surgery {plan.surgery_date}, "
+            f"schedule v{plan.schedule_version}, expected {plan.expect.phase.value}"
+            f"{' (missed ' + str(list(plan.expect.missed)) + ')' if plan.expect.missed else ''}"
+            f"{', reply open' if plan.expect.reply else ''}; "
             f"{len(plan.messages)} messages ({patient} patient, "
-            f"{len(plan.messages) - patient} clinician, {unread} awaiting reply), "
-            f"{len(plan.check_ins)} check-ins (red flag on POD {flags or 'none'}; "
-            f"unreviewed POD {pending or 'none'}), "
-            f"{len(plan.touchpoints)} logged calls/visits"
+            f"{len(plan.messages) - patient} clinic, {unread} awaiting reply), "
+            f"check-in {'none' if plan.check_in is None else 'red flag' if flagged else 'clear'}"
+            f"{', unreviewed' if unreviewed else ''}, {len(plan.touchpoints)} logged calls/visits"
         )
     return "\n".join(lines)
 
@@ -1282,7 +785,9 @@ def _iso(ts: datetime) -> str:
     return ts.astimezone(UTC).isoformat()
 
 
-def _audit(supabase, *, clinic_id: str, event_type: str, payload: dict, ref_type: str, ref_id):
+def _audit(supabase, *, clinic_id: str, event_type: str, payload: dict, metadata: dict):
+    """One audit event, tagged as the seed's. `metadata` carries the same keys the api's own
+    write of this event does (ref_type, ref_id, ids, origin...); actor and seed tag are added."""
     from clinically_anchored_api.core.audit import record_event
 
     record_event(
@@ -1290,7 +795,7 @@ def _audit(supabase, *, clinic_id: str, event_type: str, payload: dict, ref_type
         clinic_id=clinic_id,
         event_type=event_type,
         payload=payload,
-        metadata={"ref_type": ref_type, "ref_id": ref_id, "actor": SEED_ACTOR, "seed": SEED_TAG},
+        metadata={**metadata, "actor": SEED_ACTOR, "seed": SEED_TAG},
     )
 
 
@@ -1381,7 +886,44 @@ def ensure_demo_clinic(supabase, user_id: str) -> str:
     return clinic_id
 
 
-def seed_patient(supabase, *, clinic_id: str, user_id: str, plan: PatientPlan) -> None:
+def ensure_alternate_schedule(supabase) -> None:
+    """Add schedule version 2 if it is missing. It becomes the newest version, which new
+    patients from the dashboard use: say so loudly."""
+    have = supabase.table("message_schedules").select("version").eq("version", 2).execute().data
+    if have:
+        return
+    schedule = DEFAULT_SCHEDULES[2]
+    supabase.table("message_schedules").insert(
+        {
+            "version": 2,
+            "offsets_days": list(schedule.offsets_days),
+            "close_after_days": schedule.close_after_days,
+            "opens_at_local": schedule.opens_at_local.isoformat(),
+            "timezone": schedule.timezone,
+            "note": "Alternate schedule added by seed_trial_patients --include-alternate-schedule.",
+        }
+    ).execute()
+    print(
+        "WARNING: added message schedule version 2. It is now the NEWEST version, so patients "
+        "added from the dashboard from now on get it."
+    )
+
+
+def load_schedules(supabase, versions: set[int]) -> dict[int, Schedule]:
+    rows = (
+        supabase.table("message_schedules").select("*").in_("version", sorted(versions))
+        .execute().data
+    )
+    found = {r["version"]: Schedule.from_row(r) for r in rows}
+    missing = versions - set(found)
+    if missing:
+        raise SystemExit(f"Message schedule version(s) {sorted(missing)} not in the database.")
+    return found
+
+
+def seed_patient(
+    supabase, *, clinic_id: str, user_id: str, plan: PatientPlan, schedule: Schedule
+) -> None:
     exists = (
         supabase.table("patients")
         .select("id")
@@ -1423,43 +965,90 @@ def seed_patient(supabase, *, clinic_id: str, user_id: str, plan: PatientPlan) -
         clinic_id=clinic_id,
         event_type="patient.created",
         payload={"patient_id": patient_id, "full_name": plan.full_name, "contact": plan.contact},
-        ref_type="patient",
-        ref_id=patient_id,
+        metadata={"ref_type": "patient", "ref_id": patient_id},
+    )
+
+    closed_at = _closed_at(plan, schedule)
+    episode = _insert(
+        supabase,
+        "episodes",
+        {
+            "clinic_id": clinic_id,
+            "patient_id": patient_id,
+            "procedure_id": procedure_id,
+            "surgery_date": plan.surgery_date.isoformat(),
+            "schedule_version": plan.schedule_version,
+            "checkin_completed_at": _iso(plan.check_in.at) if plan.check_in else None,
+            "closed_at": _iso(closed_at) if closed_at else None,
+            "close_reason": plan.closed.reason if plan.closed else None,
+            "closed_by": user_id if plan.closed and plan.closed.reason == "discharged" else None,
+            "created_by": user_id,
+            "created_at": _iso(plan.created_at),
+        },
+    )
+    episode_id = episode["id"]
+    episode_ref = {
+        "ref_type": "episode", "ref_id": episode_id, "patient_id": patient_id,
+        "schedule_version": plan.schedule_version,
+    }
+    _audit(
+        supabase,
+        clinic_id=clinic_id,
+        event_type="episode.created",
+        payload={
+            "episode_id": episode_id,
+            "patient_id": patient_id,
+            "procedure_id": procedure_id,
+            "surgery_date": plan.surgery_date.isoformat(),
+            "schedule": schedule.snapshot(),
+            "created_by": user_id,
+        },
+        metadata=episode_ref,
     )
 
     # Everything else in time order, so the audit chain reads like the story.
     steps: list[tuple[datetime, int, object]] = []
-    for c in plan.check_ins:
-        steps.append((c.at, 0, ("check_in", c)))
-        if c.reviewed_at is not None:
-            steps.append((c.reviewed_at, 1, ("review", c)))
+    if plan.check_in:
+        steps.append((plan.check_in.at, 0, ("check_in", plan.check_in)))
+        if plan.check_in.reviewed_at is not None:
+            steps.append((plan.check_in.reviewed_at, 1, ("review", plan.check_in)))
     for m in plan.messages:
         steps.append((m.at, 2, ("message", m)))
         if m.read_at is not None:
             steps.append((m.read_at, 1, ("read", m)))
     for tp in plan.touchpoints:
         steps.append((tp.at, 3, ("touchpoint", tp)))
+    if closed_at is not None:
+        steps.append((closed_at, 4, ("close", plan.closed)))
     steps.sort(key=lambda s: (s[0], s[1]))
 
-    check_in_ids: dict[int, str] = {}
+    check_in_id = ""
     message_ids: dict[int, str] = {}
+    latest_clinic_id: str | None = None
     for _, _, (kind, item) in steps:
         if kind == "check_in":
             is_red_flag, _ = evaluate_red_flags(item.answers)
+            post_op_day = (item.at.astimezone(TORONTO).date() - plan.surgery_date).days
             row = _insert(
                 supabase,
                 "check_ins",
                 {
                     "clinic_id": clinic_id,
                     "patient_id": patient_id,
+                    "episode_id": episode_id,
                     "procedure_id": procedure_id,
-                    "post_op_day": item.post_op_day,
+                    "post_op_day": post_op_day,
                     "answers": item.answers,
                     "is_red_flag": is_red_flag,
                     "created_at": _iso(item.at),
                 },
             )
-            check_in_ids[id(item)] = row["id"]
+            check_in_id = row["id"]
+            missed = episode_state(
+                surgery_date=plan.surgery_date, schedule=schedule, now=item.at,
+                checkin_completed_at=None, closed_at=None, close_reason=None,
+                used_intervals=set(), reply_available=False,
+            ).missed
             _audit(
                 supabase,
                 clinic_id=clinic_id,
@@ -1467,16 +1056,16 @@ def seed_patient(supabase, *, clinic_id: str, user_id: str, plan: PatientPlan) -
                 payload={
                     "check_in_id": row["id"],
                     "patient_id": patient_id,
+                    "episode_id": episode_id,
                     "procedure_id": row["procedure_id"],
                     "post_op_day": row["post_op_day"],
                     "answers": row["answers"],
                     "is_red_flag": row["is_red_flag"],
+                    "missed_intervals": list(missed),
                 },
-                ref_type="check_in",
-                ref_id=row["id"],
+                metadata={"ref_type": "check_in", "ref_id": row["id"], "episode_id": episode_id},
             )
         elif kind == "review":
-            check_in_id = check_in_ids[id(item)]
             row = (
                 supabase.table("check_ins")
                 .update({"reviewed_at": _iso(item.reviewed_at), "reviewed_by": user_id})
@@ -1493,23 +1082,28 @@ def seed_patient(supabase, *, clinic_id: str, user_id: str, plan: PatientPlan) -
                     "reviewed_by": user_id,
                     "reviewed_at": row["reviewed_at"],
                 },
-                ref_type="check_in",
-                ref_id=check_in_id,
+                metadata={"ref_type": "check_in", "ref_id": check_in_id},
             )
         elif kind == "message":
-            row = _insert(
-                supabase,
-                "messages",
-                {
-                    "clinic_id": clinic_id,
-                    "patient_id": patient_id,
-                    "sender": item.sender,
-                    "body": item.body,
-                    "created_at": _iso(item.at),
-                },
-            )
+            values = {
+                "clinic_id": clinic_id,
+                "patient_id": patient_id,
+                "episode_id": episode_id,
+                "sender": item.sender,
+                "body": item.body,
+                "created_at": _iso(item.at),
+                "origin": "clinician" if item.sender == "clinician" else "scheduled",
+            }
+            if item.reply:
+                values.update(origin="reply", reply_to_message_id=latest_clinic_id)
+            elif item.sender == "patient":
+                values.update(
+                    interval_no=interval_at(plan, schedule, item.at), category=item.category
+                )
+            row = _insert(supabase, "messages", values)
             message_ids[id(item)] = row["id"]
             if item.sender == "clinician":
+                latest_clinic_id = row["id"]
                 # Same auto contact-log entry the send path writes (core/touchpoints.py).
                 tp = _insert(
                     supabase,
@@ -1532,11 +1126,22 @@ def seed_patient(supabase, *, clinic_id: str, user_id: str, plan: PatientPlan) -
                 payload={
                     "message_id": row["id"],
                     "patient_id": patient_id,
+                    "episode_id": episode_id,
                     "sender": row["sender"],
+                    "origin": row["origin"],
+                    "interval_no": row["interval_no"],
+                    "category": row["category"],
+                    "reply_to_message_id": row["reply_to_message_id"],
                     "body": row["body"],
                 },
-                ref_type="message",
-                ref_id=row["id"],
+                metadata={
+                    "ref_type": "message",
+                    "ref_id": row["id"],
+                    "episode_id": episode_id,
+                    "origin": row["origin"],
+                    "interval_no": row["interval_no"],
+                    "category": row["category"],
+                },
             )
         elif kind == "read":
             message_id = message_ids[id(item)]
@@ -1557,8 +1162,7 @@ def seed_patient(supabase, *, clinic_id: str, user_id: str, plan: PatientPlan) -
                     "read_by": user_id,
                     "read_at": row["read_at"],
                 },
-                ref_type="message",
-                ref_id=message_id,
+                metadata={"ref_type": "message", "ref_id": message_id},
             )
         elif kind == "touchpoint":
             tp = _insert(
@@ -1577,6 +1181,20 @@ def seed_patient(supabase, *, clinic_id: str, user_id: str, plan: PatientPlan) -
                 },
             )
             _audit_touchpoint(supabase, clinic_id, tp)
+        elif kind == "close":
+            _audit(
+                supabase,
+                clinic_id=clinic_id,
+                event_type="episode.closed",
+                payload={
+                    "episode_id": episode_id,
+                    "patient_id": patient_id,
+                    "reason": item.reason,
+                    "closed_at": episode["closed_at"],
+                    "closed_by": episode["closed_by"],
+                },
+                metadata=episode_ref,
+            )
 
     print(f"{plan.label}: created {plan.full_name} ({patient_id})")
 
@@ -1596,8 +1214,7 @@ def _audit_touchpoint(supabase, clinic_id: str, row: dict) -> None:
             "note": row["note"],
             "logged_by": row["logged_by"],
         },
-        ref_type="touchpoint",
-        ref_id=row["id"],
+        metadata={"ref_type": "touchpoint", "ref_id": row["id"]},
     )
 
 
@@ -1613,17 +1230,24 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--email", help="the clinician's Supabase Auth email (required to write)")
     parser.add_argument("--dry-run", action="store_true", help="print the plan; write nothing")
+    parser.add_argument(
+        "--include-alternate-schedule",
+        action="store_true",
+        help="also add schedule version 2 and patient 14 (v2 then becomes the newest schedule)",
+    )
     args = parser.parse_args(argv)
 
     now = datetime.now(UTC)
-    plans = build_plan(now)
-    problems = validate_plan(plans, now)
+    plans = build_plan(now, args.include_alternate_schedule)
+    versions = {p.schedule_version for p in plans}
     print(describe(plans))
-    if problems:
-        print("\nPlan problems, nothing written:\n  " + "\n  ".join(problems))
-        return 1
+
     if args.dry_run:
-        print("\nDry run: nothing written.")
+        problems = validate_plan(plans, now)
+        if problems:
+            print("\nPlan problems (against the default schedules):\n  " + "\n  ".join(problems))
+            return 1
+        print("\nDry run: the plan is valid against the default schedules; nothing written.")
         return 0
     if not args.email:
         parser.error("--email is required unless --dry-run")
@@ -1631,16 +1255,26 @@ def main(argv: list[str] | None = None) -> int:
     from clinically_anchored_api.core.db import get_supabase
 
     supabase = get_supabase()
-    if _messaging_v2_applied(supabase):
+    if not _messaging_v2_applied(supabase):
         raise SystemExit(
-            "This seed script predates Messaging v2 (migration 9): it writes patients, check-ins "
-            "and messages with no episode, which the database now refuses. It is rewritten in a "
-            "later PR; do not run it against this database until then."
+            "Migration 9 (Messaging v2) is not applied to this database: there is no episodes "
+            "table. Run supabase/scripts/reset_trial_data.sh, apply the migration, then seed."
         )
+    if args.include_alternate_schedule:
+        ensure_alternate_schedule(supabase)
+    schedules = load_schedules(supabase, versions)
+    problems = validate_plan(plans, now, schedules)
+    if problems:
+        print("\nPlan problems, nothing written:\n  " + "\n  ".join(problems))
+        return 1
+
     user_id = find_user_id(supabase, args.email)
     clinic_id = ensure_demo_clinic(supabase, user_id)
     for plan in plans:
-        seed_patient(supabase, clinic_id=clinic_id, user_id=user_id, plan=plan)
+        seed_patient(
+            supabase, clinic_id=clinic_id, user_id=user_id, plan=plan,
+            schedule=schedules[plan.schedule_version],
+        )
     print("\nDone. Check with: uv run python -m clinically_anchored_api.core.reconcile "
           f"--clinic {clinic_id}")
     return 0

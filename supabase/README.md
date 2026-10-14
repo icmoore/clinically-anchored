@@ -47,10 +47,27 @@ data-only `pg_dump` to `scripts/.backups/` first (git-ignored). It uses one `TRU
 explicit table list: that gets past `message_drafts`' delete trigger and its foreign keys, and a
 table missing from the list fails the statement instead of being wiped silently. Migration 9
 needs the data gone first, so the order is: reset, `db push` / psql migration 9, deploy api + web,
-re-seed. The scripts live outside `migrations/` and are not `seed.sql`, so nothing loads them.
+re-seed with `apps/api`'s `seed_trial_patients` (see below). The scripts live outside `migrations/` and are not `seed.sql`, so nothing loads them.
 
 ## Database tests
 
 `apps/api/tests/db/` runs the migrations and the reset script against a real Postgres. They are
 skipped unless `TEST_DATABASE_URL` points at a server on this machine (the fixtures refuse any
 other host, since they create and drop databases) and are not in CI yet. See `apps/api/README.md`.
+
+## Seeding the demo clinic
+
+After the reset and migration 9, from `apps/api` with the api's `.env`:
+
+```
+uv run python -m clinically_anchored_api.seed_trial_patients --dry-run
+uv run python -m clinically_anchored_api.seed_trial_patients --email you@example.com
+```
+
+It writes 13 synthetic patients into a separate demo clinic (created if missing), one per state
+the schedule engine can report (locked, waiting, open, used, discharged, ran out, a reply open,
+a late check-in, red flags), with the same audit events the api writes. It checks its plan
+against the engine and the schedules in the database first and refuses to write if they
+disagree (e.g. you edited v1's offsets). `--include-alternate-schedule` adds a v2 schedule and a
+v2 patient, **and makes v2 the schedule new dashboard patients get**; leave it off normally.
+Check afterwards with `python -m clinically_anchored_api.core.reconcile --clinic <demo clinic id>`.
