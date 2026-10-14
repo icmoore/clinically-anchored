@@ -1,86 +1,39 @@
-"""/me, patient list/create, and link issuance: auth, tenant scoping, audit,
-and that an issued link actually works against the patient-facing routes."""
-
-from urllib.parse import parse_qs, urlparse
+"""/me and the patient list/create: auth, tenant scoping, audit. Creating a patient creates
+their episode too (the clinic enters the surgery date and procedure)."""
 
 import pytest
 from fastapi.testclient import TestClient
 
-from clinically_anchored_api.api import clinics as clinics_module
-from clinically_anchored_api.core import auth as auth_module
-from clinically_anchored_api.core.config import get_settings
-from clinically_anchored_api.core.security import verify_link_token
 from clinically_anchored_api.main import app
+from tests.fakes import (
+    AUTH,
+    CLINIC_A,
+    CLINIC_B,
+    PROC_A,
+    USER,
+    FakeSupabase,
+    install,
+    pin_clock,
+)
 
-A, B = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-USER = "99999999-9999-9999-9999-999999999999"
-AUTH = {"Authorization": "Bearer good"}
-
-
-class _Q:
-    def __init__(self, rows):
-        self.rows, self.f, self.ins, self.order_col = rows, [], None, None
-
-    def select(self, *_a):
-        return self
-
-    def eq(self, c, v):
-        self.f.append(lambda r: r.get(c) == v)
-        return self
-
-    def in_(self, c, vals):
-        self.f.append(lambda r: r.get(c) in vals)
-        return self
-
-    def order(self, c, **_k):
-        self.order_col = c
-        return self
-
-    def insert(self, payload):
-        self.ins = payload
-        return self
-
-    def execute(self):
-        if self.ins is not None:
-            row = {"id": f"pat-{len(self.rows) + 1}", "created_at": "2026-01-01T00:00:00Z",
-                   **self.ins}
-            self.rows.append(row)
-            return type("R", (), {"data": [row]})()
-        rows = [r for r in self.rows if all(f(r) for f in self.f)]
-        if self.order_col:
-            rows.sort(key=lambda r: r[self.order_col])
-        return type("R", (), {"data": rows})()
-
-
-class _Fake:
-    def __init__(self):
-        self.t = {
-            "clinic_members": [{"clinic_id": A, "user_id": USER, "role": "owner"}],
-            "clinics": [{"id": A, "name": "Clinic A"}, {"id": B, "name": "Clinic B"}],
-            "patients": [
-                {"id": "p1", "clinic_id": A, "full_name": "Zed", "contact": None,
-                 "created_at": "2026-01-01T00:00:00Z"},
-                {"id": "p0", "clinic_id": A, "full_name": "Amy", "contact": "amy@example.com",
-                 "created_at": "2026-01-01T00:00:00Z"},
-                {"id": "pb", "clinic_id": B, "full_name": "Other", "contact": None,
-                 "created_at": "2026-01-01T00:00:00Z"},
-            ],
-        }
-        user = type("X", (), {"id": USER, "email": "doc@example.com"})()
-        self.auth = type("A", (), {"get_user": lambda _s, _j: type("U", (), {"user": user})()})()
-
-    def table(self, name):
-        return _Q(self.t[name])
+A, B = CLINIC_A, CLINIC_B
+NEW = {"full_name": "  Test Person ", "contact": " 555-0100 ", "surgery_date": "2026-10-01",
+       "procedure_id": PROC_A}
 
 
 @pytest.fixture
 def fake(monkeypatch):
-    f = _Fake()
-    f.audits = []
-    monkeypatch.setattr(clinics_module, "get_supabase", lambda: f)
-    monkeypatch.setattr(auth_module, "get_supabase", lambda: f)
-    monkeypatch.setattr(clinics_module, "record_event", lambda _db, **kw: f.audits.append(kw))
-    monkeypatch.setattr(get_settings(), "web_base_url", "https://app.example.com/")
+    f = FakeSupabase(role="owner")
+    f.tables["patients"] = [
+        {"id": "p1", "clinic_id": A, "full_name": "Zed", "contact": None,
+         "created_at": "2026-01-01T00:00:00Z"},
+        {"id": "p0", "clinic_id": A, "full_name": "Amy", "contact": "amy@example.com",
+         "created_at": "2026-01-01T00:00:00Z"},
+        {"id": "pb", "clinic_id": B, "full_name": "Other", "contact": None,
+         "created_at": "2026-01-01T00:00:00Z"},
+    ]
+    pin_clock(monkeypatch)
+    f.audits = install(monkeypatch, f)
     return f
 
 
@@ -91,8 +44,8 @@ def client(fake):
 
 def test_me_lists_only_my_clinics(client):
     body = client.get("/me", headers=AUTH).json()
-    assert body["email"] == "doc@example.com"
-    assert body["clinics"] == [{"id": A, "name": "Clinic A", "role": "owner"}]
+    assert body["email"] == "u@example.com"
+    assert body["clinics"] == [{"id": A, "name": "A", "role": "owner"}]
 
 
 def test_me_requires_auth(client):
@@ -101,10 +54,7 @@ def test_me_requires_auth(client):
 
 def test_patient_endpoints_are_tenant_scoped(client):
     assert client.get(f"/clinics/{B}/patients", headers=AUTH).status_code == 403
-    create = client.post(f"/clinics/{B}/patients", headers=AUTH, json={"full_name": "x"})
-    assert create.status_code == 403
-    link = client.post(f"/clinics/{B}/patients/pb/links/messages", headers=AUTH)
-    assert link.status_code == 403
+    assert client.post(f"/clinics/{B}/patients", headers=AUTH, json=NEW).status_code == 403
 
 
 def test_list_patients_sorted_by_name_and_clinic_only(client):
@@ -112,54 +62,99 @@ def test_list_patients_sorted_by_name_and_clinic_only(client):
     assert names == ["Amy", "Zed"]
 
 
-def test_create_patient_saves_trimmed_and_audits_without_pii_in_metadata(client, fake):
-    r = client.post(
-        f"/clinics/{A}/patients",
-        headers=AUTH,
-        json={"full_name": "  Test Person ", "contact": " 555-0100 "},
+def test_list_patients_carries_each_patients_latest_episode_and_where_it_stands(client, fake):
+    fake.add_episode(id="e-old", patient="p0", surgery_date="2026-08-01",
+                     created_at="2026-08-01T00:00:00+00:00",
+                     closed_at="2026-09-20T12:00:00+00:00", close_reason="schedule_complete")
+    fake.add_episode(id="e-new", patient="p0", surgery_date="2026-10-01",
+                     checkin_completed_at="2026-10-02T12:00:00+00:00",
+                     created_at="2026-10-01T00:00:00+00:00")
+    by_name = {p["full_name"]: p for p in client.get(f"/clinics/{A}/patients", headers=AUTH).json()}
+    assert by_name["Zed"]["episode"] is None
+    ep = by_name["Amy"]["episode"]
+    assert ep["id"] == "e-new" and ep["timezone"] == "America/Toronto"
+    assert (ep["state"]["phase"], ep["state"]["interval_no"], ep["state"]["post_op_day"]) == (
+        "open", 1, 2,
     )
-    assert r.status_code == 200
-    assert (r.json()["full_name"], r.json()["contact"]) == ("Test Person", "555-0100")
-    assert len(fake.audits) == 1
-    audit = fake.audits[0]
-    assert audit["event_type"] == "patient.created"
-    assert "Test Person" not in str(audit["metadata"]) and "555-0100" not in str(audit["metadata"])
-    assert audit["metadata"]["actor"]["role"] == "owner"
 
 
-def test_create_patient_validates_name(client):
-    r = client.post(f"/clinics/{A}/patients", headers=AUTH, json={"full_name": ""})
-    assert r.status_code == 422
-
-
-@pytest.mark.parametrize("scope", ["checkin", "messages"])
-def test_issued_link_is_valid_for_that_patient_and_scope(client, fake, scope):
-    r = client.post(f"/clinics/{A}/patients/p1/links/{scope}", headers=AUTH)
+def test_create_patient_also_creates_the_episode_and_audits_both(client, fake):
+    r = client.post(f"/clinics/{A}/patients", headers=AUTH, json=NEW)
     assert r.status_code == 200
     body = r.json()
-    url = urlparse(body["url"])
-    assert url.netloc == "app.example.com"
-    assert url.path == ("/check-in" if scope == "checkin" else "/messages")
-    token = parse_qs(url.query)["token"][0]
-    assert verify_link_token(token, scope) == {"clinic_id": A, "patient_id": "p1"}
-    # Audited without leaking the token.
-    assert fake.audits[0]["event_type"] == "link.issued"
-    assert token not in str(fake.audits[0])
-    assert fake.audits[0]["metadata"]["scope"] == scope
+    assert (body["full_name"], body["contact"]) == ("Test Person", "555-0100")
+    (episode,) = fake.tables["episodes"]
+    assert (episode["patient_id"], episode["surgery_date"], episode["procedure_id"],
+            episode["schedule_version"], episode["created_by"]) == (
+        body["id"], "2026-10-01", PROC_A, 1, USER,
+    )
+    assert body["episode"]["id"] == episode["id"]
+    assert body["episode"]["state"]["phase"] == "locked_checkin"
+
+    patient_event, episode_event = fake.audits
+    assert patient_event["event_type"] == "patient.created"
+    assert "Test Person" not in str(patient_event["metadata"])
+    assert "555-0100" not in str(patient_event["metadata"])
+    assert patient_event["metadata"]["actor"]["role"] == "owner"
+    assert episode_event["event_type"] == "episode.created"
+    assert episode_event["metadata"]["ref_id"] == episode["id"]
+    assert episode_event["metadata"]["schedule_version"] == 1
+    snapshot = episode_event["payload"]["schedule"]  # what the episode was created under
+    assert snapshot["offsets_days"] == [2, 3, 5, 7, 14, 21, 28, 35, 42]
+    assert snapshot["opens_at_local"] == "07:00:00" and snapshot["timezone"] == "America/Toronto"
 
 
-def test_link_for_patient_in_another_clinic_is_404(client, fake):
-    assert client.post(f"/clinics/{A}/patients/pb/links/messages", headers=AUTH).status_code == 404
-    assert fake.audits == []
+def test_a_new_patient_gets_the_newest_schedule_version(client, fake):
+    fake.tables["message_schedules"].append(
+        {"version": 2, "offsets_days": [2, 5, 10, 17, 24, 31, 38, 45, 52], "close_after_days": 7,
+         "opens_at_local": "07:00:00", "timezone": "America/Toronto"}
+    )
+    client.post(f"/clinics/{A}/patients", headers=AUTH, json=NEW)
+    assert fake.tables["episodes"][0]["schedule_version"] == 2
 
 
-def test_unknown_link_scope_is_404(client):
-    assert client.post(f"/clinics/{A}/patients/p1/links/admin", headers=AUTH).status_code == 404
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"full_name": ""},
+        {"surgery_date": "not-a-date"},
+        {"surgery_date": "2030-01-01"},  # more than a year away
+        {"surgery_date": None},
+        {"procedure_id": None},
+    ],
+)
+def test_create_patient_validates_input(client, fake, change):
+    r = client.post(f"/clinics/{A}/patients", headers=AUTH, json={**NEW, **change})
+    assert r.status_code == 422
+    assert len(fake.tables["patients"]) == 3 and fake.audits == []
 
 
-def test_link_refuses_outside_development_without_web_base_url(client, monkeypatch):
-    settings = get_settings()
-    monkeypatch.setattr(settings, "web_base_url", "")
-    monkeypatch.setattr(settings, "environment", "production")
-    r = client.post(f"/clinics/{A}/patients/p1/links/messages", headers=AUTH)
-    assert r.status_code == 503
+def test_a_procedure_of_another_clinic_or_an_inactive_one_is_rejected_before_anything_is_written(
+    client, fake
+):
+    fake.tables["procedures"].append(
+        {"id": "pr-b", "clinic_id": B, "name": "x", "category": "other", "active": True}
+    )
+    fake.tables["procedures"].append(
+        {"id": "pr-off", "clinic_id": A, "name": "x", "category": "other", "active": False}
+    )
+    for proc in ("pr-b", "pr-off", "nope"):
+        r = client.post(f"/clinics/{A}/patients", headers=AUTH, json={**NEW, "procedure_id": proc})
+        assert r.status_code == 422
+    assert len(fake.tables["patients"]) == 3 and fake.audits == []
+
+
+def test_a_surgery_date_whose_schedule_has_already_ended_is_rejected(client, fake):
+    old = {**NEW, "surgery_date": "2026-06-01"}
+    r = client.post(f"/clinics/{A}/patients", headers=AUTH, json=old)
+    assert r.status_code == 422 and "already ended" in r.json()["detail"]
+    assert len(fake.tables["patients"]) == 3
+
+
+def test_if_the_episode_cannot_be_saved_the_patient_is_taken_back_out(client, fake):
+    fake.fail_insert["episodes"] = RuntimeError("episodes_one_open_per_patient")
+    r = client.post(f"/clinics/{A}/patients", headers=AUTH, json=NEW)
+    assert r.status_code == 409
+    assert [p["id"] for p in fake.tables["patients"]].count("pb") == 1
+    assert len(fake.tables["patients"]) == 3  # the new one is gone again
+    assert fake.tables["episodes"] == []

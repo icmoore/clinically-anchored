@@ -2,7 +2,7 @@
 so the shapes are easy to scan in one place -- this file is effectively the
 contract apps/web's generated OpenAPI client is built from."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -18,8 +18,8 @@ class Procedure(BaseModel):
 
 
 class CheckInCreate(BaseModel):
-    procedure_id: str | None = None
-    post_op_day: int | None = Field(default=None, ge=0)
+    # The procedure is the clinic's choice (on the episode) and the post-op day is worked out
+    # from the surgery date, so neither is asked of the patient any more.
     # Structured answers from the branching check-in form (decision 13).
     # Kept as a loose dict rather than a strict Pydantic model -- the shape
     # varies by procedure category and is still a DRAFT pending Sarah's
@@ -57,6 +57,7 @@ class CheckInOut(BaseModel):
     id: str
     clinic_id: str
     patient_id: str
+    episode_id: str
     procedure_id: str | None
     post_op_day: int | None
     answers: dict
@@ -64,39 +65,129 @@ class CheckInOut(BaseModel):
     created_at: str
 
 
-class DevCheckinLinkRequest(BaseModel):
-    clinic_id: str
-    patient_id: str
-    scope: Literal["checkin", "messages"] = "checkin"
+class DevLinkRequest(BaseModel):
+    episode_id: str
 
 
-class DevCheckinLinkResponse(BaseModel):
+class DevLinkResponse(BaseModel):
     token: str
-    scope: str
 
 
 class CheckInContext(BaseModel):
-    """What the check-in page needs to render its form, resolved from the
-    token alone -- the patient's link never carries the clinic id directly."""
+    """What the check-in page needs to render its form, resolved from the link alone:
+    the procedure the clinic chose for this episode (it picks the symptom set)."""
 
     clinic_id: str
-    procedures: list[Procedure]
+    procedure: Procedure
+    post_op_day: int  # negative before the surgery date
+    check_in_done: bool
 
 
-class MessageCreate(BaseModel):
+MessageText = Field(min_length=1, max_length=5000)
+
+
+def _not_blank(value: str) -> str:
+    if not value.strip():
+        raise ValueError("body must not be blank")
+    return value
+
+
+class ClinicianMessageCreate(BaseModel):
     # Messages are free-form text from both sides (decision 5); the cap is a
     # sanity limit, not a product rule.
-    body: str = Field(min_length=1, max_length=5000)
+    body: str = MessageText
+
+    check_body = field_validator("body")(_not_blank)
+
+
+class PatientMessageCreate(BaseModel):
+    body: str = MessageText
+    # "scheduled": the message for the interval that is open now (needs a category).
+    # "reply": the one reply to the care team's latest message (no category).
+    kind: Literal["scheduled", "reply"] = "scheduled"
+    category: str | None = Field(default=None, max_length=64)
+
+    check_body = field_validator("body")(_not_blank)
 
 
 class MessageOut(BaseModel):
     id: str
     clinic_id: str
     patient_id: str
+    episode_id: str
     sender: str
     body: str
+    origin: Literal["scheduled", "reply", "clinician"]
+    interval_no: int | None
+    category: str | None
+    reply_to_message_id: str | None
     read_at: str | None
     created_at: str
+
+
+class EpisodeStateOut(BaseModel):
+    """Where an episode stands now, computed by core/schedule.py. Times are UTC instants;
+    the web app shows them in the schedule's timezone."""
+
+    phase: Literal["closed", "locked_checkin", "waiting", "open", "used"]
+    post_op_day: int
+    intervals_total: int
+    interval_no: int | None
+    interval_opens_at: str | None
+    interval_closes_at: str | None
+    next_opens_at: str | None
+    episode_closes_at: str
+    closed_at: str | None
+    close_reason: Literal["discharged", "schedule_complete"] | None
+    missed: list[int]
+    reply_available: bool
+    can_send_scheduled: bool
+    can_reply: bool
+
+
+class EpisodeOut(BaseModel):
+    id: str
+    patient_id: str
+    procedure_id: str
+    surgery_date: str
+    schedule_version: int
+    timezone: str
+    checkin_completed_at: str | None
+    closed_at: str | None
+    close_reason: Literal["discharged", "schedule_complete"] | None
+    created_at: str
+    state: EpisodeStateOut
+
+
+class NewEpisode(BaseModel):
+    """A new surgery for a patient who is already in the system."""
+
+    surgery_date: date
+    procedure_id: str
+
+
+class EpisodeCorrect(BaseModel):
+    surgery_date: date | None = None
+    procedure_id: str | None = None
+
+
+class PatientStateOut(BaseModel):
+    """What the patient's own screen needs. A closed episode answers `closed` and the office
+    phone, nothing else."""
+
+    phase: Literal["closed", "locked_checkin", "waiting", "open", "used"]
+    office_phone: str | None
+    check_in_done: bool = False
+    categories: list[str] = []
+    post_op_day: int | None = None
+    interval_no: int | None = None
+    intervals_total: int | None = None
+    interval_closes_at: str | None = None
+    next_opens_at: str | None = None
+    episode_closes_at: str | None = None
+    timezone: str | None = None
+    can_send_scheduled: bool = False
+    can_reply: bool = False
 
 
 class AuditVerifyOut(BaseModel):
@@ -136,6 +227,7 @@ class QueueItem(BaseModel):
     unread_messages: int
     latest_check_in_id: str | None
     latest_post_op_day: int | None
+    unread_categories: list[str]  # category keys of the unread scheduled messages
     last_activity_at: str
 
 
@@ -153,8 +245,18 @@ class MeOut(BaseModel):
 
 class PatientCreate(BaseModel):
     full_name: str = Field(min_length=1, max_length=200)
-    # Phone or email the check-in link is sent to (free text for now).
+    # Phone or email the patient's link is sent to (free text for now).
     contact: str | None = Field(default=None, max_length=200)
+    # Entered by the clinic: every interval is measured from it.
+    surgery_date: date
+    procedure_id: str
+
+    @field_validator("surgery_date")
+    @classmethod
+    def _not_far_in_the_future(cls, value: date) -> date:
+        if value > datetime.now(UTC).date() + timedelta(days=366):
+            raise ValueError("surgery_date is more than a year away")
+        return value
 
 
 class PatientOut(BaseModel):
@@ -162,12 +264,12 @@ class PatientOut(BaseModel):
     full_name: str
     contact: str | None
     created_at: str
+    episode: EpisodeOut | None = None  # the latest episode
 
 
 class LinkOut(BaseModel):
-    scope: Literal["checkin", "messages"]
     url: str
-    expires_at: str
+    generation: int
 
 
 # Consent types are slugs and wording versions are opaque labels: which ones

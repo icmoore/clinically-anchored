@@ -1601,6 +1601,14 @@ def _audit_touchpoint(supabase, clinic_id: str, row: dict) -> None:
     )
 
 
+def _messaging_v2_applied(supabase) -> bool:
+    try:
+        supabase.table("episodes").select("id").limit(1).execute()
+    except Exception:  # the table is not there: the old schema
+        return False
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--email", help="the clinician's Supabase Auth email (required to write)")
@@ -1623,6 +1631,12 @@ def main(argv: list[str] | None = None) -> int:
     from clinically_anchored_api.core.db import get_supabase
 
     supabase = get_supabase()
+    if _messaging_v2_applied(supabase):
+        raise SystemExit(
+            "This seed script predates Messaging v2 (migration 9): it writes patients, check-ins "
+            "and messages with no episode, which the database now refuses. It is rewritten in a "
+            "later PR; do not run it against this database until then."
+        )
     user_id = find_user_id(supabase, args.email)
     clinic_id = ensure_demo_clinic(supabase, user_id)
     for plan in plans:

@@ -48,8 +48,8 @@ class _Q:
 class _Db:
     def __init__(self):
         self.t = {n: [] for n in (
-            "patients", "check_ins", "messages", "consents", "message_drafts", "touchpoints",
-            "audit_log",
+            "patients", "episodes", "check_ins", "messages", "consents", "message_drafts",
+            "touchpoints", "audit_log",
         )}
 
     def table(self, name):
@@ -91,9 +91,12 @@ def test_finds_orphans_in_every_table(db):
     db.t["consents"].append(
         {"id": "c1", "clinic_id": A, "granted_at": t, "revoked_at": t, "patient_id": "p1"}
     )
+    db.t["episodes"].append({"id": "e1", "clinic_id": A, "created_at": t, "closed_at": t})
     report = rec.reconcile(db)
     assert not report.ok
     assert _gaps(report) == {
+        ("episodes", "e1", "episode.created"),
+        ("episodes", "e1", "episode.closed"),
         ("patients", "p1", "patient.created"),
         ("check_ins", "ci1", "check_in.submitted"),
         ("check_ins", "ci1", "check_in.reviewed"),
@@ -236,3 +239,18 @@ def test_unaudited_touchpoint_is_reported(db):
     ]
     db.audit(A, "touchpoint.logged", "t-ok")
     assert _gaps(rec.reconcile(db)) == {("touchpoints", "t-orphan", "touchpoint.logged")}
+
+
+def test_episodes_are_checked_for_creation_and_close(db):
+    t = "2026-10-01T10:00:00Z"
+    db.t["episodes"] += [
+        {"id": "e-open", "clinic_id": A, "created_at": t, "closed_at": None},
+        {"id": "e-closed", "clinic_id": A, "created_at": t, "closed_at": t},
+    ]
+    db.audit(A, "episode.created", "e-open")
+    db.audit(A, "episode.created", "e-closed")
+    report = rec.reconcile(db)
+    assert _gaps(report) == {("episodes", "e-closed", "episode.closed")}  # open one needs no close
+    assert report.checked["episode.created"] == 2 and report.checked["episode.closed"] == 1
+    db.audit(A, "episode.closed", "e-closed")
+    assert rec.reconcile(db).ok

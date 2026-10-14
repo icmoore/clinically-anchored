@@ -1,14 +1,16 @@
 """Clinic-scoped endpoints the clinician web app needs around patients:
-who am I / which clinics, list and create patients, and issue patient links.
+who am I / which clinics, list and create patients (a new patient comes with their episode:
+the surgery date and procedure are entered by the clinic). Episodes, discharge and the
+patient's link are in api/episodes.py.
 
-Link issuance stands in for SMS/email delivery during trials: a clinician
-copies the returned URL and sends it to the patient themselves."""
+Link delivery stands in for SMS/email during trials: a clinician copies the link and sends
+it to the patient themselves."""
 
 import logging
-from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from clinically_anchored_api.api.episodes import check_new_episode, create_episode, episode_outs
 from clinically_anchored_api.core.audit import AuditWriteError, record_event
 from clinically_anchored_api.core.auth import (
     AuthedUser,
@@ -16,12 +18,10 @@ from clinically_anchored_api.core.auth import (
     require_clinic_member,
     require_user,
 )
-from clinically_anchored_api.core.config import get_settings
 from clinically_anchored_api.core.db import get_supabase
-from clinically_anchored_api.core.security import create_link_token, link_max_age
+from clinically_anchored_api.core.episodes import COLUMNS as EPISODE_COLUMNS
 from clinically_anchored_api.schemas import (
     ClinicOut,
-    LinkOut,
     MeOut,
     PatientCreate,
     PatientOut,
@@ -30,8 +30,6 @@ from clinically_anchored_api.schemas import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["clinics"])
-
-_LINK_PATHS = {"checkin": "/check-in", "messages": "/messages"}
 
 
 def _audit_or_500(supabase, member: ClinicMember, event_type: str, ref: dict, payload: dict):
@@ -76,23 +74,39 @@ def me(user: AuthedUser = Depends(require_user)) -> MeOut:
 def list_patients(
     clinic_id: str, _member: ClinicMember = Depends(require_clinic_member)
 ) -> list[PatientOut]:
+    """Patients with their latest episode and where it stands (computed, nothing is closed
+    here: a naturally ended episode shows as closed and is settled when next touched)."""
+    supabase = get_supabase()
     rows = (
-        get_supabase()
-        .table("patients")
+        supabase.table("patients")
         .select("id, full_name, contact, created_at")
         .eq("clinic_id", clinic_id)
         .order("full_name")
         .execute()
         .data
     )
-    return [PatientOut(**r) for r in rows]
+    latest: dict[str, dict] = {}
+    for ep in (
+        supabase.table("episodes").select(EPISODE_COLUMNS).eq("clinic_id", clinic_id)
+        .order("created_at", desc=True).execute().data
+    ):
+        latest.setdefault(ep["patient_id"], ep)
+    outs = episode_outs(supabase, list(latest.values()))
+    return [
+        PatientOut(**r, episode=outs[latest[r["id"]]["id"]] if r["id"] in latest else None)
+        for r in rows
+    ]
 
 
 @router.post("/clinics/{clinic_id}/patients", response_model=PatientOut)
 def create_patient(
     clinic_id: str, body: PatientCreate, member: ClinicMember = Depends(require_clinic_member)
 ) -> PatientOut:
+    """Add a patient together with their episode (surgery date and procedure). If the episode
+    can't be created the patient is removed again, so no patient is left without one."""
     supabase = get_supabase()
+    # Reject a bad procedure or surgery date (422) before anything is written.
+    check_new_episode(supabase, clinic_id, body.procedure_id, body.surgery_date)
     result = (
         supabase.table("patients")
         .insert(
@@ -115,49 +129,20 @@ def create_patient(
         {"ref_type": "patient", "ref_id": row["id"]},
         {"patient_id": row["id"], "full_name": row["full_name"], "contact": row["contact"]},
     )
-    return PatientOut(**row)
+    try:
+        episode = create_episode(
+            supabase, member=member, patient_id=row["id"],
+            procedure_id=body.procedure_id, surgery_date=body.surgery_date,
+        )
+    except HTTPException as exc:
+        if exc.status_code != 500:  # no episode row was written: take the patient back out
+            _remove_patient(supabase, row["id"])
+        raise
+    return PatientOut(**row, episode=episode_outs(supabase, [episode])[episode["id"]])
 
 
-@router.post("/clinics/{clinic_id}/patients/{patient_id}/links/{scope}", response_model=LinkOut)
-def issue_link(
-    clinic_id: str,
-    patient_id: str,
-    scope: str,
-    member: ClinicMember = Depends(require_clinic_member),
-) -> LinkOut:
-    """Mint a signed link for one patient (`checkin` or `messages`). Anyone
-    holding the URL can use it until it expires, so hand it only to the
-    patient. Every issuance is audited (without the token itself)."""
-    if scope not in _LINK_PATHS:
-        raise HTTPException(status_code=404, detail="Unknown link type.")
-
-    settings = get_settings()
-    base = settings.web_base_url or (
-        "http://localhost:3000" if settings.environment == "development" else ""
-    )
-    if not base:
-        raise HTTPException(status_code=503, detail="WEB_BASE_URL is not configured.")
-
-    supabase = get_supabase()
-    found = (
-        supabase.table("patients")
-        .select("id")
-        .eq("id", patient_id)
-        .eq("clinic_id", clinic_id)
-        .execute()
-        .data
-    )
-    if not found:
-        raise HTTPException(status_code=404, detail="Patient not found.")
-
-    token = create_link_token(clinic_id=clinic_id, patient_id=patient_id, scope=scope)
-    expires_at = (datetime.now(UTC) + timedelta(seconds=link_max_age(scope))).isoformat()
-    _audit_or_500(
-        supabase,
-        member,
-        "link.issued",
-        {"ref_type": "patient", "ref_id": patient_id, "scope": scope},
-        {"patient_id": patient_id, "scope": scope, "expires_at": expires_at},
-    )
-    url = f"{base.rstrip('/')}{_LINK_PATHS[scope]}?token={token}"
-    return LinkOut(scope=scope, url=url, expires_at=expires_at)
+def _remove_patient(supabase, patient_id: str) -> None:
+    try:
+        supabase.table("patients").delete().eq("id", patient_id).execute()
+    except Exception:
+        logger.exception("could not remove patient %s after its episode failed", patient_id)

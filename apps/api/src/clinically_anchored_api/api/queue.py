@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from clinically_anchored_api.core import clock, episodes
 from clinically_anchored_api.core.audit import AuditWriteError, record_event
 from clinically_anchored_api.core.auth import ClinicMember, require_clinic_member
 from clinically_anchored_api.core.db import get_supabase
@@ -41,6 +42,25 @@ def _patient_names(supabase, clinic_id: str, patient_ids: set[str]) -> dict[str,
         .data
     )
     return {r["id"]: r["full_name"] for r in rows}
+
+
+def _post_op_days(supabase, clinic_id: str, patient_ids: set[str]) -> dict[str, int]:
+    """Each patient's post-op day today, from the surgery date of their latest episode."""
+    if not patient_ids:
+        return {}
+    latest: dict[str, dict] = {}
+    for ep in (
+        supabase.table("episodes")
+        .select(episodes.COLUMNS)
+        .eq("clinic_id", clinic_id)
+        .in_("patient_id", sorted(patient_ids))
+        .order("created_at", desc=True)
+        .execute()
+        .data
+    ):
+        latest.setdefault(ep["patient_id"], ep)
+    states = episodes.states_for(supabase, list(latest.values()), clock.now())
+    return {pid: states[ep["id"]].post_op_day for pid, ep in latest.items()}
 
 
 def _procedure_names(supabase, clinic_id: str) -> dict[str, str]:
@@ -78,7 +98,7 @@ def get_queue(
     )
     unread = (
         supabase.table("messages")
-        .select("id, patient_id, created_at")
+        .select("id, patient_id, category, created_at")
         .eq("clinic_id", clinic_id)
         .eq("sender", "patient")
         .is_("read_at", "null")
@@ -95,6 +115,7 @@ def get_queue(
 
     patient_ids = set(check_ins_by_patient) | set(unread_by_patient)
     names = _patient_names(supabase, clinic_id, patient_ids)
+    post_op_days = _post_op_days(supabase, clinic_id, patient_ids)
 
     items: list[QueueItem] = []
     for pid in patient_ids:
@@ -110,7 +131,8 @@ def get_queue(
                 unreviewed_check_ins=len(cis),
                 unread_messages=len(msgs),
                 latest_check_in_id=latest["id"] if latest else None,
-                latest_post_op_day=latest["post_op_day"] if latest else None,
+                latest_post_op_day=post_op_days.get(pid),
+                unread_categories=sorted({m["category"] for m in msgs if m["category"]}),
                 last_activity_at=max(activity, key=_ts),
             )
         )

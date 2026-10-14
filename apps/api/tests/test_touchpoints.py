@@ -15,8 +15,8 @@ from clinically_anchored_api.api import touchpoints as touchpoints_api
 from clinically_anchored_api.core import auth as auth_module
 from clinically_anchored_api.core import touchpoints as touchpoints_core
 from clinically_anchored_api.core.audit import AuditWriteError
-from clinically_anchored_api.core.security import create_link_token
 from clinically_anchored_api.main import app
+from tests.fakes import Links, open_episode, send_rpcs
 
 CLINIC_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 CLINIC_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
@@ -99,7 +99,8 @@ class _FakeSupabase:
         return _Query(self, name)
 
     def rpc(self, name, params):
-        assert name == "decide_message_draft"
+        if name != "decide_message_draft":
+            return send_rpcs(lambda row: self.insert("messages", row))(name, params)
         return _Rpc(self, params)
 
     def insert(self, name, payload):
@@ -125,7 +126,8 @@ class _FakeSupabase:
             body = draft["draft_text"] if p_decision == "approved" else p_final_text
             message = self.insert("messages", {
                 "clinic_id": draft["clinic_id"], "patient_id": draft["patient_id"],
-                "sender": "clinician", "body": body,
+                "sender": "clinician", "body": body, "episode_id": "ep-1", "origin": "clinician",
+                "interval_no": None, "category": None, "reply_to_message_id": None,
             })
             draft.update(final_text=body, sent_message_id=message["id"])
         draft.update(status=p_decision, decided_by=p_decided_by, decided_at="2026-01-02T00:00:00Z")
@@ -146,6 +148,7 @@ def fake(monkeypatch, audit_calls):
     fake = _FakeSupabase()
     for module in (touchpoints_api, messages_module, drafts_module, auth_module):
         monkeypatch.setattr(module, "get_supabase", lambda: fake)
+    open_episode(monkeypatch)
     return fake
 
 
@@ -351,9 +354,11 @@ def test_sending_a_message_auto_logs_a_touchpoint(client, fake, audit_calls):
     assert [t["kind"] for t in client.get(_url(), headers=AUTH).json()] == ["message"]
 
 
-def test_a_patients_message_is_not_a_touchpoint(client, fake):
-    token = create_link_token(clinic_id=CLINIC_A, patient_id=PATIENT_A, scope="messages")
-    r = client.post("/messages", params={"token": token}, json={"body": "Pain is worse"})
+def test_a_patients_message_is_not_a_touchpoint(client, fake, monkeypatch):
+    token = Links(monkeypatch).token()
+    r = client.post(
+        "/messages", params={"token": token}, json={"body": "Pain is worse", "category": "admin"}
+    )
     assert r.status_code == 200
     assert fake.tables["touchpoints"] == []
 

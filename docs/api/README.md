@@ -38,27 +38,61 @@ patient's link token), not the database.
 
 Built (on `main`):
 
-- Check-in intake: `POST /check-ins`, `GET /check-ins/context`, signed/expiring link
-  tokens (`core/security.py`), dev-only `POST /dev/check-in-links`.
+- **Messaging v2 (scheduled patient messaging), stage 2.** Read this first: the rules are the
+  surgeon's, the placeholders are marked. An **episode** is one patient's post-op period
+  (migration 9): surgery date and procedure entered by the clinic when the patient is added
+  (`POST /clinics/{id}/patients` now takes `surgery_date` and `procedure_id`, and creates the
+  patient and their episode together; `POST .../patients/{pid}/episodes` starts a new surgery
+  for an existing patient), on the newest `message_schedules` version. The schedule is DATA
+  (offsets in days from the surgery date, opening time, timezone, close-after), versioned; v1 =
+  2,3,5,7,14,21,28,35,42 at 07:00 America/Toronto, closing 7 days after the last opening --
+  **placeholder offsets pending the surgeon**. Messaging is locked until the patient completes
+  the post-op check-in (one per episode); then they may send ONE message per interval (a
+  category key is required: `core/categories.py`, placeholders), intervals open on the clock
+  not on the last message, an unused interval is gone when the next opens, and a late check-in
+  does not give back passed intervals (they are `missed`). Every clinician message lets the
+  patient send one reply (to the latest one) outside the intervals, even before the check-in.
+  Clinicians can message any time while the episode is open. The episode closes when the last
+  interval ends (lazily "settled" by the first request that notices, audited
+  `episode.closed` by `system`) or when an owner/clinician discharges it
+  (`POST /clinics/{id}/episodes/{eid}/close`, no undo).
+- **The engine** (`core/schedule.py`) is a pure function of (surgery date, schedule, `now`,
+  check-in time, close, used intervals, reply available) -> `EpisodeState` (phase `locked_checkin`
+  / `waiting` / `open` / `used` / `closed`, the open interval, when the next opens, missed
+  intervals). Interval state is computed, never stored. Tested with a pinned clock including the
+  Toronto clock changes (`tests/test_schedule.py`). `core/episodes.py` gathers the facts and
+  settles; `core/clock.py` is the one source of "now". The database enforces what a race could
+  break (one scheduled message per interval, one reply per doctor message, nothing into a
+  closed episode) through service-role functions (migration 9); the api decides which interval is
+  open. `tests/db/` runs the api against a real Postgres end to end (not in CI yet).
+- **The patient's link** (`core/security.py`): ONE signed token per episode carrying the episode
+  id and `link_generation`. On every request the api loads the episode: a reset link (generation
+  bumped) is 401, a closed episode is 410. `GET /episode?token=` is the one patient route that
+  still answers once closed, and says only `closed` plus the clinic's `office_phone`. The token
+  has no short expiry (a 120-day backstop); `POST .../episodes/{eid}/link` returns the same URL
+  each time (`/care?token=`, the web page is stage 3), `.../link/reset` revokes it. The old
+  `checkin` / `messages` scopes, their separate expiries and `/dev/check-in-links` are gone
+  (dev: `POST /dev/episode-links`). Patient routes: `GET /episode`, `GET`/`POST /messages`
+  (`kind` scheduled|reply, `category`), `GET /check-ins/context`, `POST /check-ins` (the
+  post-op day is computed, the procedure is the clinic's), `/consents`.
+- Check-in intake: `POST /check-ins`, `GET /check-ins/context` (see above).
 - Red-flag rules (`core/rules.py`) -- **placeholder logic**, not Sarah's real list.
 - Clinician auth (`core/auth.py`): Supabase JWT + `clinic_members` check per clinic.
 - Messages: clinician side (list thread, send, mark read; JWT auth) and patient side
-  (`GET`/`POST /messages?token=`; sender forced to `patient`). Both send paths share one
-  insert-and-audit function. Link tokens are scoped: `checkin` (14-day expiry) and
-  `messages` (48h, `MESSAGE_LINK_MAX_AGE_SECONDS`); a token only works on routes of its
-  own scope. Still bearer links -- anyone holding a messages link can read the thread until
-  it expires. Mark-read is audited (`message.read`, first read only).
+  (`GET`/`POST /messages?token=`; sender forced to `patient`). Sends go through the database
+  functions `send_clinician_message` / `send_patient_message`. Mark-read is audited
+  (`message.read`, first read only). Every message records its episode, `origin`
+  (scheduled / reply / clinician), interval and category.
 - Rate limiting on every link-token route (`core/ratelimit.py`, applied in the token
-  dependency in `core/security.py`): per patient, sliding 60s window, 60 reads and 10 writes
+  dependency in `core/security.py`): per episode, sliding 60s window, 60 reads and 10 writes
   per minute (`PATIENT_LINK_READS_PER_MINUTE` / `PATIENT_LINK_WRITES_PER_MINUTE`; 0 disables).
   429 with `Retry-After`. **In-memory, single instance:** counters reset on restart and are
   not shared across instances/workers -- Redis-backed limiting is a Pro-tier job and `hit()`
-  is the seam to swap. Keyed by the verified token's patient (shared across their link
-  scopes), not by IP: behind Railway's proxy `request.client.host` isn't the real client unless
+  is the seam to swap. Keyed by the verified token's episode, not by IP: behind Railway's proxy `request.client.host` isn't the real client unless
   uvicorn is told to trust forwarded headers. Invalid tokens aren't counted (rejected by HMAC
   before any DB work). Clinician routes are not rate limited.
 - Consent records (`api/consents.py`, migration 5, data-catalogue D12) -- **storage and audit
-  only, nothing is gated.** Patient side, any link scope: `GET /consents`, `POST /consents`
+  only, nothing is gated.** Patient side, via the episode link (open episodes only): `GET /consents`, `POST /consents`
   (`consent_type` slug + `consent_text_version`), `POST /consents/{type}/revoke`. Clinician side:
   `GET /clinics/{id}/patients/{pid}/consents` (current `active` types + full history).
   One row per grant; withdrawing sets `revoked_at` on every live grant of that type, a later
@@ -72,14 +106,16 @@ Built (on `main`):
   "record a withdrawal on the patient's behalf" route (who may do that is part of the same
   open question).
 - Clinician queue (`api/queue.py`): `GET /clinics/{id}/queue` (patients needing attention:
-  unreviewed check-ins + unread patient messages, unreviewed red flags first),
+  unreviewed check-ins + unread patient messages, unreviewed red flags first; each item
+  carries today's post-op day from the surgery date and the categories of unread messages),
   `GET /clinics/{id}/check-ins` (filters: unreviewed / red flag / patient), and
   `POST /clinics/{id}/check-ins/{id}/review` (idempotent, audited as `check_in.reviewed`).
   Migration 4 adds `check_ins.reviewed_at/by`. Queue reads cap at 1000 rows per query.
 - Clinic/patient management for the web app: `GET /me`, `GET`/`POST /clinics/{id}/patients`
-  (audited `patient.created`), and `POST /clinics/{id}/patients/{pid}/links/{checkin|messages}`
-  which returns a copyable URL (audited `link.issued`, token never logged). Link issuance
-  stands in for SMS/email delivery during trials; needs `WEB_BASE_URL` outside development.
+  (audited `patient.created` and `episode.created`; the list carries each patient's latest
+  episode and its computed state), and the episode routes above. Link issuance (audited
+  `link.issued`, token never logged) stands in for SMS/email delivery during trials; needs
+  `WEB_BASE_URL` outside development.
   Patients stay link-only (no patient sign-in) -- decision for the trial; revisit with Sarah.
 - Startup guard: outside `ENVIRONMENT=development` the app refuses to start unless
   `CHECKIN_LINK_SECRET`, `AUDIT_SIGNING_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` are set.
@@ -88,7 +124,10 @@ Built (on `main`):
   `GET /clinics/{id}/audit-log/verify` (checks each row against the public key named by its
   `key_id`; keys other than the current one come from `AUDIT_PUBLIC_KEYS`). Audited events:
   `check_in.submitted`/`.reviewed`, `message.sent`/`.read`, `patient.created`, `link.issued`,
-  `consent.granted`/`.revoked`, `touchpoint.logged`.
+  `episode.created`/`.corrected`/`.closed`/`.link_rotated`, `consent.granted`/`.revoked`,
+  `touchpoint.logged`. `message.sent` carries the episode, origin, interval and category key in
+  its readable metadata (a menu choice, not content) and the text only in the hashed payload;
+  `check_in.submitted` records the intervals that had already passed (`missed_intervals`).
   Known gap: the business row and its audit row are separate writes, so a failure
   between them leaves an unaudited row (the request returns 500 and logs it; the row stays).
   Reconciliation is a script, not an endpoint: `python -m clinically_anchored_api.core.reconcile
@@ -96,7 +135,8 @@ Built (on `main`):
   matches every row against `audit_log` by clinic, `event_type` and `metadata.ref_id`, and
   reports unaudited rows (exit 1) plus, informationally, audit events whose row is gone. It is
   read-only and selects ids/timestamps only; what to do about an orphan is a human decision.
-  Links can't orphan: they have no row, and the URL is returned only after its audit write.
+  Links can't orphan: they have no row, and the URL is returned only after its audit write
+  (so `link.issued` and `episode.link_rotated` have no reconcile check; episodes do).
   Rows that predate an event type (seed-migration patients, messages read before `message.read`
   was audited) show as unaudited -- scope with `--since`.
 

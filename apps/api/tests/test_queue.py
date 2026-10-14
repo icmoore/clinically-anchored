@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from clinically_anchored_api.api import queue as queue_module
 from clinically_anchored_api.core import auth as auth_module
 from clinically_anchored_api.main import app
+from tests.fakes import V1_ROW, canned_episode, pin_clock
 
 A, B = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 P1, P2, P3, PB = "p1", "p2", "p3", "pb"
@@ -65,11 +66,24 @@ class _Fake:
                     "post_op_day": day, "answers": {"fever": flag}, "is_red_flag": flag,
                     "created_at": ts, "reviewed_at": reviewed, "reviewed_by": None}
 
-        def msg(id, pid, ts, sender="patient", read=None, clinic=A):
+        def msg(id, pid, ts, sender="patient", read=None, clinic=A, category="admin"):
+            clinician = sender == "clinician"
             return {"id": id, "clinic_id": clinic, "patient_id": pid, "sender": sender,
+                    "episode_id": f"ep-{pid}", "origin": "clinician" if clinician else "scheduled",
+                    "interval_no": None if clinician else 1,
+                    "category": None if clinician else category, "reply_to_message_id": None,
                     "read_at": read, "created_at": ts}
 
+        def episode(pid, surgery_date, clinic=A):
+            return canned_episode(id=f"ep-{pid}", clinic_id=clinic, patient_id=pid,
+                                  surgery_date=surgery_date)
+
         self.t = {
+            "message_schedules": [dict(V1_ROW)],
+            "episodes": [
+                episode(P1, "2026-09-30"), episode(P2, "2026-10-02"), episode(P3, "2026-10-03"),
+                episode(PB, "2026-10-01", clinic=B),
+            ],
             "clinic_members": [{"clinic_id": A, "user_id": USER, "role": "clinician"}],
             "patients": [
                 {"id": P1, "clinic_id": A, "full_name": "Pat One"},
@@ -85,8 +99,8 @@ class _Fake:
                 ci("cb", PB, "2026-01-01T12:00:00+00:00", flag=True, clinic=B),
             ],
             "messages": [
-                msg("m1", P1, "2026-01-01T11:00:00+00:00"),                      # unread from P1
-                msg("m2", P3, "2026-01-01T14:00:00+00:00"),                      # unread, P3 only
+                msg("m1", P1, "2026-01-01T11:00:00+00:00", category="medication"),  # unread, P1
+                msg("m2", P3, "2026-01-01T14:00:00+00:00", category="symptom_or_wound"),
                 msg("m3", P1, "2026-01-01T15:00:00+00:00", sender="clinician"),  # not patient
                 msg("m4", P2, "2026-01-01T08:00:00+00:00", read="2026-01-01T08:30:00+00:00"),
             ],
@@ -106,6 +120,7 @@ def fake(monkeypatch):
     monkeypatch.setattr(queue_module, "get_supabase", lambda: f)
     monkeypatch.setattr(auth_module, "get_supabase", lambda: f)
     monkeypatch.setattr(queue_module, "record_event", lambda _db, **kw: audits.append(kw))
+    pin_clock(monkeypatch)  # Saturday 3 Oct 2026, 07:30 Toronto
     return f
 
 
@@ -131,6 +146,16 @@ def test_queue_puts_unreviewed_red_flags_first_then_latest_activity(client):
     assert p3["latest_check_in_id"] is None
     assert p1["unreviewed_check_ins"] == 1 and p1["unread_messages"] == 1
     assert p1["last_activity_at"] == "2026-01-01T11:00:00+00:00"
+
+
+def test_queue_shows_todays_post_op_day_from_the_surgery_date_and_unread_categories(client):
+    items = {i["patient_id"]: i for i in client.get(f"/clinics/{A}/queue", headers=AUTH).json()}
+    # Not the day the patient typed into an old check-in: today minus the surgery date.
+    assert (items[P1]["latest_post_op_day"], items[P2]["latest_post_op_day"],
+            items[P3]["latest_post_op_day"]) == (3, 1, 0)
+    assert items[P1]["unread_categories"] == ["medication"]
+    assert items[P3]["unread_categories"] == ["symptom_or_wound"]
+    assert items[P2]["unread_categories"] == []
 
 
 def test_queue_excludes_other_clinics(client):

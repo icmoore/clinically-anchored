@@ -8,8 +8,8 @@ from clinically_anchored_api.api import messages as messages_module
 from clinically_anchored_api.api import summaries as summaries_module
 from clinically_anchored_api.core import ai
 from clinically_anchored_api.core import auth as auth_module
-from clinically_anchored_api.core.security import create_link_token
 from clinically_anchored_api.main import app
+from tests.fakes import Links, open_episode, send_rpcs
 
 CLINIC_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 CLINIC_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
@@ -97,6 +97,15 @@ class _FakeSupabase:
     def table(self, name):
         return _Query(self, name)
 
+    def rpc(self, name, params):
+        def insert(row):
+            row = {"id": f"msg-{len(self.tables['messages']) + 1}", "read_at": None,
+                   "created_at": "2026-01-01T00:00:00Z", **row}
+            self.tables["messages"].append(row)
+            return dict(row)
+
+        return send_rpcs(insert)(name, params)
+
 
 @pytest.fixture
 def audit_calls(monkeypatch):
@@ -129,6 +138,7 @@ def fake(monkeypatch, audit_calls, model):
     fake = _FakeSupabase()
     for module in (summaries_module, messages_module, auth_module):
         monkeypatch.setattr(module, "get_supabase", lambda: fake)
+    open_episode(monkeypatch)
     return fake
 
 
@@ -338,10 +348,12 @@ def test_requires_membership_and_the_right_clinic_and_patient(client, thread):
     assert client.post(_url(patient=PATIENT_B), headers=AUTH).status_code == 404
 
 
-def test_new_messages_never_trigger_a_summary(client, fake, model, audit_calls):
+def test_new_messages_never_trigger_a_summary(client, fake, model, audit_calls, monkeypatch):
     # Messages arriving from either side must not call the model or write summary events.
-    token = create_link_token(clinic_id=CLINIC_A, patient_id=PATIENT_A, scope="messages")
-    r = client.post("/messages", params={"token": token}, json={"body": "new message"})
+    token = Links(monkeypatch).token()
+    r = client.post(
+        "/messages", params={"token": token}, json={"body": "new message", "category": "admin"}
+    )
     assert r.status_code == 200
     fake.tables["clinic_members"][0]["role"] = "clinician"
     r = client.post(f"/clinics/{CLINIC_A}/patients/{PATIENT_A}/messages", headers=AUTH,

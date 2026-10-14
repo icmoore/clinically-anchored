@@ -30,10 +30,10 @@ class Settings(BaseSettings):
     # Railway -- otherwise every issued link breaks on restart, and differs
     # between instances. Enforced by `_require_secrets_outside_development`.
     checkin_link_secret: str = ""
-    checkin_link_max_age_seconds: int = 60 * 60 * 24 * 14  # 14 days
-    # Message links expose a whole conversation, so they're separate tokens
-    # (scope=messages) with a much shorter life than check-in links.
-    message_link_max_age_seconds: int = 60 * 60 * 24 * 2  # 48 hours
+    # A patient link lasts as long as its episode, and is revoked server-side (closing the
+    # episode, or rotating the link) -- see core/security.py. This is only a backstop for a
+    # token whose episode somehow never closed: longer than the longest schedule.
+    patient_link_backstop_max_age_seconds: int = 60 * 60 * 24 * 120  # 120 days
 
     # Per-patient request budgets on link-token routes (see core/ratelimit.py).
     # In-memory, so per instance; 0 or less turns a budget off.
