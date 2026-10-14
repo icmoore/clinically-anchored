@@ -59,6 +59,10 @@ Needs migration 9 applied (after supabase/scripts/reset_trial_data.sh). Re-runni
 demo clinic, membership and procedures are reused, and a patient that already exists (matched by
 its synthetic contact address) is skipped, never duplicated.
 
+--clinic dev fills the shared dev clinic instead of the separate demo clinic (the same patients,
+so each account has its own copy to click through). The dev clinic must already exist and the
+account must already be a member of it: this never adds a membership to it.
+
 --include-alternate-schedule also adds schedule version 2 (offsets 2,5,10,17,...) and patient 14.
 Version 2 then becomes the NEWEST schedule, and every patient added from the dashboard afterwards
 gets it. Leave it off unless you mean that.
@@ -886,6 +890,29 @@ def ensure_demo_clinic(supabase, user_id: str) -> str:
     return clinic_id
 
 
+def ensure_dev_clinic(supabase, user_id: str) -> str:
+    """The shared dev clinic (migrations 2 and 7), for `--clinic dev`. It must already exist, with
+    its procedures, and the user must already be a member: this never changes who has access."""
+    found = supabase.table("clinics").select("id, name").eq("id", SOURCE_CLINIC_ID).execute().data
+    if not found:
+        raise SystemExit("The dev clinic does not exist in this database.")
+    member = (
+        supabase.table("clinic_members")
+        .select("role")
+        .eq("clinic_id", SOURCE_CLINIC_ID)
+        .eq("user_id", user_id)
+        .execute()
+        .data
+    )
+    if not member:
+        raise SystemExit(
+            "That account is not a member of the dev clinic. Seeding does not add memberships "
+            "to it; add one yourself if you mean to."
+        )
+    print(f"Using the dev clinic {found[0]['name']!r} ({SOURCE_CLINIC_ID}), as {member[0]['role']}")
+    return SOURCE_CLINIC_ID
+
+
 def ensure_alternate_schedule(supabase) -> None:
     """Add schedule version 2 if it is missing. It becomes the newest version, which new
     patients from the dashboard use: say so loudly."""
@@ -1231,6 +1258,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--email", help="the clinician's Supabase Auth email (required to write)")
     parser.add_argument("--dry-run", action="store_true", help="print the plan; write nothing")
     parser.add_argument(
+        "--clinic",
+        choices=("demo", "dev"),
+        default="demo",
+        help="which clinic to fill: the separate demo clinic (default, created if missing) or "
+        "the shared dev clinic (it must exist, and the account must already be a member)",
+    )
+    parser.add_argument(
         "--include-alternate-schedule",
         action="store_true",
         help="also add schedule version 2 and patient 14 (v2 then becomes the newest schedule)",
@@ -1269,7 +1303,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     user_id = find_user_id(supabase, args.email)
-    clinic_id = ensure_demo_clinic(supabase, user_id)
+    clinic_id = (
+        ensure_dev_clinic(supabase, user_id)
+        if args.clinic == "dev"
+        else ensure_demo_clinic(supabase, user_id)
+    )
     for plan in plans:
         seed_patient(
             supabase, clinic_id=clinic_id, user_id=user_id, plan=plan,

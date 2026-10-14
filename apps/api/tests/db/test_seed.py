@@ -216,3 +216,37 @@ def test_a_patient_link_for_a_seeded_episode_opens_what_the_plan_says(env, monke
         assert state["phase"] == plan.expect.phase.value, plan.label
         thread = client.get("/messages", params={"token": token})
         assert thread.status_code == (410 if plan.expect.phase is seed.Phase.CLOSED else 200)
+
+
+def test_the_dev_clinic_can_be_seeded_too_without_touching_membership(env):
+    # The dev clinic (migrations 2 and 7) exists; the account is already a member of it.
+    env.conn.execute(
+        "insert into clinic_members (clinic_id, user_id, role) values (%s, %s, 'owner')",
+        (seed.SOURCE_CLINIC_ID, env.user_id),
+    )
+    members_before = counts_of(env.conn, "clinic_members")
+    plans = seed.build_plan(NOW)
+    schedules = seed.load_schedules(env.pg, {1})
+    assert seed.validate_plan(plans, NOW, schedules) == []
+    clinic_id = seed.ensure_dev_clinic(env.pg, env.user_id)
+    assert clinic_id == seed.SOURCE_CLINIC_ID
+    for plan in plans:
+        seed.seed_patient(
+            env.pg, clinic_id=clinic_id, user_id=env.user_id, plan=plan, schedule=schedules[1]
+        )
+    assert counts_of(env.conn, "clinic_members") == members_before
+    rows = audit.fetch_chain(env.pg, clinic_id)
+    assert audit.verify_chain(rows, audit.trusted_public_keys())["ok"]
+    assert reconcile.reconcile(env.pg, clinic_id=clinic_id).ok
+    # Its own chain: the demo clinic (not seeded here) has no events.
+    demo = env.conn.execute("select count(*) as n from clinics where name = %s", (seed.DEMO_CLINIC_NAME,))
+    assert demo.fetchone()["n"] == 0
+
+
+def test_seeding_the_dev_clinic_refuses_an_account_that_is_not_a_member(env):
+    with pytest.raises(SystemExit, match="not a member"):
+        seed.ensure_dev_clinic(env.pg, env.user_id)
+
+
+def counts_of(conn, table):
+    return conn.execute(f"select count(*) as n from {table}").fetchone()["n"]
