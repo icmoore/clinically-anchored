@@ -6,7 +6,13 @@ from clinically_anchored_api.core.audit import AuditWriteError, record_event
 from clinically_anchored_api.core.db import get_supabase
 from clinically_anchored_api.core.rules import evaluate_red_flags
 from clinically_anchored_api.core.security import PatientLink, require_patient_link
-from clinically_anchored_api.schemas import CheckInContext, CheckInCreate, CheckInOut, Procedure
+from clinically_anchored_api.schemas import (
+    CheckInContext,
+    CheckInCreate,
+    CheckInOut,
+    PatientCheckInOut,
+    Procedure,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +39,36 @@ def check_in_context(link: PatientLink = Depends(require_patient_link)) -> Check
         procedure=Procedure(**rows[0]),
         post_op_day=link.state.post_op_day,
         check_in_done=link.episode["checkin_completed_at"] is not None,
+    )
+
+
+@router.get("/check-ins/mine", response_model=PatientCheckInOut | None)
+def my_check_in(link: PatientLink = Depends(require_patient_link)) -> PatientCheckInOut | None:
+    """What the patient entered at their check-in, so they can look it up later (null until they
+    have checked in). Only the answers and when; never the clinic's red flag or review state."""
+    supabase = get_supabase()
+    rows = (
+        supabase.table("check_ins")
+        .select("created_at, post_op_day, answers, procedure_id")
+        .eq("episode_id", link.episode_id)
+        .limit(1)
+        .execute()
+        .data
+    )
+    if not rows:
+        return None
+    row = rows[0]
+    names = (
+        supabase.table("procedures").select("name").eq("id", row["procedure_id"])
+        .eq("clinic_id", link.clinic_id).execute().data
+        if row["procedure_id"]
+        else []
+    )
+    return PatientCheckInOut(
+        submitted_at=row["created_at"],
+        post_op_day=row["post_op_day"],
+        procedure_name=names[0]["name"] if names else None,
+        answers=row["answers"],
     )
 
 

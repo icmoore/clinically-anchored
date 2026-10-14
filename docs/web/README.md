@@ -122,6 +122,11 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
     category, replies say "Reply"), a reply box when the care team has written (one reply, outside
     the window), and the scheduled form: pick one of the categories, then write. All times are
     shown in the clinic's timezone (`inZone`), not the device's.
+  - **Your check-in** (`CheckInCard` in `patient-home.tsx`): at the top of the conversation, what the
+    patient entered at their check-in (their answers, and "in your own words"), collapsed to a
+    one-line reminder that opens to the full answers; shown only once they have checked in. It
+    reads `GET /check-ins/mine`, which returns the answers and when, never the clinic's red flag or
+    review state.
   - Category labels (`lib/categories.ts`) are placeholders; the api stores the key.
   - `/check-in`: the procedure is the clinic's choice (from the episode), so the picker and the
     typed "days since surgery" are gone; the post-op day is worked out by the api. One check-in

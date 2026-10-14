@@ -83,6 +83,16 @@ class CheckInContext(BaseModel):
     check_in_done: bool
 
 
+class PatientCheckInOut(BaseModel):
+    """The patient's own check-in, shown back to them: what they entered, nothing the clinic
+    derived from it (no red flag, no review state)."""
+
+    submitted_at: str
+    post_op_day: int | None
+    procedure_name: str | None
+    answers: dict
+
+
 MessageText = Field(min_length=1, max_length=5000)
 
 

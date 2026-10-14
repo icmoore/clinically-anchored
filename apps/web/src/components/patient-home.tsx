@@ -3,9 +3,19 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useState } from "react";
-import { ApiError, PatientMessage, PatientState, getPatientState, getPatientThread, sendPatientMessage } from "@/lib/api";
+import {
+  ApiError,
+  MyCheckIn,
+  PatientMessage,
+  PatientState,
+  getMyCheckIn,
+  getPatientState,
+  getPatientThread,
+  sendPatientMessage,
+} from "@/lib/api";
 import { categoryLabel } from "@/lib/categories";
 import { inZone } from "@/lib/format";
+import { buildSummary } from "@/lib/symptoms";
 import { usePolling } from "@/lib/use-polling";
 import { ClosedScreen, InvalidLinkScreen, PatientFrame } from "./patient-frame";
 
@@ -19,8 +29,13 @@ export function PatientHome() {
   const fetchAll = useCallback(async () => {
     const state = await getPatientState(token);
     // A closed link opens nothing but its own "closed" answer.
-    const thread = state.phase === "closed" ? [] : await getPatientThread(token);
-    return { state, thread };
+    if (state.phase === "closed") return { state, thread: [], checkIn: null };
+    const [thread, checkIn] = await Promise.all([
+      getPatientThread(token),
+      // Their own check-in, shown back to them. Not essential: if it fails the rest still works.
+      state.check_in_done ? getMyCheckIn(token).catch(() => null) : Promise.resolve(null),
+    ]);
+    return { state, thread, checkIn };
   }, [token]);
   const { data, failed, error, reload } = usePolling(fetchAll, REFRESH_MS);
 
@@ -37,12 +52,13 @@ export function PatientHome() {
     );
   }
 
-  const { state, thread } = data;
+  const { state, thread, checkIn } = data;
   if (state.phase === "closed") return <ClosedScreen phone={state.office_phone} />;
 
   return (
     <PatientFrame title="Messages with your care team" phone={state.office_phone}>
       {failed && <p className="mb-3 text-sm text-flag-text">Couldn&apos;t refresh. Retrying...</p>}
+      {checkIn && <CheckInCard checkIn={checkIn} timeZone={state.timezone} />}
       <Thread thread={thread} timeZone={state.timezone} />
       {/* The notice sits just above the box it is about: the message window's form when there is
           one (a reply box, if any, comes before it), otherwise above the reply box, otherwise at
@@ -122,6 +138,53 @@ function StatusPanel({ state, token }: { state: PatientState; token: string }) {
         <p className="mt-2 text-xs opacity-80">{[day, window].filter(Boolean).join(" · ")}</p>
       )}
     </section>
+  );
+}
+
+/** What the patient entered at their check-in, at the top of the conversation: people forget what
+ *  they told the care team. Collapsed to a one-line reminder; opens to the full answers. */
+function CheckInCard({ checkIn, timeZone }: { checkIn: MyCheckIn; timeZone: string | null }) {
+  const { concerns_text: concerns, ...answers } = checkIn.answers;
+  const reported = Array.isArray(answers.symptoms) ? answers.symptoms.length : 0;
+  const details = buildSummary({ answers });
+  return (
+    <details className="mb-4 rounded-lg border border-border bg-surface">
+      <summary className="cursor-pointer px-4 py-3 text-sm text-ink">
+        <span className="font-medium">Your check-in</span>
+        <span className="text-muted">
+          {" "}
+          &middot; {inZone(checkIn.submitted_at, timeZone)}
+          {" "}&middot; {reported > 0 ? `${reported} symptom${reported === 1 ? "" : "s"} reported` : "no symptoms reported"}
+        </span>
+      </summary>
+      <div className="border-t border-border px-4 py-3 text-sm text-ink">
+        <p className="mb-2 text-xs text-muted">
+          What you told the care team{checkIn.procedure_name ? ` after your ${checkIn.procedure_name}` : ""}.
+        </p>
+        {details.split("\n").filter(Boolean).map((line, i) => {
+          // "Pain -- Rate your pain...: 6/10; How is it changing...: Same" -> a heading and a list.
+          const [label, rest] = line.split(" -- ");
+          return rest ? (
+            <div key={i} className="mt-2">
+              <p className="font-medium">{label}</p>
+              <ul className="ml-4 list-disc space-y-0.5">
+                {rest.split("; ").map((part, j) => (
+                  <li key={j}>{part}</li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <p key={i}>{line}</p>
+          );
+        })}
+        {typeof concerns === "string" && concerns && (
+          <p className="mt-2 whitespace-pre-wrap">
+            <span className="text-muted">In your own words: </span>
+            {concerns}
+          </p>
+        )}
+      </div>
+    </details>
   );
 }
 

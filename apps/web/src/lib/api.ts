@@ -95,6 +95,15 @@ export interface PatientMessage {
   created_at: string;
 }
 
+/** What the patient entered at their check-in, read back to them (null until they have). */
+export interface MyCheckIn {
+  submitted_at: string;
+  post_op_day: number | null;
+  procedure_name: string | null;
+  answers: CheckInAnswers;
+}
+export const getMyCheckIn = (token: string) => request<MyCheckIn | null>(`/check-ins/mine${q(token)}`);
+
 export const getPatientState = (token: string) => request<PatientState>(`/episode${q(token)}`);
 export const getPatientThread = (token: string) => request<PatientMessage[]>(`/messages${q(token)}`);
 export const sendPatientMessage = (
