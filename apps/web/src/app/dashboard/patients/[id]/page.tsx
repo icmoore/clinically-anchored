@@ -6,17 +6,17 @@ import { useCallback, useRef, useState } from "react";
 import { AppHeader } from "@/components/app-header";
 import { ComposeBox, EarlierDrafts } from "@/components/compose-box";
 import { ContactLogSection } from "@/components/contact-log";
+import { EpisodeCard } from "@/components/episode-card";
 import { StatusBadge } from "@/components/status-badge";
 import { SummarySection } from "@/components/summary-view";
-import { ApiError } from "@/lib/api";
 import {
   CheckInDetail,
   Draft,
-  IssuedLink,
+  Episode,
   Message,
   Patient,
   Touchpoint,
-  issueLink,
+  getEpisode,
   listCheckIns,
   listDrafts,
   listPatients,
@@ -25,6 +25,8 @@ import {
   markRead,
   reviewCheckIn,
 } from "@/lib/clinician-api";
+import { categoryLabel } from "@/lib/categories";
+import { dayLabel } from "@/lib/episode";
 import { clock, timeAgo } from "@/lib/format";
 import { buildSummary } from "@/lib/symptoms";
 import { useClinician } from "@/lib/use-clinician";
@@ -72,8 +74,10 @@ function PatientView({
   }, []);
 
   const fetchAll = useCallback(async () => {
-    const [patients, checkIns, thread, drafts, touchpoints] = await Promise.all([
+    const [patients, episode, checkIns, thread, drafts, touchpoints] = await Promise.all([
       listPatients(clinicId),
+      // The latest episode, settled if its schedule has run out. No episode: the card says so.
+      getEpisode(clinicId, patientId).catch(() => null),
       listCheckIns(clinicId, patientId),
       listThread(clinicId, patientId),
       // Drafts are an add-on: if they fail to load, the rest of the page still works.
@@ -90,6 +94,7 @@ function PatientView({
     }
     return {
       patient: patients.find((p) => p.id === patientId) ?? null,
+      episode,
       checkIns,
       thread,
       drafts,
@@ -99,6 +104,7 @@ function PatientView({
   const { data, failed, reload } = usePolling(fetchAll, REFRESH_MS);
 
   const patient: Patient | null | undefined = data ? data.patient : undefined;
+  const episode: Episode | null = data?.episode ?? null;
   const checkIns: CheckInDetail[] | null = data?.checkIns ?? null;
   const thread: Message[] | null = data?.thread ?? null;
   const drafts: Draft[] | null = data?.drafts ?? null;
@@ -126,7 +132,7 @@ function PatientView({
         {error && <p className="mt-1 text-sm text-flag-text">{error}</p>}
       </div>
 
-      <LinksCard clinicId={clinicId} patientId={patientId} />
+      <EpisodeCard clinicId={clinicId} role={role} episode={episode} onChanged={load} />
 
       <SummarySection
         clinicId={clinicId}
@@ -143,7 +149,7 @@ function PatientView({
           <p className="text-muted">Loading...</p>
         ) : checkIns.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border-strong p-4 text-muted">
-            No check-ins yet. Send this patient their check-in link above.
+            No check-in yet. Send this patient their link above: it opens the check-in first.
           </p>
         ) : (
           <ul className="space-y-2">
@@ -164,6 +170,8 @@ function PatientView({
           role={role}
           thread={thread}
           drafts={drafts}
+          episodeClosed={episode?.state.phase === "closed"}
+          replyAvailable={episode?.state.reply_available ?? false}
           highlighted={highlighted}
           onChanged={load}
         />
@@ -178,75 +186,6 @@ function PatientView({
         onChanged={load}
       />
     </main>
-  );
-}
-
-function LinksCard({ clinicId, patientId }: { clinicId: string; patientId: string }) {
-  const [link, setLink] = useState<IssuedLink | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function issue(scope: "checkin" | "messages") {
-    setBusy(scope);
-    setError(null);
-    setCopied(false);
-    try {
-      const issued = await issueLink(clinicId, patientId, scope);
-      setLink(issued);
-      try {
-        await navigator.clipboard.writeText(issued.url);
-        setCopied(true);
-      } catch {
-        // Clipboard can be blocked (e.g. non-HTTPS); the URL is shown below to copy by hand.
-      }
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't create that link.");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  return (
-    <section className="rounded-lg border border-border bg-surface p-4">
-      <h2 className="text-sm font-semibold text-ink">Send this patient a link</h2>
-      <p className="mt-1 text-sm text-muted">
-        Creates a private link and copies it. Text or email it to the patient yourself; anyone with
-        the link can use it until it expires.
-      </p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          onClick={() => issue("checkin")}
-          disabled={busy !== null}
-          className="rounded-md border border-primary text-primary enabled:hover:bg-primary-tint px-3 py-2 text-sm font-medium disabled:opacity-60"
-        >
-          Copy check-in link
-        </button>
-        <button
-          onClick={() => issue("messages")}
-          disabled={busy !== null}
-          className="rounded-md border border-primary text-primary enabled:hover:bg-primary-tint px-3 py-2 text-sm font-medium disabled:opacity-60"
-        >
-          Copy messages link
-        </button>
-      </div>
-      {error && <p className="mt-2 text-sm text-flag-text">{error}</p>}
-      {link && (
-        <div className="mt-3 space-y-1">
-          <p className="text-xs text-muted">
-            {copied ? "Copied. " : "Copy this link: "}
-            {link.scope === "checkin" ? "Check-in" : "Messages"} link, valid until{" "}
-            {clock(link.expires_at)}.
-          </p>
-          <input
-            readOnly
-            value={link.url}
-            onFocus={(e) => e.currentTarget.select()}
-            className="w-full rounded-md border border-border-strong bg-surface-subtle px-2 py-1.5 font-mono text-xs"
-          />
-        </div>
-      )}
-    </section>
   );
 }
 
@@ -298,7 +237,7 @@ function CheckInCard({
         </div>
       </div>
       <p className="mt-1 text-sm text-muted">
-        {[checkIn.procedure_name, checkIn.post_op_day !== null && `post-op day ${checkIn.post_op_day}`]
+        {[checkIn.procedure_name, checkIn.post_op_day !== null && dayLabel(checkIn.post_op_day)]
           .filter(Boolean)
           .join(" · ") || "No procedure or day given"}
       </p>
@@ -322,6 +261,8 @@ function Thread({
   role,
   thread,
   drafts,
+  episodeClosed,
+  replyAvailable,
   highlighted,
   onChanged,
 }: {
@@ -330,6 +271,8 @@ function Thread({
   role: string;
   thread: Message[] | null;
   drafts: Draft[] | null;
+  episodeClosed: boolean;
+  replyAvailable: boolean;
   highlighted: string | null;
   onChanged: () => void;
 }) {
@@ -357,7 +300,8 @@ function Thread({
                 {m.body}
               </div>
               <p className="mt-0.5 text-xs text-muted">
-                {m.sender === "clinician" ? "You" : "Patient"} &middot; {clock(m.created_at)}
+                {m.sender === "clinician" ? "You" : "Patient"}
+                {messageKind(m) ? ` \u00b7 ${messageKind(m)}` : ""} &middot; {clock(m.created_at)}
               </p>
             </div>
           ))
@@ -370,9 +314,21 @@ function Thread({
           role={role}
           drafts={drafts}
           thread={thread}
+          episodeClosed={episodeClosed}
+          replyAvailable={replyAvailable}
           onChanged={onChanged}
         />
       </div>
     </div>
   );
+}
+
+/** What a patient message was: a reply to the clinic, or the message for a window, with the
+ *  topic they picked. Clinic messages have nothing to add. */
+function messageKind(m: Message): string | null {
+  if (m.sender !== "patient") return null;
+  if (m.origin === "reply") return "Reply";
+  const topic = m.category ? categoryLabel(m.category) : null;
+  const window = m.interval_no !== null ? `window ${m.interval_no}` : null;
+  return [topic, window].filter(Boolean).join(", ") || null;
 }

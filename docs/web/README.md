@@ -60,9 +60,19 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   since the session lives in the browser). No middleware is involved.
 - `/login`: clinician email + password via Supabase Auth (session handling only; all data
   goes through `apps/api`).
-- `/dashboard`: "Needs attention" queue (red flags first), add patient, all patients.
-- `/dashboard/patients/[id]`: copy a check-in or messages link for the patient, review
-  check-ins, read and reply to the message thread (one compose box, below), plus an AI summary:
+- `/dashboard`: "Needs attention" queue (red flags first, then latest activity; unchanged
+  ordering: each card also shows a chip per unread message category, and today's day after
+  surgery), add patient (the clinic enters the **surgery date and procedure**, both required;
+  they create the patient's care period), and all patients, each with where their care period
+  stands ("Check-in pending", "Window 3 of 9 open", "Discharged", ...).
+- `/dashboard/patients/[id]`: the **Care period** card (`components/episode-card.tsx`: procedure,
+  surgery date, day, the state computed by the api, windows that passed unused, whether the patient
+  has a reply open, one **patient link** to copy or reset, "fix surgery date or procedure" until
+  the patient has checked in, and **discharge** with a confirmation, owner/clinician only, no
+  undo), review check-ins, read and reply to the message thread (one compose box, below; each patient message shows its
+  category and window, or "Reply"; once the care period has ended the box is replaced by a note,
+  because the patient's link no longer works and a message could never be seen; every message
+  you send lets the patient send one reply, and the box says so), plus an AI summary:
   - **Summary** (`components/summary-view.tsx`): "Summarise this conversation" calls the api
     on demand (never automatic). Each line shows chips for the messages it cites; clicking a
     chip scrolls to and highlights that message in the thread. The api has already verified
@@ -122,7 +132,6 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
     to the nearest emergency department): `components/patient-frame.tsx`. All of this wording is
     a first draft.
   Patients are link-only for now; patient sign-in comes before real patients.
-  The clinician screens still use the old link and add-patient calls until the next stage.
 
 Uses the user's first clinic. Polls the api every 10-15s (no realtime yet). `shadcn/ui`
 was not initialized.

@@ -1,6 +1,6 @@
 // Calls to apps/api that need a signed-in clinician: the Supabase access token
 // is sent as a bearer token and the api checks clinic membership.
-import { request } from "./api";
+import { Procedure, request } from "./api";
 import { supabase } from "./supabase";
 
 export interface Clinic {
@@ -20,14 +20,51 @@ export interface QueueItem {
   unreviewed_check_ins: number;
   unread_messages: number;
   latest_check_in_id: string | null;
-  latest_post_op_day: number | null;
+  latest_post_op_day: number | null; // today's, from the surgery date (negative before it)
+  unread_categories: string[]; // category keys of the unread scheduled messages
   last_activity_at: string;
+}
+
+/** Where an episode stands now, computed by the api from the schedule and the clock. Times are
+ *  UTC instants: show them in the episode's `timezone`. */
+export type EpisodePhase = "locked_checkin" | "waiting" | "open" | "used" | "closed";
+export interface EpisodeState {
+  phase: EpisodePhase;
+  post_op_day: number;
+  intervals_total: number;
+  interval_no: number | null;
+  interval_opens_at: string | null;
+  interval_closes_at: string | null;
+  next_opens_at: string | null;
+  episode_closes_at: string;
+  closed_at: string | null;
+  close_reason: "discharged" | "schedule_complete" | null;
+  missed: number[]; // intervals that ended without a message
+  reply_available: boolean; // the patient may send one reply to the clinic's latest message
+  can_send_scheduled: boolean;
+  can_reply: boolean;
+}
+/** One post-op period: the surgery date and procedure the clinic entered, and the schedule. */
+export interface Episode {
+  id: string;
+  patient_id: string;
+  procedure_id: string;
+  procedure_name: string | null;
+  surgery_date: string; // YYYY-MM-DD
+  schedule_version: number;
+  timezone: string;
+  checkin_completed_at: string | null;
+  closed_at: string | null;
+  close_reason: "discharged" | "schedule_complete" | null;
+  created_at: string;
+  state: EpisodeState;
 }
 export interface Patient {
   id: string;
   full_name: string;
   contact: string | null;
   created_at: string;
+  episode: Episode | null; // the latest
 }
 export interface CheckInDetail {
   id: string;
@@ -42,15 +79,20 @@ export interface CheckInDetail {
 }
 export interface Message {
   id: string;
+  episode_id: string;
   sender: "clinician" | "patient" | "system";
   body: string;
+  origin: "scheduled" | "reply" | "clinician";
+  interval_no: number | null; // the message window a scheduled message used
+  category: string | null; // a key; see lib/categories.ts for the label
+  reply_to_message_id: string | null;
   read_at: string | null;
   created_at: string;
 }
+/** The patient's one link for the whole episode: the same URL until it is reset. */
 export interface IssuedLink {
-  scope: "checkin" | "messages";
   url: string;
-  expires_at: string;
+  generation: number;
 }
 
 export type DraftStatus = "pending" | "approved" | "edited" | "rejected";
@@ -102,10 +144,27 @@ const post = <T>(path: string, body?: unknown) =>
 export const getMe = () => authed<Me>("/me");
 export const getQueue = (clinic: string) => authed<QueueItem[]>(`/clinics/${clinic}/queue`);
 export const listPatients = (clinic: string) => authed<Patient[]>(`/clinics/${clinic}/patients`);
-export const createPatient = (clinic: string, body: { full_name: string; contact: string | null }) =>
-  post<Patient>(`/clinics/${clinic}/patients`, body);
-export const issueLink = (clinic: string, patient: string, scope: "checkin" | "messages") =>
-  post<IssuedLink>(`/clinics/${clinic}/patients/${patient}/links/${scope}`);
+export const createPatient = (
+  clinic: string,
+  body: { full_name: string; contact: string | null; surgery_date: string; procedure_id: string },
+) => post<Patient>(`/clinics/${clinic}/patients`, body);
+export const listProcedures = (clinic: string) => request<Procedure[]>(`/clinics/${clinic}/procedures`);
+
+// Episodes: the surgery date and procedure are the clinic's; discharge and link reset are
+// owner/clinician-only at the api (discharge) or open to any member (link).
+export const getEpisode = (clinic: string, patient: string) =>
+  authed<Episode>(`/clinics/${clinic}/patients/${patient}/episode`);
+export const correctEpisode = (
+  clinic: string,
+  episode: string,
+  body: { surgery_date?: string; procedure_id?: string },
+) => authed<Episode>(`/clinics/${clinic}/episodes/${episode}`, { method: "PATCH", body: JSON.stringify(body) });
+export const dischargeEpisode = (clinic: string, episode: string) =>
+  post<Episode>(`/clinics/${clinic}/episodes/${episode}/close`);
+export const issueLink = (clinic: string, episode: string) =>
+  post<IssuedLink>(`/clinics/${clinic}/episodes/${episode}/link`);
+export const resetLink = (clinic: string, episode: string) =>
+  post<IssuedLink>(`/clinics/${clinic}/episodes/${episode}/link/reset`);
 export const listCheckIns = (clinic: string, patient: string) =>
   authed<CheckInDetail[]>(`/clinics/${clinic}/check-ins?patient_id=${patient}&limit=50`);
 export const reviewCheckIn = (clinic: string, id: string) =>
