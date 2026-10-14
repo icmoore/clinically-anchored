@@ -189,9 +189,13 @@ export const editDraft = (clinic: string, id: string, finalText: string) =>
 export const rejectDraft = (clinic: string, id: string) =>
   post<DraftDecision>(`/clinics/${clinic}/drafts/${id}/reject`);
 
-// On-demand summary. Not stored by the api: each call regenerates (and costs a call).
+// On-demand summary: each call to generateSummary calls the model (and costs a call from the daily
+// cap). The api saves what it generates; getLatestSummary reads the newest saved one back for free
+// (null if there is none), so opening a patient shows the last summary without asking again.
 export const generateSummary = (clinic: string, patient: string) =>
   post<Summary>(`/clinics/${clinic}/patients/${patient}/summaries`);
+export const getLatestSummary = (clinic: string, patient: string) =>
+  authed<Summary | null>(`/clinics/${clinic}/patients/${patient}/summaries/latest`);
 
 // Contact/time log. Manual entries are calls, visits and emails; `message` rows are
 // written by the api itself whenever a clinician message is sent (never by this UI).

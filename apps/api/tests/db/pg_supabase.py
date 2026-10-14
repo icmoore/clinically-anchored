@@ -31,7 +31,13 @@ def jsonify(value):
 
 
 def _param(value):
-    return Jsonb(value) if isinstance(value, dict) else value
+    # PostgREST sends JSON: an object, or a list of objects/lists, is a jsonb value; a flat list
+    # (of numbers or strings) is an array column.
+    if isinstance(value, dict) or (
+        isinstance(value, list) and any(isinstance(x, (dict, list)) for x in value)
+    ):
+        return Jsonb(value)
+    return value
 
 
 def _ident(name: str) -> str:

@@ -73,8 +73,9 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   category and window, or "Reply"; once the care period has ended the box is replaced by a note,
   because the patient's link no longer works and a message could never be seen; every message
   you send lets the patient send one reply, and the box says so), plus an AI summary:
-  - **Summary** (`components/summary-view.tsx`): "Summarise this conversation" calls the api
-    on demand (never automatic). Each line shows chips for the messages it cites; clicking a
+  - **Summary** (`components/summary-view.tsx`): opening a patient shows the newest saved summary
+    (read back without calling the model; "Refresh summary" asks again). "Summarise this conversation"
+    calls the api on demand (never automatic). Each line shows chips for the messages it cites; clicking a
     chip scrolls to and highlights that message in the thread. The api has already verified
     every citation, and an unverifiable summary is discarded and shown as an error (any earlier
     summary stays on screen and is labelled as the previous one). It notes when messages

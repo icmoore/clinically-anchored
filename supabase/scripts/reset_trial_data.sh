@@ -70,7 +70,7 @@ backup_dir="$here/.backups"
 mkdir -p "$backup_dir"
 backup="$backup_dir/reset-$(date -u +%Y%m%dT%H%M%SZ).sql"
 tables=()
-for t in message_drafts touchpoints consents messages check_ins episodes patients audit_log; do
+for t in message_drafts thread_summaries touchpoints consents messages check_ins episodes patients audit_log; do
   exists="$(psql "$DATABASE_URL" -X -At -c "select to_regclass('public.$t') is not null")"
   [[ "$exists" == t ]] && tables+=(-t "public.$t")
 done
