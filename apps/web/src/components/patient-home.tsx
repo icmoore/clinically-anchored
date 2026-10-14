@@ -43,10 +43,22 @@ export function PatientHome() {
   return (
     <PatientFrame title="Messages with your care team" phone={state.office_phone}>
       {failed && <p className="mb-3 text-sm text-flag-text">Couldn&apos;t refresh. Retrying...</p>}
-      <StatusPanel state={state} token={token} />
       <Thread thread={thread} timeZone={state.timezone} />
-      {state.can_reply && <ReplyForm token={token} onSent={reload} />}
-      {state.can_send_scheduled && <ScheduledForm token={token} state={state} onSent={reload} />}
+      {/* The notice sits just above the box it is about: the message window's form when there is
+          one (a reply box, if any, comes before it), otherwise above the reply box, otherwise at
+          the end of the thread. */}
+      {state.can_send_scheduled ? (
+        <>
+          {state.can_reply && <ReplyForm token={token} onSent={reload} />}
+          <StatusPanel state={state} token={token} />
+          <ScheduledForm token={token} state={state} onSent={reload} />
+        </>
+      ) : (
+        <>
+          <StatusPanel state={state} token={token} />
+          {state.can_reply && <ReplyForm token={token} onSent={reload} />}
+        </>
+      )}
     </PatientFrame>
   );
 }

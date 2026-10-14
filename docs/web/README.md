@@ -116,7 +116,7 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   `/care?token=` (the api's `GET /episode` says where they stand; `/messages?token=` is the same
   screen, and `/check-in?token=` is the check-in). Nothing here decides what is allowed: the api
   computes it from the schedule and the clock, and the page only shows it.
-  - `/care` (`components/patient-home.tsx`): a status panel (check-in first -> "your first window
+  - `/care` (`components/patient-home.tsx`): the thread, then a status panel just above the box it is about (check-in first -> "your first window
     opens ..." -> "you can send one message now, closes ..." -> "sent, next opens ...", with the
     last window saying when the follow-up ends), the thread (patient messages carry their
     category, replies say "Reply"), a reply box when the care team has written (one reply, outside
