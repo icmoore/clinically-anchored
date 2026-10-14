@@ -106,6 +106,9 @@ def test_the_whole_story_and_the_audit_trail_that_comes_out_of_it(env):
     r = c.post("/check-ins", params=tp(token), json={"answers": {"concerns_text": "all good"}})
     assert r.status_code == 200 and r.json()["post_op_day"] == 1
     assert c.post("/check-ins", params=tp(token), json={"answers": {}}).status_code == 409
+    mine = c.get("/check-ins/mine", params=tp(token)).json()  # read back to the patient
+    assert mine["answers"] == {"concerns_text": "all good"} and mine["post_op_day"] == 1
+    assert mine["procedure_name"] and "is_red_flag" not in mine
     state = c.get("/episode", params=tp(token)).json()
     assert state["phase"] == "waiting" and state["next_opens_at"].startswith("2025-03-06T12:00")
     assert c.post("/messages", params=tp(token),

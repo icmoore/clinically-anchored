@@ -155,3 +155,45 @@ def test_nothing_is_reachable_on_a_closed_episode(client, fake):
     )
     assert client.get("/check-ins/context", params=tok(fake)).status_code == 410
     assert client.post("/check-ins", params=tok(fake), json={"answers": {}}).status_code == 410
+
+
+# --- the patient reads their own check-in back ---------------------------------------------
+
+
+def _stored_check_in(fake, **extra):
+    fake.tables["check_ins"].append({
+        "id": "c1", "clinic_id": CLINIC_A, "patient_id": PATIENT_A, "episode_id": EPISODE_A,
+        "procedure_id": PROC_A, "post_op_day": 3, "is_red_flag": True,
+        "reviewed_at": "2026-10-04T00:00:00+00:00", "reviewed_by": "someone",
+        "answers": {"symptoms": ["pain"], "concerns_text": "It stings at night."},
+        "created_at": "2026-10-03T11:30:00+00:00", **extra,
+    })
+
+
+def test_my_check_in_is_null_until_they_have_checked_in(client, fake):
+    r = client.get("/check-ins/mine", params=tok(fake))
+    assert r.status_code == 200 and r.json() is None
+
+
+def test_my_check_in_returns_what_they_entered_and_nothing_the_clinic_derived(client, fake):
+    _stored_check_in(fake)
+    body = client.get("/check-ins/mine", params=tok(fake)).json()
+    assert body == {
+        "submitted_at": "2026-10-03T11:30:00+00:00", "post_op_day": 3,
+        "procedure_name": "Colectomy",
+        "answers": {"symptoms": ["pain"], "concerns_text": "It stings at night."},
+    }
+    assert "is_red_flag" not in body and "reviewed_at" not in body
+
+
+def test_my_check_in_is_only_this_episodes(client, fake):
+    _stored_check_in(fake, episode_id="someone-elses", patient_id="p2", id="c2")
+    assert client.get("/check-ins/mine", params=tok(fake)).json() is None
+
+
+def test_my_check_in_needs_a_valid_open_link(client, fake):
+    assert client.get("/check-ins/mine", params={"token": "nope"}).status_code == 401
+    fake.tables["episodes"][0].update(
+        closed_at="2026-10-02T13:00:00+00:00", close_reason="discharged", closed_by="u"
+    )
+    assert client.get("/check-ins/mine", params=tok(fake)).status_code == 410

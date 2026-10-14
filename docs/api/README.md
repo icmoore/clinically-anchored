@@ -75,7 +75,8 @@ Built (on `main`):
   (dev: `POST /dev/episode-links`). Patient routes: `GET /episode`, `GET`/`POST /messages`
   (`kind` scheduled|reply, `category`), `GET /check-ins/context`, `POST /check-ins` (the
   post-op day is computed, the procedure is the clinic's), `/consents`.
-- Check-in intake: `POST /check-ins`, `GET /check-ins/context` (see above).
+- Check-in intake: `POST /check-ins`, `GET /check-ins/context`, and `GET /check-ins/mine` (the patient reads
+  back their own answers: null until they have checked in; no red flag or review state) (see above).
 - **Demo data** (`seed_trial_patients.py`, run by hand, never by CI): 13 synthetic patients in a
   separate demo clinic, one per engine state, written with backdated rows and the same audit
   events the api writes (tagged `seed`). Its plan is replayed through `core/schedule.py` and the
