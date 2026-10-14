@@ -11,6 +11,7 @@ from clinically_anchored_api.api import messages as messages_module
 from clinically_anchored_api.core import ai
 from clinically_anchored_api.core import auth as auth_module
 from clinically_anchored_api.main import app
+from tests.fakes import open_episode
 
 CLINIC_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 CLINIC_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
@@ -140,7 +141,8 @@ class _FakeSupabase:
                 raise RuntimeError("draft_edit_invalid")
             message = self.insert("messages", {
                 "clinic_id": draft["clinic_id"], "patient_id": draft["patient_id"],
-                "sender": "clinician", "body": body,
+                "sender": "clinician", "body": body, "episode_id": "ep-1", "origin": "clinician",
+                "interval_no": None, "category": None, "reply_to_message_id": None,
             })
             draft.update(final_text=body, sent_message_id=message["id"])
         draft.update(status=p_decision, decided_by=p_decided_by, decided_at="2026-01-02T00:00:00Z")
@@ -183,6 +185,7 @@ def fake(monkeypatch, audit_calls, model):
     fake = _FakeSupabase()
     for module in (drafts_module, messages_module, auth_module):
         monkeypatch.setattr(module, "get_supabase", lambda: fake)
+    open_episode(monkeypatch)
     return fake
 
 
@@ -194,6 +197,8 @@ def client(fake):
 def _msg(fake, mid, sender, body, patient=PATIENT_A, clinic=CLINIC_A):
     fake.tables["messages"].append({
         "id": mid, "clinic_id": clinic, "patient_id": patient, "sender": sender, "body": body,
+        "episode_id": "ep-1", "origin": "clinician" if sender == "clinician" else "scheduled",
+        "interval_no": None, "category": None, "reply_to_message_id": None,
         "read_at": None, "created_at": f"2026-01-01T00:00:{len(fake.tables['messages']):02d}Z",
     })
 
@@ -597,3 +602,24 @@ def test_there_is_no_way_to_delete_a_draft(client, thread):
     r = client.delete(f"/clinics/{CLINIC_A}/drafts/{did}", headers=AUTH)
     assert r.status_code == 405 or r.status_code == 404
     assert len(thread.tables["message_drafts"]) == 1
+
+
+def test_no_draft_for_a_patient_whose_episode_is_closed(client, thread, monkeypatch):
+    from fastapi import HTTPException
+
+    def closed(*_a, **_k):
+        raise HTTPException(status_code=409, detail="This patient has no open care period.")
+
+    monkeypatch.setattr(drafts_module.episodes, "open_episode_or_409", closed)
+    r = _generate(client)
+    assert r.status_code == 409 and "no open care period" in r.json()["detail"]
+    assert thread.tables["message_drafts"] == []
+
+
+def test_a_draft_cannot_be_sent_once_the_episode_closed(
+    client, thread, fake
+):
+    draft = _generate(client).json()
+    fake.fail_decide_with = RuntimeError('{"message": "episode_closed"}')
+    r = client.post(f"/clinics/{CLINIC_A}/drafts/{draft['id']}/approve", headers=AUTH)
+    assert r.status_code == 409 and "no open care period" in r.json()["detail"]

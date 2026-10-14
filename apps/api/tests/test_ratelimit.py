@@ -5,15 +5,10 @@ per-patient isolation, 429 + Retry-After)."""
 import pytest
 from fastapi.testclient import TestClient
 
-from clinically_anchored_api.api import messages as messages_module
 from clinically_anchored_api.core import ratelimit
 from clinically_anchored_api.core.config import get_settings
-from clinically_anchored_api.core.security import create_link_token
 from clinically_anchored_api.main import app
-
-CLINIC = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-PATIENT = "a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1"
-OTHER = "b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1"
+from tests.fakes import EPISODE_B, PATIENT_B, FakeSupabase, install, pin_clock, token_for
 
 
 class _Clock:
@@ -98,27 +93,41 @@ class _Query:
         return type("R", (), {"data": self.rows})()
 
 
-class _Db:
-    def table(self, name):
-        return _Query([{"id": PATIENT}] if name == "patients" else [])
-
-
 @pytest.fixture
 def client(monkeypatch):
-    monkeypatch.setattr(messages_module, "get_supabase", lambda: _Db())
-    monkeypatch.setattr(messages_module, "record_event", lambda *_a, **_k: None)
+    fake = FakeSupabase()
+    fake.add_episode(checkin_completed_at="2026-10-02T12:00:00+00:00")
+    fake.add_episode(id=EPISODE_B, patient=PATIENT_B)
+    pin_clock(monkeypatch)
+    install(monkeypatch, fake)
+    fake.rpc_handlers["send_patient_message"] = lambda p: {
+        "id": "m", "clinic_id": p["p_clinic_id"], "patient_id": "p",
+        "episode_id": p["p_episode_id"],
+        "sender": "patient", "body": p["p_body"], "origin": "scheduled", "interval_no": 1,
+        "category": "admin", "reply_to_message_id": None, "read_at": None,
+        "created_at": "2026-10-03T11:30:00+00:00",
+    }
     settings = get_settings()
     monkeypatch.setattr(settings, "patient_link_reads_per_minute", 3)
     monkeypatch.setattr(settings, "patient_link_writes_per_minute", 2)
-    return TestClient(app)
+    client = TestClient(app)
+    client.fake = fake
+    return client
 
 
-def _tok(patient=PATIENT, scope="messages"):
-    return create_link_token(clinic_id=CLINIC, patient_id=patient, scope=scope)
+def _tok(client, which=0):
+    return token_for(client.fake.tables["episodes"][which])
+
+
+def _post(client, which=0):
+    return client.post(
+        "/messages", params={"token": _tok(client, which)},
+        json={"body": "hi", "category": "admin"},
+    )
 
 
 def test_reads_are_throttled_with_retry_after(client, clock):
-    params = {"token": _tok()}
+    params = {"token": _tok(client)}
     assert [client.get("/messages", params=params).status_code for _ in range(3)] == [200] * 3
     r = client.get("/messages", params=params)
     assert r.status_code == 429
@@ -128,36 +137,40 @@ def test_reads_are_throttled_with_retry_after(client, clock):
 
 
 def test_writes_have_their_own_stricter_budget(client):
-    params = {"token": _tok()}
-    codes = [
-        client.post("/messages", params=params, json={"body": "hi"}).status_code for _ in range(3)
-    ]
+    codes = [_post(client).status_code for _ in range(3)]
     assert codes == [200, 200, 429]
-    assert client.get("/messages", params=params).status_code == 200  # reads unaffected
+    reads = client.get("/messages", params={"token": _tok(client)})
+    assert reads.status_code == 200  # reads have their own budget
 
 
-def test_budget_is_per_patient_not_global(client):
+def test_budget_is_per_episode_not_global(client):
     for _ in range(3):
-        client.get("/messages", params={"token": _tok()})
-    assert client.get("/messages", params={"token": _tok()}).status_code == 429
-    assert client.get("/messages", params={"token": _tok(patient=OTHER)}).status_code != 429
+        client.get("/messages", params={"token": _tok(client)})
+    assert client.get("/messages", params={"token": _tok(client)}).status_code == 429
+    assert client.get("/messages", params={"token": _tok(client, 1)}).status_code != 429
 
 
-def test_budget_is_shared_across_link_scopes_for_one_patient(client):
-    # Two valid tokens for the same patient don't double the allowance.
+def test_the_write_budget_is_shared_across_the_patients_routes(client):
     for _ in range(2):
-        client.post("/messages", params={"token": _tok()}, json={"body": "x"})
-    r = client.post("/check-ins", params={"token": _tok(scope="checkin")}, json={"answers": {}})
+        _post(client)
+    r = client.post("/check-ins", params={"token": _tok(client)}, json={"answers": {}})
     assert r.status_code == 429
 
 
 def test_invalid_tokens_are_not_counted(client):
     for _ in range(10):
         assert client.get("/messages", params={"token": "garbage"}).status_code == 401
-    assert client.get("/messages", params={"token": _tok()}).status_code == 200
+    assert client.get("/messages", params={"token": _tok(client)}).status_code == 200
+
+
+def test_a_link_for_a_missing_or_reset_episode_still_costs_budget_only_once_signed(client):
+    stale = _tok(client)
+    client.fake.tables["episodes"][0]["link_generation"] = 2
+    codes = [client.get("/messages", params={"token": stale}).status_code for _ in range(4)]
+    assert codes == [401, 401, 401, 429]  # signed, so counted: the database isn't hammered
 
 
 def test_zero_disables_a_budget(client, monkeypatch):
     monkeypatch.setattr(get_settings(), "patient_link_reads_per_minute", 0)
-    params = {"token": _tok()}
+    params = {"token": _tok(client)}
     assert all(client.get("/messages", params=params).status_code == 200 for _ in range(20))

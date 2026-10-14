@@ -19,8 +19,14 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from clinically_anchored_api.api.messages import _require_patient_in_clinic, audit_message_sent
-from clinically_anchored_api.core import ai
+from clinically_anchored_api.api.messages import (
+    _COLUMNS as _MESSAGE_COLUMNS,
+)
+from clinically_anchored_api.api.messages import (
+    _require_patient_in_clinic,
+    audit_message_sent,
+)
+from clinically_anchored_api.core import ai, episodes
 from clinically_anchored_api.core.audit import AuditWriteError, record_event
 from clinically_anchored_api.core.auth import ClinicMember, require_clinic_member
 from clinically_anchored_api.core.db import get_supabase
@@ -41,7 +47,6 @@ _COLUMNS = (
     "id, clinic_id, patient_id, source_message_id, draft_text, model_id, prompt_version, "
     "status, final_text, sent_message_id, created_by, created_at, decided_by, decided_at"
 )
-_MESSAGE_COLUMNS = "id, clinic_id, patient_id, sender, body, read_at, created_at"
 
 # Approving puts words in the clinic's voice, so it is a clinician act. Delegates
 # (e.g. a secretary) can still read drafts and ask for one. Widen deliberately.
@@ -61,7 +66,7 @@ _PROTOCOL_NOTES = "(No clinic protocol notes have been configured yet.)"
 
 
 def _actor(member: ClinicMember) -> dict:
-    return {"type": "member", "id": member.user_id, "role": member.role}
+    return episodes.member_actor(member)
 
 
 # Extra fields that are safe to show in readable metadata (ids and counts, no content).
@@ -171,6 +176,8 @@ def generate_draft(
     skips the awaiting-reply check; the web app doesn't use it)."""
     supabase = get_supabase()
     _require_patient_in_clinic(supabase, clinic_id, patient_id)
+    # A reply can't reach a patient whose episode is closed: their link no longer opens.
+    episodes.open_episode_or_409(supabase, clinic_id, patient_id)
 
     recent = (
         supabase.table("messages")
@@ -321,6 +328,10 @@ def _decide(
             raise HTTPException(status_code=409, detail=detail) from exc
         if "draft_not_found" in text:
             raise HTTPException(status_code=404, detail="Draft not found.") from exc
+        if "episode_closed" in text:  # discharged, or the schedule ended, since the draft was made
+            raise HTTPException(
+                status_code=409, detail="This patient has no open care period."
+            ) from exc
         if "draft_edit_invalid" in text:
             raise HTTPException(status_code=422, detail="The edited text is not valid.") from exc
         raise

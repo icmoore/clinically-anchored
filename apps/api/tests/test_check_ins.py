@@ -1,207 +1,157 @@
-"""Tests the check-in submission flow: token verification, red-flag
-evaluation, and the write path -- with the Supabase client replaced by a
-fake so these tests don't touch a real network or database."""
+"""The patient's check-in: link verification, red-flag evaluation, and what is sent to the
+database (the post-op day comes from the surgery date; the procedure from the episode).
+The write itself is the database function `complete_check_in` (tests/db)."""
 
 import pytest
 from fastapi.testclient import TestClient
 
-from clinically_anchored_api.api import check_ins as check_ins_module
-from clinically_anchored_api.core.security import create_checkin_token
 from clinically_anchored_api.main import app
+from tests.fakes import (
+    CLINIC_A,
+    EPISODE_A,
+    PATIENT_A,
+    PROC_A,
+    FakeSupabase,
+    install,
+    pin_clock,
+    token_for,
+)
 
-CLINIC_ID = "11111111-1111-1111-1111-111111111111"
-PATIENT_ID = "22222222-2222-2222-2222-222222222222"
-
-
-@pytest.fixture(autouse=True)
-def audit_calls(monkeypatch):
-    calls: list[dict] = []
-    monkeypatch.setattr(check_ins_module, "record_event", lambda _db, **kw: calls.append(kw))
-    return calls
-
-
-class _FakeQuery:
-    def __init__(self, table: "_FakeTable"):
-        self._table = table
-        self._insert_payload: dict | None = None
-
-    def insert(self, payload: dict) -> "_FakeQuery":
-        self._insert_payload = payload
-        return self
-
-    def select(self, *_args, **_kwargs) -> "_FakeQuery":
-        return self
-
-    def eq(self, *_args, **_kwargs) -> "_FakeQuery":
-        return self
-
-    def order(self, *_args, **_kwargs) -> "_FakeQuery":
-        return self
-
-    def execute(self):
-        if self._insert_payload is not None:
-            row = {
-                "id": "33333333-3333-3333-3333-333333333333",
-                "created_at": "2026-01-01T00:00:00Z",
-                **self._insert_payload,
-            }
-            self._table.inserted_rows.append(row)
-            return type("Result", (), {"data": [row]})()
-        # A select() query (e.g. procedures lookup) -- return the table's
-        # canned rows, if the test set any.
-        return type("Result", (), {"data": self._table.select_rows})()
+FEVER = {"fever": {"took_temperature": True, "temperature_c": 39.0}}
 
 
-class _FakeTable:
-    def __init__(self, select_rows: list[dict] | None = None):
-        self.inserted_rows: list[dict] = []
-        self.select_rows = select_rows or []
+@pytest.fixture
+def fake(monkeypatch):
+    fake = FakeSupabase()
+    fake.add_episode()
+    pin_clock(monkeypatch)
+    fake.audit = install(monkeypatch, fake)
 
-    def __call__(self, _name: str) -> _FakeQuery:
-        return _FakeQuery(self)
+    def complete(params):
+        row = {
+            "id": "c1", "clinic_id": params["p_clinic_id"], "patient_id": PATIENT_A,
+            "episode_id": params["p_episode_id"], "procedure_id": PROC_A,
+            "post_op_day": params["p_post_op_day"], "answers": params["p_answers"],
+            "is_red_flag": params["p_is_red_flag"], "created_at": "2026-10-03T11:30:00+00:00",
+        }
+        return {"check_in": row, "episode": {}}
 
-
-class _FakeSupabase:
-    def __init__(self, select_rows: list[dict] | None = None):
-        self.table = _FakeTable(select_rows)
-
-
-def _client_with_fake_db(fake: _FakeSupabase) -> TestClient:
-    # Patch where the name is *used* (check_ins.py imported it into its own
-    # namespace), not where it's defined -- patching core.db.get_supabase
-    # would miss the already-bound reference in check_ins.py.
-    original = check_ins_module.get_supabase
-    check_ins_module.get_supabase = lambda: fake  # type: ignore[assignment]
-    client = TestClient(app)
-    client._fake_db_restore = original  # stash for teardown
-    return client
+    fake.rpc_handlers["complete_check_in"] = complete
+    return fake
 
 
-def test_submit_check_in_writes_row_and_flags_red_flag(audit_calls):
-    fake = _FakeSupabase()
-    client = _client_with_fake_db(fake)
-    try:
-        token = create_checkin_token(clinic_id=CLINIC_ID, patient_id=PATIENT_ID)
-
-        response = client.post(
-            "/check-ins",
-            params={"token": token},
-            json={
-                "post_op_day": 5,
-                "answers": {"fever": {"took_temperature": True, "temperature_c": 39.0}},
-            },
-        )
-
-        assert response.status_code == 200
-        body = response.json()
-        assert body["clinic_id"] == CLINIC_ID
-        assert body["patient_id"] == PATIENT_ID
-        assert body["is_red_flag"] is True
-        assert len(fake.table.inserted_rows) == 1
-        assert len(audit_calls) == 1
-        assert audit_calls[0]["event_type"] == "check_in.submitted"
-        assert audit_calls[0]["clinic_id"] == CLINIC_ID
-        assert audit_calls[0]["metadata"]["actor"] == {"type": "patient", "id": PATIENT_ID}
-    finally:
-        check_ins_module.get_supabase = client._fake_db_restore
+@pytest.fixture
+def client(fake):
+    return TestClient(app)
 
 
-def test_submit_check_in_no_red_flags():
-    fake = _FakeSupabase()
-    client = _client_with_fake_db(fake)
-    try:
-        token = create_checkin_token(clinic_id=CLINIC_ID, patient_id=PATIENT_ID)
-
-        response = client.post(
-            "/check-ins",
-            params={"token": token},
-            json={
-                "post_op_day": 5,
-                "answers": {"fever": {"took_temperature": True, "temperature_c": 37.0}},
-            },
-        )
-
-        assert response.status_code == 200
-        assert response.json()["is_red_flag"] is False
-    finally:
-        check_ins_module.get_supabase = client._fake_db_restore
+def tok(fake):
+    return {"token": token_for(fake.tables["episodes"][0])}
 
 
-def test_submit_check_in_rejects_bad_token():
-    fake = _FakeSupabase()
-    client = _client_with_fake_db(fake)
-    try:
-        response = client.post(
-            "/check-ins",
-            params={"token": "not-a-real-token"},
-            json={"answers": {}},
-        )
-        assert response.status_code == 401
-    finally:
-        check_ins_module.get_supabase = client._fake_db_restore
-
-
-def test_check_in_context_resolves_clinic_and_procedures():
-    fake = _FakeSupabase(
-        select_rows=[
-            {
-                "id": "44444444-4444-4444-4444-444444444444",
-                "name": "Hemorrhoidectomy",
-                "category": "anorectal",
-            }
-        ]
+def test_submit_flags_red_flag_and_audits_with_episode_and_missed_intervals(client, fake):
+    r = client.post("/check-ins", params=tok(fake), json={"answers": FEVER})
+    assert r.status_code == 200
+    body = r.json()
+    assert (body["clinic_id"], body["patient_id"], body["episode_id"]) == (
+        CLINIC_A, PATIENT_A, EPISODE_A,
     )
-    client = _client_with_fake_db(fake)
-    try:
-        token = create_checkin_token(clinic_id=CLINIC_ID, patient_id=PATIENT_ID)
-
-        response = client.get("/check-ins/context", params={"token": token})
-
-        assert response.status_code == 200
-        body = response.json()
-        assert body["clinic_id"] == CLINIC_ID
-        assert body["procedures"][0]["name"] == "Hemorrhoidectomy"
-    finally:
-        check_ins_module.get_supabase = client._fake_db_restore
+    assert body["is_red_flag"] is True
+    (event,) = fake.audit
+    assert event["event_type"] == "check_in.submitted"
+    assert event["metadata"]["actor"] == {"type": "patient", "id": PATIENT_A}
+    assert event["metadata"]["episode_id"] == EPISODE_A
+    assert event["payload"]["missed_intervals"] == []  # NOW is inside interval 1: nothing passed
+    assert "answers" not in str(event["metadata"])
 
 
-def test_check_in_context_rejects_bad_token():
-    fake = _FakeSupabase()
-    client = _client_with_fake_db(fake)
-    try:
-        response = client.get("/check-ins/context", params={"token": "garbage"})
-        assert response.status_code == 401
-    finally:
-        check_ins_module.get_supabase = client._fake_db_restore
+def test_no_red_flag(client, fake):
+    r = client.post(
+        "/check-ins", params=tok(fake),
+        json={"answers": {"fever": {"took_temperature": True, "temperature_c": 37.0}}},
+    )
+    assert r.status_code == 200 and r.json()["is_red_flag"] is False
 
 
-def test_submit_check_in_rejects_procedure_from_another_clinic():
-    # Fake returns no rows for the (procedure id, clinic id) lookup.
-    fake = _FakeSupabase(select_rows=[])
-    client = _client_with_fake_db(fake)
-    try:
-        token = create_checkin_token(clinic_id=CLINIC_ID, patient_id=PATIENT_ID)
-        response = client.post(
-            "/check-ins",
-            params={"token": token},
-            json={"procedure_id": "55555555-5555-5555-5555-555555555555", "answers": {}},
-        )
-        assert response.status_code == 422
-        assert fake.table.inserted_rows == []
-    finally:
-        check_ins_module.get_supabase = client._fake_db_restore
+def test_the_post_op_day_is_worked_out_not_taken_from_the_patient(client, fake):
+    # NOW is 2026-10-03 in Toronto; surgery 2026-10-01 -> day 2, whatever the client claims.
+    r = client.post("/check-ins", params=tok(fake), json={"answers": {}, "post_op_day": 99})
+    assert r.status_code == 200 and r.json()["post_op_day"] == 2
+    (_, params), = fake.rpc_calls
+    assert params["p_post_op_day"] == 2
+    assert params["p_clinic_id"] == CLINIC_A and params["p_episode_id"] == EPISODE_A
 
 
-def test_submit_check_in_accepts_procedure_in_clinic():
-    fake = _FakeSupabase(select_rows=[{"id": "55555555-5555-5555-5555-555555555555"}])
-    client = _client_with_fake_db(fake)
-    try:
-        token = create_checkin_token(clinic_id=CLINIC_ID, patient_id=PATIENT_ID)
-        response = client.post(
-            "/check-ins",
-            params={"token": token},
-            json={"procedure_id": "55555555-5555-5555-5555-555555555555", "answers": {}},
-        )
-        assert response.status_code == 200
-    finally:
-        check_ins_module.get_supabase = client._fake_db_restore
+def test_a_late_check_in_records_the_intervals_that_already_passed(client, fake, monkeypatch):
+    from datetime import UTC, datetime
+
+    pin_clock(monkeypatch, datetime(2026, 10, 15, 14, 0, tzinfo=UTC))  # interval 5 is open
+    client.post("/check-ins", params=tok(fake), json={"answers": {}})
+    assert fake.audit[0]["payload"]["missed_intervals"] == [1, 2, 3, 4]
+
+
+def test_a_second_check_in_is_refused(client, fake):
+    def already(_params):
+        raise RuntimeError('{"message": "check_in_already_done"}')
+
+    fake.rpc_handlers["complete_check_in"] = already
+    r = client.post("/check-ins", params=tok(fake), json={"answers": {}})
+    assert r.status_code == 409
+    assert fake.audit == []
+
+
+def test_a_discharge_between_check_and_write_is_a_410(client, fake):
+    def closed(_params):
+        raise RuntimeError("episode_closed")
+
+    fake.rpc_handlers["complete_check_in"] = closed
+    assert client.post("/check-ins", params=tok(fake), json={"answers": {}}).status_code == 410
+
+
+def test_a_failed_audit_is_reported_not_hidden(client, fake, monkeypatch):
+    from clinically_anchored_api.api import check_ins as module
+    from clinically_anchored_api.core.audit import AuditWriteError
+
+    def boom(_db, **_kw):
+        raise AuditWriteError("down")
+
+    monkeypatch.setattr(module, "record_event", boom)
+    r = client.post("/check-ins", params=tok(fake), json={"answers": {}})
+    assert r.status_code == 500 and "not audited" in r.json()["detail"]
+
+
+def test_bad_token_is_rejected(client):
+    r = client.post("/check-ins", params={"token": "nope"}, json={"answers": {}})
+    assert r.status_code == 401
+    assert client.get("/check-ins/context", params={"token": "nope"}).status_code == 401
+
+
+def test_context_gives_the_procedure_the_clinic_chose(client, fake):
+    r = client.get("/check-ins/context", params=tok(fake))
+    assert r.status_code == 200
+    body = r.json()
+    assert body["clinic_id"] == CLINIC_A
+    assert body["procedure"] == {
+        "id": PROC_A, "name": "Colectomy", "category": "abdominal_bowel_resection",
+    }
+    assert body["post_op_day"] == 2 and body["check_in_done"] is False
+
+
+def test_context_says_when_the_check_in_is_already_done(client, fake):
+    fake.tables["episodes"][0]["checkin_completed_at"] = "2026-10-02T12:00:00+00:00"
+    assert client.get("/check-ins/context", params=tok(fake)).json()["check_in_done"] is True
+
+
+def test_context_is_before_surgery_negative(client, fake, monkeypatch):
+    from datetime import UTC, datetime
+
+    pin_clock(monkeypatch, datetime(2026, 9, 29, 16, 0, tzinfo=UTC))
+    assert client.get("/check-ins/context", params=tok(fake)).json()["post_op_day"] == -2
+
+
+def test_nothing_is_reachable_on_a_closed_episode(client, fake):
+    fake.tables["episodes"][0].update(
+        closed_at="2026-10-02T13:00:00+00:00", close_reason="discharged", closed_by="u"
+    )
+    assert client.get("/check-ins/context", params=tok(fake)).status_code == 410
+    assert client.post("/check-ins", params=tok(fake), json={"answers": {}}).status_code == 410

@@ -1,5 +1,5 @@
-"""Consent records: generic storage + audit. Patients grant/withdraw through a
-link token (either scope); clinicians read. Nothing here gates anything yet --
+"""Consent records: generic storage + audit. Patients grant/withdraw through their episode
+link; clinicians read. Nothing here gates anything yet --
 that decision (and the consent list/wording) is still open."""
 
 import pytest
@@ -8,8 +8,8 @@ from fastapi.testclient import TestClient
 from clinically_anchored_api.api import consents as consents_module
 from clinically_anchored_api.core import auth as auth_module
 from clinically_anchored_api.core.config import get_settings
-from clinically_anchored_api.core.security import create_link_token
 from clinically_anchored_api.main import app
+from tests.fakes import Links
 
 CLINIC_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 CLINIC_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
@@ -107,10 +107,16 @@ def audit_calls(monkeypatch):
 
 
 @pytest.fixture
-def fake(monkeypatch, audit_calls):
+def links(monkeypatch):
+    return Links(monkeypatch)
+
+
+@pytest.fixture
+def fake(monkeypatch, audit_calls, links):
     fake = _FakeSupabase()
     monkeypatch.setattr(consents_module, "get_supabase", lambda: fake)
     monkeypatch.setattr(auth_module, "get_supabase", lambda: fake)
+    _LINKS["links"] = links
     return fake
 
 
@@ -119,8 +125,11 @@ def client(fake):
     return TestClient(app)
 
 
-def _tok(scope="messages", clinic=CLINIC_A, patient=PATIENT_A):
-    return {"token": create_link_token(clinic_id=clinic, patient_id=patient, scope=scope)}
+_LINKS: dict = {}
+
+
+def _tok(clinic=CLINIC_A, patient=PATIENT_A, **facts):
+    return {"token": _LINKS["links"].token(clinic=clinic, patient=patient, **facts)}
 
 
 def _grant(client, ctype="messaging", version="v1", **tok):
@@ -158,9 +167,10 @@ def test_grant_stores_and_audits(client, fake, audit_calls):
     }
 
 
-def test_grant_works_with_either_link_scope(client, fake):
-    assert _grant(client, **_tok("messages")).status_code == 200
-    assert _grant(client, ctype="other_thing", **_tok("checkin")).status_code == 200
+def test_grant_works_before_the_check_in_and_not_after_the_episode_closed(client, fake):
+    assert _grant(client, **_tok(checked_in=False)).status_code == 200
+    assert _grant(client, ctype="other_thing", **_tok(checked_in=True)).status_code == 200
+    assert _grant(client, ctype="third_thing", **_tok(closed=True)).status_code == 410
     assert {r["consent_type"] for r in fake.tables["consents"]} == {"messaging", "other_thing"}
 
 

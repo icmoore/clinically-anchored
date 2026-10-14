@@ -7,8 +7,8 @@ records that a patient granted or withdrew a `consent_type` as worded in a
 given `consent_text_version`, audits every change, and lets clinicians read the
 state. Gating, when it's decided, belongs in the routes it applies to.
 
-Patients grant and withdraw through their link token (either scope -- the web
-app decides which flow asks); clinicians read per patient. Every grant and
+Patients grant and withdraw through their episode link (the web app decides which flow
+asks); clinicians read per patient. Every grant and
 withdrawal is audited as `consent.granted` / `consent.revoked`."""
 
 import logging
@@ -21,7 +21,7 @@ from clinically_anchored_api.core.audit import AuditWriteError, record_event
 from clinically_anchored_api.core.auth import ClinicMember, require_clinic_member
 from clinically_anchored_api.core.config import get_settings
 from clinically_anchored_api.core.db import get_supabase
-from clinically_anchored_api.core.security import require_any_link_token
+from clinically_anchored_api.core.security import PatientLink, require_patient_link
 from clinically_anchored_api.schemas import (
     CONSENT_TYPE_PATTERN,
     ConsentGrant,
@@ -87,21 +87,21 @@ def clinician_read_consents(
 
 @router.get("/consents", response_model=ConsentSummaryOut)
 def patient_read_consents(
-    claims: dict[str, str] = Depends(require_any_link_token),
+    link: PatientLink = Depends(require_patient_link),
 ) -> ConsentSummaryOut:
     supabase = get_supabase()
-    _require_patient_in_clinic(supabase, claims["clinic_id"], claims["patient_id"])
-    return _summary(supabase, claims["clinic_id"], claims["patient_id"])
+    _require_patient_in_clinic(supabase, link.clinic_id, link.patient_id)
+    return _summary(supabase, link.clinic_id, link.patient_id)
 
 
 @router.post("/consents", response_model=ConsentSummaryOut)
 def patient_grant_consent(
-    body: ConsentGrant, claims: dict[str, str] = Depends(require_any_link_token)
+    body: ConsentGrant, link: PatientLink = Depends(require_patient_link)
 ) -> ConsentSummaryOut:
     """Record that the patient granted `consent_type` as worded in
     `consent_text_version`. Idempotent per (type, version): repeating a live
     grant changes and audits nothing. A new version is a new grant."""
-    clinic_id, patient_id = claims["clinic_id"], claims["patient_id"]
+    clinic_id, patient_id = link.clinic_id, link.patient_id
     allowed = get_settings().consent_types_list
     if allowed and body.consent_type not in allowed:
         raise HTTPException(status_code=422, detail="Unknown consent type.")
@@ -162,11 +162,11 @@ def patient_grant_consent(
 @router.post("/consents/{consent_type}/revoke", response_model=ConsentSummaryOut)
 def patient_revoke_consent(
     consent_type: str = Path(pattern=CONSENT_TYPE_PATTERN),
-    claims: dict[str, str] = Depends(require_any_link_token),
+    link: PatientLink = Depends(require_patient_link),
 ) -> ConsentSummaryOut:
     """Withdraw `consent_type`: ends every live grant of it (any wording
     version). Idempotent; each grant actually ended is audited."""
-    clinic_id, patient_id = claims["clinic_id"], claims["patient_id"]
+    clinic_id, patient_id = link.clinic_id, link.patient_id
     supabase = get_supabase()
     _require_patient_in_clinic(supabase, clinic_id, patient_id)
 

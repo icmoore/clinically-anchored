@@ -5,7 +5,7 @@ restart and is NOT shared if the service is ever scaled to more than one
 instance or worker -- each would enforce its own limit. Moving to Redis-backed
 limiting is a Pro-tier job; `hit()` is the one seam that would change.
 
-Callers are keyed by the *verified* link token's patient (not the raw token,
+Callers are keyed by the *verified* link token's episode (not the raw token,
 which is a secret, and not the client IP: behind Railway's proxy
 `request.client.host` is the proxy unless uvicorn is told to trust forwarded
 headers). Invalid tokens are not counted: they fail an HMAC check before any
@@ -57,11 +57,11 @@ def _sweep(now: float, window: float) -> None:
         del _hits[key]
 
 
-def limit_patient_link(request: Request, claims: dict[str, str]) -> None:
-    """Throttle a request authenticated by a valid link token: 429 with
-    Retry-After once the patient exceeds the per-minute budget. Reads (GET) and
-    writes get separate budgets, shared across the patient's link scopes. A
-    limit of 0 or less disables that budget."""
+def limit_patient_link(request: Request, episode_id: str) -> None:
+    """Throttle a request authenticated by a validly signed link token: 429 with
+    Retry-After once the patient exceeds the per-minute budget. Keyed by the token's
+    episode (one patient, one open episode), checked before any database work. Reads
+    (GET) and writes get separate budgets. A limit of 0 or less disables that budget."""
     settings = get_settings()
     is_read = request.method in ("GET", "HEAD")
     limit = (
@@ -72,7 +72,7 @@ def limit_patient_link(request: Request, claims: dict[str, str]) -> None:
     if limit <= 0:
         return
     kind = "read" if is_read else "write"
-    wait = hit((claims["clinic_id"], claims["patient_id"], kind), limit)
+    wait = hit((episode_id, kind), limit)
     if wait:
         raise HTTPException(
             status_code=429,

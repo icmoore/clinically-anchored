@@ -1,120 +1,53 @@
-"""Clinician-side message endpoints: auth, tenant scoping, and the write
-path, against an in-memory fake Supabase that honours eq() filters (so
-cross-clinic checks are actually exercised, not stubbed away)."""
+"""Message endpoints: auth and tenant scoping, what the api asks the database to write, and
+how the database's refusals are reported. Which interval is open comes from the engine
+(test_schedule.py); the write rules themselves are tested against Postgres in tests/db."""
+
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
 
 from clinically_anchored_api.api import messages as messages_module
-from clinically_anchored_api.core import auth as auth_module
-from clinically_anchored_api.core.security import create_link_token
 from clinically_anchored_api.main import app
-
-CLINIC_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-CLINIC_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-PATIENT_A = "a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1"
-PATIENT_B = "b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1"
-USER = "99999999-9999-9999-9999-999999999999"
-AUTH = {"Authorization": "Bearer good-jwt"}
-
-
-class _Query:
-    def __init__(self, rows: list[dict]):
-        self._rows = rows
-        self._filters: list[tuple[str, object]] = []
-        self._null_cols: list[str] = []
-        self._insert: dict | None = None
-        self._update: dict | None = None
-        self._order: str | None = None
-
-    def select(self, *_a, **_k):
-        return self
-
-    def eq(self, col, val):
-        self._filters.append((col, val))
-        return self
-
-    def is_(self, col, val):
-        assert val == "null"
-        self._null_cols.append(col)
-        return self
-
-    def order(self, col, **_k):
-        self._order = col
-        return self
-
-    def insert(self, payload):
-        self._insert = payload
-        return self
-
-    def update(self, payload):
-        self._update = payload
-        return self
-
-    def _matching(self):
-        return [
-            r
-            for r in self._rows
-            if all(r.get(c) == v for c, v in self._filters)
-            and all(r.get(c) is None for c in self._null_cols)
-        ]
-
-    def execute(self):
-        if self._insert is not None:
-            row = {
-                "id": f"msg-{len(self._rows) + 1}",
-                "read_at": None,
-                "created_at": f"2026-01-01T00:00:0{len(self._rows)}Z",
-                **self._insert,
-            }
-            self._rows.append(row)
-            return type("R", (), {"data": [row]})()
-        matched = self._matching()
-        if self._update is not None:
-            for r in matched:
-                r.update(self._update)
-        if self._order:
-            matched.sort(key=lambda r: r[self._order])
-        return type("R", (), {"data": matched})()
-
-
-class _FakeAuth:
-    def get_user(self, jwt):
-        if jwt != "good-jwt":
-            raise ValueError("bad jwt")
-        return type("UR", (), {"user": type("U", (), {"id": USER})()})()
-
-
-class _FakeSupabase:
-    def __init__(self):
-        self.tables = {
-            "clinic_members": [{"clinic_id": CLINIC_A, "user_id": USER, "role": "clinician"}],
-            "patients": [
-                {"id": PATIENT_A, "clinic_id": CLINIC_A},
-                {"id": PATIENT_B, "clinic_id": CLINIC_B},
-            ],
-            "messages": [],
-        }
-        self.auth = _FakeAuth()
-
-    def table(self, name):
-        return _Query(self.tables[name])
+from tests.fakes import (
+    AUTH,
+    CLINIC_A,
+    CLINIC_B,
+    EPISODE_A,
+    PATIENT_A,
+    PATIENT_B,
+    USER,
+    FakeSupabase,
+    install,
+    message_row,
+    pin_clock,
+    token_for,
+)
 
 
 @pytest.fixture
-def audit_calls(monkeypatch):
-    calls: list[dict] = []
-    monkeypatch.setattr(messages_module, "record_event", lambda _db, **kw: calls.append(kw))
-    # The auto-logged touchpoint is covered in test_touchpoints.py; keep it out of these tests.
-    monkeypatch.setattr(messages_module, "log_message_sent", lambda *_a, **_kw: None)
-    return calls
+def fake(monkeypatch):
+    fake = FakeSupabase()
+    fake.add_episode(checkin_completed_at="2026-10-02T12:00:00+00:00")
+    pin_clock(monkeypatch)  # Saturday 3 Oct 07:30 Toronto: interval 1 is open
+    fake.audit = install(monkeypatch, fake)
+    monkeypatch.setattr(messages_module, "log_message_sent", lambda *_a, **_k: None)
 
+    def store(row_extra, params):
+        row = message_row(
+            clinic_id=params["p_clinic_id"], episode_id=params["p_episode_id"],
+            body=params["p_body"], **row_extra,
+        )
+        fake.tables["messages"].append(row)
+        return row
 
-@pytest.fixture
-def fake(monkeypatch, audit_calls):
-    fake = _FakeSupabase()
-    monkeypatch.setattr(messages_module, "get_supabase", lambda: fake)
-    monkeypatch.setattr(auth_module, "get_supabase", lambda: fake)
+    fake.rpc_handlers["send_clinician_message"] = lambda p: store(
+        {"sender": "clinician", "origin": "clinician"}, p
+    )
+    fake.rpc_handlers["send_patient_message"] = lambda p: store(
+        {"sender": "patient", "origin": p["p_origin"], "interval_no": p["p_interval_no"],
+         "category": p["p_category"]}, p
+    )
     return fake
 
 
@@ -127,6 +60,20 @@ def _thread(clinic, patient):
     return f"/clinics/{clinic}/patients/{patient}/messages"
 
 
+def tok(fake):
+    return {"token": token_for(fake.tables["episodes"][0])}
+
+
+def fail_with(fake, rpc, text):
+    def boom(_params):
+        raise RuntimeError(text)
+
+    fake.rpc_handlers[rpc] = boom
+
+
+# --- clinician side ------------------------------------------------------------------
+
+
 def test_requires_bearer_token(client):
     assert client.get(_thread(CLINIC_A, PATIENT_A)).status_code == 401
 
@@ -137,94 +84,112 @@ def test_rejects_invalid_jwt(client):
 
 
 def test_rejects_non_member_of_clinic(client):
-    r = client.get(_thread(CLINIC_B, PATIENT_B), headers=AUTH)
-    assert r.status_code == 403
+    assert client.get(_thread(CLINIC_B, PATIENT_B), headers=AUTH).status_code == 403
 
 
 def test_patient_from_another_clinic_is_404(client):
-    # Member of A, addressing A's URL with B's patient id.
-    r = client.get(_thread(CLINIC_A, PATIENT_B), headers=AUTH)
-    assert r.status_code == 404
+    assert client.get(_thread(CLINIC_A, PATIENT_B), headers=AUTH).status_code == 404
     r = client.post(_thread(CLINIC_A, PATIENT_B), headers=AUTH, json={"body": "hi"})
     assert r.status_code == 404
 
 
-def test_send_then_list_thread(client, fake):
+def test_send_goes_through_the_database_function_into_the_open_episode(client, fake):
     r = client.post(_thread(CLINIC_A, PATIENT_A), headers=AUTH, json={"body": "How is the pain?"})
     assert r.status_code == 200
-    assert r.json()["sender"] == "clinician"
-    assert fake.tables["messages"][0]["clinic_id"] == CLINIC_A
+    assert (r.json()["sender"], r.json()["origin"]) == ("clinician", "clinician")
+    assert fake.rpc_calls == [
+        ("send_clinician_message",
+         {"p_clinic_id": CLINIC_A, "p_episode_id": EPISODE_A, "p_body": "How is the pain?"})
+    ]
+    thread = client.get(_thread(CLINIC_A, PATIENT_A), headers=AUTH).json()
+    assert [m["body"] for m in thread] == ["How is the pain?"]
 
-    r = client.get(_thread(CLINIC_A, PATIENT_A), headers=AUTH)
-    assert [m["body"] for m in r.json()] == ["How is the pain?"]
 
-
-def test_send_writes_audit_event_without_message_text_in_metadata(client, audit_calls):
+def test_send_audits_without_text_in_metadata_but_with_origin_and_episode(client, fake):
     client.post(_thread(CLINIC_A, PATIENT_A), headers=AUTH, json={"body": "secret words"})
-    assert len(audit_calls) == 1
-    call = audit_calls[0]
+    (call,) = fake.audit
     assert call["event_type"] == "message.sent"
     assert call["payload"]["body"] == "secret words"  # hashed by record_event, never stored
+    assert call["payload"]["episode_id"] == EPISODE_A
     assert "secret words" not in str(call["metadata"])
     assert call["metadata"]["actor"] == {"type": "member", "id": USER, "role": "clinician"}
+    assert (call["metadata"]["origin"], call["metadata"]["episode_id"]) == ("clinician", EPISODE_A)
 
 
-def test_send_ignores_client_supplied_sender(client, fake):
+def test_send_ignores_client_supplied_sender_and_episode(client, fake):
     client.post(
-        _thread(CLINIC_A, PATIENT_A), headers=AUTH, json={"body": "x", "sender": "patient"}
+        _thread(CLINIC_A, PATIENT_A), headers=AUTH,
+        json={"body": "x", "sender": "patient", "episode_id": "other", "origin": "reply"},
     )
+    assert fake.rpc_calls[0][1]["p_episode_id"] == EPISODE_A
     assert fake.tables["messages"][0]["sender"] == "clinician"
 
 
-def test_send_rejects_empty_body(client):
-    r = client.post(_thread(CLINIC_A, PATIENT_A), headers=AUTH, json={"body": ""})
+@pytest.mark.parametrize("body", ["", "   ", "x" * 5001])
+def test_send_rejects_empty_or_oversized_body(client, body):
+    r = client.post(_thread(CLINIC_A, PATIENT_A), headers=AUTH, json={"body": body})
     assert r.status_code == 422
 
 
-def test_mark_read_only_touches_patient_messages_and_is_idempotent(client, fake):
-    fake.tables["messages"] += [
-        {"id": "p1", "clinic_id": CLINIC_A, "patient_id": PATIENT_A, "sender": "patient",
-         "body": "ok", "read_at": None, "created_at": "2026-01-01T00:00:00Z"},
-        {"id": "c1", "clinic_id": CLINIC_A, "patient_id": PATIENT_A, "sender": "clinician",
-         "body": "hi", "read_at": None, "created_at": "2026-01-01T00:00:01Z"},
-    ]
-    first = client.post(f"/clinics/{CLINIC_A}/messages/p1/read", headers=AUTH).json()
-    assert first["read_at"] is not None
-    again = client.post(f"/clinics/{CLINIC_A}/messages/p1/read", headers=AUTH).json()
-    assert again["read_at"] == first["read_at"]
+def test_no_message_can_go_to_a_patient_whose_episode_is_closed(client, fake):
+    fake.tables["episodes"][0].update(
+        closed_at="2026-10-02T13:00:00+00:00", close_reason="discharged", closed_by=USER
+    )
+    r = client.post(_thread(CLINIC_A, PATIENT_A), headers=AUTH, json={"body": "hello?"})
+    assert r.status_code == 409 and "no open care period" in r.json()["detail"]
+    assert fake.rpc_calls == []
 
-    own = client.post(f"/clinics/{CLINIC_A}/messages/c1/read", headers=AUTH).json()
+
+def test_no_message_can_go_to_a_patient_without_an_episode(client, fake):
+    fake.tables["episodes"].clear()
+    r = client.post(_thread(CLINIC_A, PATIENT_A), headers=AUTH, json={"body": "x"})
+    assert r.status_code == 409
+
+
+def test_a_discharge_between_the_check_and_the_write_is_a_409(client, fake):
+    fail_with(fake, "send_clinician_message", "episode_closed")
+    r = client.post(_thread(CLINIC_A, PATIENT_A), headers=AUTH, json={"body": "x"})
+    assert r.status_code == 409
+    assert fake.audit == []
+
+
+def test_a_failed_audit_is_a_500_not_silence(client, monkeypatch):
+    def boom(_db, **_kw):
+        raise messages_module.AuditWriteError("down")
+
+    monkeypatch.setattr(messages_module, "record_event", boom)
+    r = client.post(_thread(CLINIC_A, PATIENT_A), headers=AUTH, json={"body": "x"})
+    assert r.status_code == 500 and "not audited" in r.json()["detail"]
+
+
+def test_mark_read_only_touches_patient_messages_and_is_idempotent(client, fake):
+    p = fake.add_message(id="p1", sender="patient")
+    c = fake.add_message(id="c1", sender="clinician")
+    first = client.post(f"/clinics/{CLINIC_A}/messages/{p['id']}/read", headers=AUTH).json()
+    assert first["read_at"] is not None
+    again = client.post(f"/clinics/{CLINIC_A}/messages/{p['id']}/read", headers=AUTH).json()
+    assert again["read_at"] == first["read_at"]
+    own = client.post(f"/clinics/{CLINIC_A}/messages/{c['id']}/read", headers=AUTH).json()
     assert own["read_at"] is None
 
 
-def test_mark_read_audits_only_the_first_read(client, fake, audit_calls):
-    fake.tables["messages"].append(
-        {"id": "p1", "clinic_id": CLINIC_A, "patient_id": PATIENT_A, "sender": "patient",
-         "body": "private words", "read_at": None, "created_at": "2026-01-01T00:00:00Z"}
-    )
+def test_mark_read_audits_only_the_first_read(client, fake):
+    fake.add_message(id="p1", sender="patient", body="private words")
     url = f"/clinics/{CLINIC_A}/messages/p1/read"
     first = client.post(url, headers=AUTH).json()
     client.post(url, headers=AUTH)  # repeat read: no second event
-
-    assert len(audit_calls) == 1
-    call = audit_calls[0]
-    assert call["event_type"] == "message.read"
-    assert call["clinic_id"] == CLINIC_A
-    assert call["payload"]["read_by"] == USER
-    assert call["payload"]["read_at"] == first["read_at"]
-    assert call["metadata"]["ref_type"] == "message"
-    assert call["metadata"]["ref_id"] == "p1"
+    (call,) = fake.audit
+    assert call["event_type"] == "message.read" and call["clinic_id"] == CLINIC_A
+    assert call["payload"]["read_by"] == USER and call["payload"]["read_at"] == first["read_at"]
+    assert (call["metadata"]["ref_type"], call["metadata"]["ref_id"]) == ("message", "p1")
     assert call["metadata"]["actor"] == {"type": "member", "id": USER, "role": "clinician"}
     assert "private words" not in str(call["metadata"])
 
 
-def test_mark_read_does_not_audit_clinician_messages(client, fake, audit_calls):
-    fake.tables["messages"].append(
-        {"id": "c1", "clinic_id": CLINIC_A, "patient_id": PATIENT_A, "sender": "clinician",
-         "body": "hi", "read_at": None, "created_at": "2026-01-01T00:00:00Z"}
-    )
+def test_mark_read_does_not_audit_clinician_messages(client, fake):
+    fake.add_message(id="c1", sender="clinician")
     client.post(f"/clinics/{CLINIC_A}/messages/c1/read", headers=AUTH)
-    assert audit_calls == []
+    assert fake.audit == []
 
 
 def test_mark_read_reports_500_when_audit_write_fails(client, fake, monkeypatch):
@@ -232,29 +197,21 @@ def test_mark_read_reports_500_when_audit_write_fails(client, fake, monkeypatch)
         raise messages_module.AuditWriteError("down")
 
     monkeypatch.setattr(messages_module, "record_event", boom)
-    fake.tables["messages"].append(
-        {"id": "p1", "clinic_id": CLINIC_A, "patient_id": PATIENT_A, "sender": "patient",
-         "body": "x", "read_at": None, "created_at": "2026-01-01T00:00:00Z"}
-    )
+    fake.add_message(id="p1", sender="patient")
     r = client.post(f"/clinics/{CLINIC_A}/messages/p1/read", headers=AUTH)
-    assert r.status_code == 500
-    assert "not audited" in r.json()["detail"]
+    assert r.status_code == 500 and "not audited" in r.json()["detail"]
 
 
 def test_mark_read_other_clinic_message_is_404(client, fake):
-    fake.tables["messages"].append(
-        {"id": "pb", "clinic_id": CLINIC_B, "patient_id": PATIENT_B, "sender": "patient",
-         "body": "x", "read_at": None, "created_at": "2026-01-01T00:00:00Z"}
-    )
-    r = client.post(f"/clinics/{CLINIC_A}/messages/pb/read", headers=AUTH)
-    assert r.status_code == 404
+    fake.add_message(id="pb", sender="patient", clinic=CLINIC_B, patient=PATIENT_B)
+    assert client.post(f"/clinics/{CLINIC_A}/messages/pb/read", headers=AUTH).status_code == 404
 
 
-# --- patient side (link token) ------------------------------------------------
+# --- patient side: the episode link --------------------------------------------------------
 
 
-def _token(clinic=CLINIC_A, patient=PATIENT_A, scope="messages"):
-    return create_link_token(clinic_id=clinic, patient_id=patient, scope=scope)
+def send(client, fake, **body):
+    return client.post("/messages", params=tok(fake), json={"body": "Pain is worse", **body})
 
 
 def test_patient_endpoints_reject_bad_token(client):
@@ -263,48 +220,110 @@ def test_patient_endpoints_reject_bad_token(client):
     assert r.status_code == 401
 
 
-def test_patient_send_is_stored_as_patient_and_audited(client, fake, audit_calls):
-    r = client.post(
-        "/messages",
-        params={"token": _token()},
-        json={"body": "Pain is worse today", "sender": "clinician", "patient_id": PATIENT_B},
-    )
+def test_a_scheduled_message_is_stamped_with_the_interval_the_server_works_out(client, fake):
+    r = send(client, fake, category="symptom_or_wound", interval_no=7, sender="clinician",
+             patient_id=PATIENT_B, episode_id="x")
     assert r.status_code == 200
-    row = fake.tables["messages"][0]
-    # Sender and identity come from the token, not the request body.
-    assert (row["sender"], row["clinic_id"], row["patient_id"]) == ("patient", CLINIC_A, PATIENT_A)
-    assert audit_calls[0]["event_type"] == "message.sent"
-    assert audit_calls[0]["metadata"]["actor"] == {"type": "patient", "id": PATIENT_A}
-    assert audit_calls[0]["payload"]["sender"] == "patient"
+    # Identity, sender and interval come from the link and the clock, never the body.
+    (_, params), = fake.rpc_calls
+    assert params == {
+        "p_clinic_id": CLINIC_A, "p_episode_id": EPISODE_A, "p_body": "Pain is worse",
+        "p_origin": "scheduled", "p_interval_no": 1, "p_category": "symptom_or_wound",
+    }
+    assert r.json()["sender"] == "patient"
 
 
-def test_patient_sees_only_their_own_thread(client, fake):
-    fake.tables["messages"] += [
-        {"id": "1", "clinic_id": CLINIC_A, "patient_id": PATIENT_A, "sender": "clinician",
-         "body": "mine", "read_at": None, "created_at": "2026-01-01T00:00:00Z"},
-        {"id": "2", "clinic_id": CLINIC_B, "patient_id": PATIENT_B, "sender": "clinician",
-         "body": "someone else's", "read_at": None, "created_at": "2026-01-01T00:00:01Z"},
+def test_the_audit_event_names_patient_origin_interval_and_category(client, fake):
+    send(client, fake, category="medication")
+    (call,) = fake.audit
+    assert call["event_type"] == "message.sent"
+    assert call["metadata"]["actor"] == {"type": "patient", "id": PATIENT_A}
+    assert (call["metadata"]["origin"], call["metadata"]["interval_no"],
+            call["metadata"]["category"]) == ("scheduled", 1, "medication")
+    assert call["payload"]["category"] == "medication" and call["payload"]["sender"] == "patient"
+
+
+@pytest.mark.parametrize("category", [None, "", "billing", "SYMPTOM_OR_WOUND"])
+def test_a_scheduled_message_needs_one_of_the_offered_categories(client, fake, category):
+    r = send(client, fake, category=category)
+    assert r.status_code == 422
+    assert fake.rpc_calls == []
+
+
+def test_locked_until_the_check_in(client, fake):
+    fake.tables["episodes"][0]["checkin_completed_at"] = None
+    r = send(client, fake, category="admin")
+    assert r.status_code == 403 and "check-in" in r.json()["detail"]
+    assert fake.rpc_calls == []
+
+
+def test_before_the_first_interval_opens(client, fake, monkeypatch):
+    pin_clock(monkeypatch, datetime(2026, 10, 2, 20, 0, tzinfo=UTC))  # day before interval 1
+    r = send(client, fake, category="admin")
+    assert r.status_code == 409 and "not opened" in r.json()["detail"]
+    assert fake.rpc_calls == []
+
+
+def test_a_used_interval_is_refused_until_the_next_opens(client, fake, monkeypatch):
+    fake.add_message(sender="patient", interval_no=1)
+    r = send(client, fake, category="admin")
+    assert r.status_code == 409 and "already sent" in r.json()["detail"]
+    pin_clock(monkeypatch, datetime(2026, 10, 4, 11, 0, tzinfo=UTC))  # interval 2 opens
+    assert send(client, fake, category="admin").status_code == 200
+    assert fake.rpc_calls[-1][1]["p_interval_no"] == 2
+
+
+def test_a_reply_needs_a_doctor_message_waiting_and_carries_no_category(client, fake):
+    r = send(client, fake, kind="reply")
+    assert r.status_code == 409 and "reply to" in r.json()["detail"]
+    fake.add_message(id="d1", sender="clinician")
+    r = send(client, fake, kind="reply", category="medication")
+    assert r.status_code == 200
+    assert fake.rpc_calls[-1][1] | {"p_body": ""} == {
+        "p_clinic_id": CLINIC_A, "p_episode_id": EPISODE_A, "p_body": "",
+        "p_origin": "reply", "p_interval_no": None, "p_category": None,
+    }
+
+
+def test_a_reply_works_even_when_the_interval_is_used_or_the_check_in_not_done(client, fake):
+    fake.tables["episodes"][0]["checkin_completed_at"] = None
+    fake.add_message(sender="clinician")
+    assert send(client, fake, kind="reply").status_code == 200
+
+
+def test_a_reply_already_given_is_refused(client, fake):
+    d = fake.add_message(id="d1", sender="clinician")
+    fake.add_message(sender="patient", origin="reply", reply_to_message_id=d["id"])
+    assert send(client, fake, kind="reply").status_code == 409
+
+
+@pytest.mark.parametrize(
+    ("db_error", "status"),
+    [("episode_closed", 410), ("check_in_required", 403), ("interval_already_used", 409),
+     ("no_reply_available", 409), ("message_body_invalid", 422)],
+)
+def test_the_databases_refusals_are_reported_with_their_own_status(client, fake, db_error, status):
+    fake.add_message(sender="clinician")  # so a reply passes the pre-check too
+    fail_with(fake, "send_patient_message", f'{{"message": "{db_error}"}}')
+    kind = "reply" if db_error == "no_reply_available" else "scheduled"
+    r = send(client, fake, kind=kind, category="admin")
+    assert r.status_code == status
+    assert fake.audit == []
+
+
+def test_an_unexpected_database_error_is_not_swallowed(client, fake):
+    fail_with(fake, "send_patient_message", "connection reset")
+    with pytest.raises(RuntimeError):
+        send(client, fake, category="admin")
+
+
+def test_the_patient_sees_only_this_episodes_thread_and_clinician_sees_it_too(client, fake):
+    send(client, fake, category="admin", body="hello doctor")
+    mine = client.get("/messages", params=tok(fake)).json()
+    assert [(m["sender"], m["body"], m["category"]) for m in mine] == [
+        ("patient", "hello doctor", "admin")
     ]
-    r = client.get("/messages", params={"token": _token()})
-    assert [m["body"] for m in r.json()] == ["mine"]
-
-
-def test_patient_token_for_unknown_patient_is_404(client):
-    # Validly signed, but the patient is not in that clinic (e.g. deleted).
-    tok = _token(clinic=CLINIC_A, patient=PATIENT_B)
-    assert client.get("/messages", params={"token": tok}).status_code == 404
-    assert client.post("/messages", params={"token": tok}, json={"body": "x"}).status_code == 404
-
-
-def test_patient_message_shows_up_for_clinician_and_can_be_marked_read(client):
-    client.post("/messages", params={"token": _token()}, json={"body": "hello doctor"})
     thread = client.get(_thread(CLINIC_A, PATIENT_A), headers=AUTH).json()
-    assert [(m["sender"], m["body"]) for m in thread] == [("patient", "hello doctor")]
+    assert [m["body"] for m in thread] == ["hello doctor"]
     read = client.post(f"/clinics/{CLINIC_A}/messages/{thread[0]['id']}/read", headers=AUTH)
     assert read.json()["read_at"] is not None
-
-
-def test_checkin_scoped_token_cannot_touch_messages(client):
-    tok = _token(scope="checkin")
-    assert client.get("/messages", params={"token": tok}).status_code == 401
-    assert client.post("/messages", params={"token": tok}, json={"body": "x"}).status_code == 401

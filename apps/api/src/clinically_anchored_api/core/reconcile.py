@@ -21,9 +21,9 @@ What it reports:
     the log is append-only but business rows can legitimately vanish (e.g. a
     patient delete cascades), so this does not affect the exit status.
 
-Not covered: `link.issued` has no business row (links are stateless signed
-tokens, and the URL is only returned after the audit write succeeds), so it
-cannot leave an orphan. Rows that predate an event type existing (patients
+Not covered: `link.issued` and `episode.link_rotated` have no business row of their own
+(links are stateless signed tokens, and the URL is only returned after the audit write
+succeeds), so they cannot leave an orphan. Rows that predate an event type existing (patients
 created by seed migrations, messages read before `message.read` was audited)
 will show up as unaudited; use --since to scope to the period you care about.
 """
@@ -51,6 +51,8 @@ class Check:
 
 CHECKS = [
     Check("patients", "patient", "patient.created", "created_at"),
+    Check("episodes", "episode", "episode.created", "created_at"),
+    Check("episodes", "episode", "episode.closed", "closed_at"),
     Check("check_ins", "check_in", "check_in.submitted", "created_at"),
     Check("check_ins", "check_in", "check_in.reviewed", "reviewed_at"),
     Check("messages", "message", "message.sent", "created_at"),
