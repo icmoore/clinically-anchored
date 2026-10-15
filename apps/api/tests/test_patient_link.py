@@ -114,7 +114,7 @@ def test_a_discharged_episode_refuses_everything_but_the_state_route(client, fak
         "phase": "closed", "office_phone": "905-555-0100", "check_in_done": False,
         "categories": [], "post_op_day": None, "interval_no": None, "intervals_total": None,
         "interval_closes_at": None, "next_opens_at": None, "episode_closes_at": None,
-        "timezone": None, "can_send_scheduled": False, "can_reply": False,
+        "timezone": None, "can_send_scheduled": False, "can_reply": False, "windows": [],
     }
 
 
@@ -165,3 +165,105 @@ def test_state_route_before_the_check_in_is_locked(client, fake):
     fake.tables["episodes"][0]["checkin_completed_at"] = None
     body = client.get("/episode", params=tok(fake)).json()
     assert body["phase"] == "locked_checkin" and body["can_send_scheduled"] is False
+
+
+# --- the patient's view of the message windows ------------------------------------------------
+
+PATIENT_WINDOW_KEYS = {"number", "status", "opens_at", "closes_at"}
+
+
+def windows_of(client, fake):
+    return client.get("/episode", params=tok(fake)).json()["windows"]
+
+
+def statuses(client, fake):
+    return [w["status"] for w in windows_of(client, fake)]
+
+
+def test_the_state_lists_every_window_with_only_what_a_patient_needs(client, fake):
+    body = client.get("/episode", params=tok(fake)).json()
+    windows = body["windows"]
+    assert [w["number"] for w in windows] == list(range(1, 10))
+    assert all(set(w) == PATIENT_WINDOW_KEYS for w in windows)
+    assert windows[0]["status"] == "open"
+    assert windows[0]["opens_at"].startswith("2026-10-03T11:00:00")  # 07:00 EDT on the 3rd
+    assert windows[0]["closes_at"] == windows[1]["opens_at"]
+    # the rest of the state a patient screen needs is already there
+    assert body["next_opens_at"] and body["episode_closes_at"] and body["can_reply"] is False
+
+
+def test_nothing_clinic_only_is_in_the_patients_state(client, fake):
+    fake.tables["episodes"][0]["checkin_completed_at"] = "2026-10-03T00:00:00+00:00"
+    fake.tables["episodes"][0]["surgery_date"] = "2026-09-20"  # earlier windows have passed
+    raw = client.get("/episode", params=tok(fake)).text.lower()
+    for clinic_only in (
+        "missed", "reason", "closed_before_check_in", "no_message", "locked", "cut_short",
+        "schedule_version", "version", "red_flag", "reviewed", "check_in_id", "post_op_day_",
+    ):
+        assert clinic_only not in raw, clinic_only
+    body = client.get("/episode", params=tok(fake)).json()
+    assert set(body) == {
+        "phase", "office_phone", "check_in_done", "categories", "post_op_day", "interval_no",
+        "intervals_total", "interval_closes_at", "next_opens_at", "episode_closes_at", "timezone",
+        "can_send_scheduled", "can_reply", "windows",
+    }
+
+
+def test_a_window_used_is_used_and_the_open_one_is_open(client, fake, monkeypatch):
+    from clinically_anchored_api.core import episodes as episodes_core
+
+    monkeypatch.setattr(episodes_core, "_facts", lambda _db, ids: {i: ({1}, False) for i in ids})
+    assert statuses(client, fake)[:2] == ["used", "upcoming"]
+    assert client.get("/episode", params=tok(fake)).json()["phase"] == "used"
+
+
+def test_windows_that_ended_unused_are_passed_never_missed(client, fake):
+    fake.tables["episodes"][0]["surgery_date"] = "2026-09-20"  # day 13: windows 1-3 have ended
+    fake.tables["episodes"][0]["checkin_completed_at"] = "2026-09-21T12:00:00+00:00"  # day 1
+    got = statuses(client, fake)
+    assert got[:5] == ["passed", "passed", "passed", "open", "upcoming"]
+
+
+def test_windows_that_ended_before_the_check_in_are_before_check_in(client, fake):
+    fake.tables["episodes"][0]["surgery_date"] = "2026-09-20"
+    fake.tables["episodes"][0]["checkin_completed_at"] = "2026-09-29T12:00:00+00:00"  # day 9
+    got = statuses(client, fake)
+    assert got[:5] == ["before_check_in", "before_check_in", "before_check_in", "open", "upcoming"]
+
+
+def test_a_check_in_inside_a_window_gives_both(client, fake):
+    fake.tables["episodes"][0]["surgery_date"] = "2026-09-20"
+    fake.tables["episodes"][0]["checkin_completed_at"] = "2026-09-24T12:00:00+00:00"  # day 4
+    got = statuses(client, fake)  # windows open on days 2, 3, 5, 7: day 4 is inside window 2
+    assert got[:4] == ["before_check_in", "passed", "passed", "open"]
+
+
+def test_before_the_check_in_a_running_window_is_upcoming_not_open(client, fake):
+    fake.tables["episodes"][0]["checkin_completed_at"] = None
+    body = client.get("/episode", params=tok(fake)).json()
+    assert body["phase"] == "locked_checkin" and body["can_send_scheduled"] is False
+    assert [w["status"] for w in body["windows"]] == ["upcoming"] * 9
+
+
+def test_before_the_check_in_windows_that_ended_are_before_check_in(client, fake):
+    fake.tables["episodes"][0]["checkin_completed_at"] = None
+    fake.tables["episodes"][0]["surgery_date"] = "2026-09-20"
+    got = statuses(client, fake)
+    assert got[:5] == ["before_check_in"] * 3 + ["upcoming"] * 2  # window 4 runs but is locked
+
+
+def test_a_closed_episode_returns_no_windows_and_nothing_else(client, fake):
+    fake.tables["episodes"][0].update(
+        closed_at="2026-10-02T13:00:00+00:00", close_reason="discharged"
+    )
+    body = client.get("/episode", params=tok(fake)).json()
+    assert body["phase"] == "closed" and body["windows"] == []
+    assert body["episode_closes_at"] is None and body["next_opens_at"] is None
+
+
+def test_the_reply_flag_travels_with_the_windows(client, fake, monkeypatch):
+    from clinically_anchored_api.core import episodes as episodes_core
+
+    monkeypatch.setattr(episodes_core, "_facts", lambda _db, ids: {i: (set(), True) for i in ids})
+    body = client.get("/episode", params=tok(fake)).json()
+    assert body["can_reply"] is True and len(body["windows"]) == 9

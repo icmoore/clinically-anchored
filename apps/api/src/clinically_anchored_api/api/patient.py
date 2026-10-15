@@ -5,11 +5,12 @@ from fastapi import APIRouter, Depends
 from clinically_anchored_api.api.episodes import iso
 from clinically_anchored_api.core import categories
 from clinically_anchored_api.core.db import get_supabase
+from clinically_anchored_api.core.schedule import MissedReason, WindowState, WindowStatus
 from clinically_anchored_api.core.security import (
     PatientLink,
     require_patient_link_even_if_closed,
 )
-from clinically_anchored_api.schemas import PatientStateOut
+from clinically_anchored_api.schemas import PatientStateOut, PatientWindowOut
 
 router = APIRouter(tags=["patient"])
 
@@ -46,7 +47,35 @@ def patient_state(
         timezone=schedule_tz,
         can_send_scheduled=state.can_send_scheduled,
         can_reply=state.can_reply,
+        windows=patient_windows(state.windows),
     )
+
+
+def patient_windows(windows: tuple[WindowState, ...]) -> list[PatientWindowOut]:
+    """The clinic's window states, reduced to what a patient is shown. A window the patient could
+    not use (it ended before their check-in) is "before_check_in", never "missed"; one that ended
+    unused is "passed". A window running by the clock before the check-in is "upcoming": they can't
+    use it yet. A window cut short by a discharge can't appear (a closed episode returns none)."""
+    out = []
+    for w in windows:
+        if w.status is WindowStatus.USED:
+            status = "used"
+        elif w.status is WindowStatus.OPEN:
+            status = "open"
+        elif w.status is WindowStatus.MISSED:
+            status = (
+                "before_check_in" if w.missed_reason is MissedReason.BEFORE_CHECK_IN else "passed"
+            )
+        elif w.status in (WindowStatus.UPCOMING, WindowStatus.LOCKED):
+            status = "upcoming"
+        else:
+            continue
+        out.append(
+            PatientWindowOut(
+                number=w.number, status=status, opens_at=iso(w.opens_at), closes_at=iso(w.closes_at)
+            )
+        )
+    return out
 
 
 def _timezone(supabase, version: int) -> str:

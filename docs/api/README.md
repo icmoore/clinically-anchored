@@ -76,7 +76,14 @@ Built (on `main`):
 - **The patient's link** (`core/security.py`): ONE signed token per episode carrying the episode
   id and `link_generation`. On every request the api loads the episode: a reset link (generation
   bumped) is 401, a closed episode is 410. `GET /episode?token=` is the one patient route that
-  still answers once closed, and says only `closed` plus the clinic's `office_phone`. The token
+  still answers once closed, and says only `closed` plus the clinic's `office_phone` (and an empty
+  `windows`). While open it also lists the patient's message periods as `windows`: each one's
+  `number`, `status` (`used`, `open`, `upcoming`, `passed` = ended unused, `before_check_in` = ended
+  before they did their check-in), `opens_at` and `closes_at`, next to the existing `next_opens_at`,
+  `can_reply` and `episode_closes_at`. It is the clinic's window list reduced on purpose: no missed
+  reason wording, no `locked` or `cut_short`, no schedule version, review state or red flags, and a
+  period running by the clock before the check-in reads `upcoming`. Additive; an older client
+  ignores it. The token
   has no short expiry (a 120-day backstop); `POST .../episodes/{eid}/link` returns the same URL
   each time (`/care?token=`, the web page is stage 3), `.../link/reset` revokes it. The old
   `checkin` / `messages` scopes, their separate expiries and `/dev/check-in-links` are gone

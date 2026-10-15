@@ -1,12 +1,20 @@
 import type { ReactNode } from "react";
+import { PATIENT_TEXT } from "@/lib/patient-strings";
 
 /** Urgent problems are handled outside the app, and every patient screen says so (the locked and
  *  closed ones most of all). The wording is a first draft: rewrite it here, it is shown everywhere. */
-export function UrgentNotice({ phone }: { phone?: string | null }) {
+export function UrgentNotice({
+  phone,
+  first = false,
+}: {
+  phone?: string | null;
+  /** Shown at the top of a screen (under the title) instead of at the bottom. Same words. */
+  first?: boolean;
+}) {
   return (
     <div
       role="note"
-      className="mt-8 rounded-lg border border-flag-border bg-flag-bg p-4 text-sm text-flag-text"
+      className={`${first ? "mb-4" : "mt-8"} rounded-lg border border-flag-border bg-flag-bg p-4 text-sm text-flag-text`}
     >
       <p className="font-medium">Is this urgent?</p>
       <p className="mt-1">
@@ -26,21 +34,25 @@ export function UrgentNotice({ phone }: { phone?: string | null }) {
   );
 }
 
-/** The page every patient screen sits in: a narrow column, a title, and the urgent notice. */
+/** The page every patient screen sits in: a narrow column, a title, and the urgent notice (at the
+ *  bottom, or first under the title with `noticeFirst`: the message screens put it first). */
 export function PatientFrame({
   title,
   phone,
+  noticeFirst = false,
   children,
 }: {
   title: string;
   phone?: string | null;
+  noticeFirst?: boolean;
   children: ReactNode;
 }) {
   return (
     <div className="mx-auto flex min-h-screen max-w-md flex-col px-4 py-6">
       <h1 className="mb-4 text-xl font-semibold text-ink">{title}</h1>
+      {noticeFirst && <UrgentNotice phone={phone} first />}
       <div className="flex-1">{children}</div>
-      <UrgentNotice phone={phone} />
+      {!noticeFirst && <UrgentNotice phone={phone} />}
     </div>
   );
 }
@@ -60,14 +72,8 @@ export function InvalidLinkScreen({ phone }: { phone?: string | null }) {
 /** The post-op period is over (the last message window ended, or the care team discharged you). */
 export function ClosedScreen({ phone }: { phone?: string | null }) {
   return (
-    <PatientFrame title="Your follow-up has ended" phone={phone}>
-      <p className="text-ink">
-        Your post-op follow-up with this app is over, so this link no longer opens your messages or
-        check-in.
-      </p>
-      <p className="mt-3 text-sm text-muted">
-        If you have a question, please call the office.
-      </p>
+    <PatientFrame title="Your follow-up has ended" phone={phone} noticeFirst>
+      <p className="text-ink">{PATIENT_TEXT.status.ended}</p>
     </PatientFrame>
   );
 }
