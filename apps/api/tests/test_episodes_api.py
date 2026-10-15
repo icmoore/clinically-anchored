@@ -75,6 +75,19 @@ def test_get_the_patients_episode_and_its_state(client):
     assert body["state"]["episode_closes_at"].startswith("2026-11-19T12:00:00")
 
 
+def test_the_state_lists_every_window_with_a_status_and_keeps_the_old_missed_list(client):
+    state = client.get(f"/clinics/{A}/patients/{PATIENT_A}/episode", headers=AUTH).json()["state"]
+    assert len(state["windows"]) == state["intervals_total"] == 9
+    assert [w["number"] for w in state["windows"]] == list(range(1, 10))
+    assert set(state["windows"][0]) == {
+        "number", "opens_at", "closes_at", "status", "missed_reason",
+    }
+    assert "missed" in state and state["missed"] == [
+        w["number"] for w in state["windows"] if w["status"] == "missed"
+    ]
+    assert all(w["missed_reason"] is None for w in state["windows"] if w["status"] != "missed")
+
+
 def test_no_episode_is_a_404_and_other_clinics_are_403_or_404(client, fake):
     assert client.get(f"/clinics/{A}/patients/{PATIENT_B}/episode", headers=AUTH).status_code == 404
     fake.tables["episodes"].clear()

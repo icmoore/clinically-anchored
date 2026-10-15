@@ -17,6 +17,9 @@ The rules (docs/api/README.md has the surgeon's wording):
   * Before the post-op check-in nothing can be sent. A late check-in does not give back
     intervals that already passed: they are reported as `missed`.
   * A closed episode (discharged, or the last interval ended) allows nothing.
+  * Each interval also gets a status for the clinic's timeline (`windows` on the state) and,
+    when it was missed, why: it closed before the check-in was done (nothing could have been
+    sent), or the patient was able to write and did not.
 Whether a doctor's message has a reply waiting is the caller's fact (`reply_available`);
 this module only combines it with the phase.
 """
@@ -36,6 +39,20 @@ class Phase(StrEnum):
     WAITING = "waiting"  # check-in done, interval 1 has not opened yet
     OPEN = "open"  # an interval is open and its message is unused
     USED = "used"  # the open interval's message has been sent
+
+
+class WindowStatus(StrEnum):
+    USED = "used"  # the patient's message for it was sent
+    MISSED = "missed"  # it ended without a message (see MissedReason)
+    OPEN = "open"  # open now and the patient can write
+    LOCKED = "locked"  # open now, but the post-op check-in is not done, so nothing can be sent
+    UPCOMING = "upcoming"  # has not opened yet
+    CUT_SHORT = "cut_short"  # the episode closed (discharge) before it ended or opened
+
+
+class MissedReason(StrEnum):
+    BEFORE_CHECK_IN = "closed_before_check_in"  # it ended before the check-in was done
+    NO_MESSAGE = "no_message"  # the check-in was done and the patient did not write in it
 
 
 @dataclass(frozen=True)
@@ -112,6 +129,15 @@ def episode_end(surgery_date: date, schedule: Schedule) -> datetime:
 
 
 @dataclass(frozen=True)
+class WindowState:
+    number: int
+    opens_at: datetime  # UTC
+    closes_at: datetime  # UTC
+    status: WindowStatus
+    missed_reason: MissedReason | None  # set only when status is MISSED
+
+
+@dataclass(frozen=True)
 class EpisodeState:
     phase: Phase
     # Whole days since the surgery date in the schedule's timezone (negative before it).
@@ -126,6 +152,8 @@ class EpisodeState:
     close_reason: str | None  # 'discharged' | 'schedule_complete'
     missed: tuple[int, ...]  # intervals that ended without a message
     reply_available: bool
+    # Every interval with its status, in order (the nine markers on the clinic's timeline).
+    windows: tuple[WindowState, ...] = ()
 
     @property
     def closed(self) -> bool:
@@ -186,6 +214,26 @@ def episode_state(
     else:
         phase = Phase.OPEN
 
+    checkin_at = checkin_completed_at.astimezone(UTC) if checkin_completed_at else None
+
+    def window_state(w: Window) -> WindowState:
+        why = None
+        if w.number in used_intervals:
+            status = WindowStatus.USED
+        elif w.closes_at <= reference:
+            status = WindowStatus.MISSED
+            # It ended before the check-in was done (or the check-in is still not done): the
+            # patient could not have written. Otherwise they could, and did not.
+            before = checkin_at is None or checkin_at >= w.closes_at
+            why = MissedReason.BEFORE_CHECK_IN if before else MissedReason.NO_MESSAGE
+        elif effective is not None:
+            status = WindowStatus.CUT_SHORT
+        elif current is not None and w.number == current.number:
+            status = WindowStatus.OPEN if phase is Phase.OPEN else WindowStatus.LOCKED
+        else:
+            status = WindowStatus.UPCOMING
+        return WindowState(w.number, w.opens_at, w.closes_at, status, why)
+
     return EpisodeState(
         phase=phase,
         post_op_day=(now.astimezone(schedule.tz).date() - surgery_date).days,
@@ -199,4 +247,5 @@ def episode_state(
         close_reason=reason,
         missed=missed,
         reply_available=reply_available,
+        windows=tuple(window_state(w) for w in wins),
     )

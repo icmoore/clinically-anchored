@@ -6,7 +6,8 @@ import { useCallback, useRef, useState } from "react";
 import { AppHeader } from "@/components/app-header";
 import { ComposeBox, EarlierDrafts } from "@/components/compose-box";
 import { ContactLogSection } from "@/components/contact-log";
-import { EpisodeCard } from "@/components/episode-card";
+import { PatientLinksSection } from "@/components/patient-links";
+import { PhysicianSummarySection } from "@/components/physician-summary";
 import { StatusBadge } from "@/components/status-badge";
 import { SummarySection } from "@/components/summary-view";
 import {
@@ -132,7 +133,15 @@ function PatientView({
         {error && <p className="mt-1 text-sm text-flag-text">{error}</p>}
       </div>
 
-      <EpisodeCard clinicId={clinicId} role={role} episode={episode} onChanged={load} />
+      <PatientLinksSection clinicId={clinicId} episode={episode} />
+
+      <PhysicianSummarySection
+        clinicId={clinicId}
+        role={role}
+        episode={episode}
+        checkIns={checkIns}
+        onChanged={load}
+      />
 
       <SummarySection
         clinicId={clinicId}

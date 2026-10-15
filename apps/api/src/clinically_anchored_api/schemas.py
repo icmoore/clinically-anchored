@@ -135,6 +135,18 @@ class MessageOut(BaseModel):
     created_at: str
 
 
+class WindowStateOut(BaseModel):
+    """One message window on the clinic's timeline. `missed_reason` is set only when the
+    window was missed: it closed before the check-in was done, or the patient was able to write
+    and did not."""
+
+    number: int
+    opens_at: str
+    closes_at: str
+    status: Literal["used", "missed", "open", "locked", "upcoming", "cut_short"]
+    missed_reason: Literal["closed_before_check_in", "no_message"] | None = None
+
+
 class EpisodeStateOut(BaseModel):
     """Where an episode stands now, computed by core/schedule.py. Times are UTC instants;
     the web app shows them in the schedule's timezone."""
@@ -153,6 +165,8 @@ class EpisodeStateOut(BaseModel):
     reply_available: bool
     can_send_scheduled: bool
     can_reply: bool
+    # Added after the first release; older clients ignore it, and `missed` above is unchanged.
+    windows: list[WindowStateOut] = []
 
 
 class EpisodeOut(BaseModel):

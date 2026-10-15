@@ -28,6 +28,16 @@ export interface QueueItem {
 /** Where an episode stands now, computed by the api from the schedule and the clock. Times are
  *  UTC instants: show them in the episode's `timezone`. */
 export type EpisodePhase = "locked_checkin" | "waiting" | "open" | "used" | "closed";
+/** One message window on the timeline. `missed_reason` is set only for a missed window. */
+export type WindowStatus = "used" | "missed" | "open" | "locked" | "upcoming" | "cut_short";
+export type MissedReason = "closed_before_check_in" | "no_message";
+export interface WindowState {
+  number: number;
+  opens_at: string;
+  closes_at: string;
+  status: WindowStatus;
+  missed_reason: MissedReason | null;
+}
 export interface EpisodeState {
   phase: EpisodePhase;
   post_op_day: number;
@@ -43,6 +53,7 @@ export interface EpisodeState {
   reply_available: boolean; // the patient may send one reply to the clinic's latest message
   can_send_scheduled: boolean;
   can_reply: boolean;
+  windows?: WindowState[]; // every window in order; absent only from an older api
 }
 /** One post-op period: the surgery date and procedure the clinic entered, and the schedule. */
 export interface Episode {

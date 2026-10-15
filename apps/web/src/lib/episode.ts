@@ -14,15 +14,24 @@ export function plainDate(isoDate: string): string {
   });
 }
 
-/** "Day 4", or "Surgery in 3 days" before the surgery date. */
+/** "Oct 3" in the given zone (the clinic's own calendar, not the browser's). */
+export function zoneDate(iso: string, timeZone: string | null): string {
+  return new Date(iso).toLocaleDateString("en-CA", {
+    timeZone: timeZone ?? "America/Toronto",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+/** "Post-op day 4", or "Surgery in 3 days" before the surgery date. */
 export function dayLabel(postOpDay: number): string {
-  if (postOpDay >= 0) return `Day ${postOpDay}`;
+  if (postOpDay >= 0) return `Post-op day ${postOpDay}`;
   return `Surgery in ${-postOpDay} day${postOpDay === -1 ? "" : "s"}`;
 }
 
 export type Tone = "flag" | "watch" | "clear" | "info" | "quiet";
 
-/** One line for the patient list and the episode card, with a tone for its badge. */
+/** One line for the patient list and the Physician Summary, with a tone for its badge. */
 export function episodeSummary(e: Episode): { label: string; detail: string; tone: Tone } {
   const s = e.state;
   const at = (iso: string | null) => (iso ? inZone(iso, e.timezone) : "");
@@ -41,13 +50,13 @@ export function episodeSummary(e: Episode): { label: string; detail: string; ton
       };
     case "open":
       return {
-        label: `Window ${s.interval_no} of ${s.intervals_total} open`,
+        label: `Window ${s.interval_no} of ${s.intervals_total} \u00b7 open`,
         detail: `No message yet in this window; it closes ${at(s.interval_closes_at)}.`,
         tone: "clear",
       };
     case "used":
       return {
-        label: `Window ${s.interval_no} of ${s.intervals_total} used`,
+        label: `Window ${s.interval_no} of ${s.intervals_total} \u00b7 message received`,
         detail: s.next_opens_at
           ? `The patient has written in this window. The next opens ${at(s.next_opens_at)}.`
           : `That was the last window. The care period ends ${at(s.episode_closes_at)}.`,

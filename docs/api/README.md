@@ -63,7 +63,11 @@ Built (on `main`):
 - **The engine** (`core/schedule.py`) is a pure function of (surgery date, schedule, `now`,
   check-in time, close, used intervals, reply available) -> `EpisodeState` (phase `locked_checkin`
   / `waiting` / `open` / `used` / `closed`, the open interval, when the next opens, missed
-  intervals). Interval state is computed, never stored. Tested with a pinned clock including the
+  intervals, and `windows`: every interval with a status `used` / `missed` / `open` / `locked`
+  (open by the clock, check-in not done) / `upcoming` / `cut_short` (the episode closed first) and,
+  for a missed one, `missed_reason`: `closed_before_check_in` (it ended before the check-in, so
+  nothing could be sent) or `no_message` (the patient could have written and did not). `windows` is
+  additive; `missed` is unchanged). Interval state is computed, never stored. Tested with a pinned clock including the
   Toronto clock changes (`tests/test_schedule.py`). `core/episodes.py` gathers the facts and
   settles; `core/clock.py` is the one source of "now". The database enforces what a race could
   break (one scheduled message per interval, one reply per doctor message, nothing into a
