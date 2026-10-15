@@ -5,7 +5,7 @@ one, so every pinned date is safely in the past), every write is really audited,
 end the audit chain verifies and `reconcile` finds nothing unaudited."""
 
 import base64
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -21,12 +21,16 @@ from tests.fakes import install
 
 pytestmark = pytest.mark.db
 
-SURGERY = "2025-03-04"  # a Tuesday; the clocks go forward on Sunday 9 March, inside interval 3
-TORONTO_0700 = {  # interval opening instants (UTC) for SURGERY under schedule v1
-    1: datetime(2025, 3, 6, 12, 0, tzinfo=UTC),  # 07:00 EST
-    2: datetime(2025, 3, 7, 12, 0, tzinfo=UTC),
-    3: datetime(2025, 3, 9, 11, 0, tzinfo=UTC),  # 07:00 EDT, the day the clocks went forward
+# A Tuesday. New patients get schedule v2 (days 2, 5, 10, 17, ...; the episode closes on day 59),
+# and interval 2 opens on Sunday 9 March, the day the clocks went forward.
+SURGERY = "2025-03-04"
+OPENS = {  # interval opening instants (UTC) for SURGERY under schedule v2
+    1: datetime(2025, 3, 6, 12, 0, tzinfo=UTC),  # day 2, 07:00 EST
+    2: datetime(2025, 3, 9, 11, 0, tzinfo=UTC),  # day 5, 07:00 EDT (the clocks changed at 02:00)
+    3: datetime(2025, 3, 14, 11, 0, tzinfo=UTC),  # day 10
+    4: datetime(2025, 3, 21, 11, 0, tzinfo=UTC),  # day 17
 }
+END = datetime(2025, 5, 2, 11, 0, tzinfo=UTC)  # day 59, 07:00 EDT
 
 
 @pytest.fixture
@@ -115,14 +119,14 @@ def test_the_whole_story_and_the_audit_trail_that_comes_out_of_it(env):
                   json={"body": "hi", "category": "admin"}).status_code == 409
 
     # Interval 1 opens at 07:00: one message, then used.
-    at(env, TORONTO_0700[1])
+    at(env, OPENS[1])
     assert c.get("/episode", params=tp(token)).json()["phase"] == "open"
     r = c.post("/messages", params=tp(token), json={"body": "Feeling fine", "category": "admin"})
     assert r.status_code == 200 and (r.json()["interval_no"], r.json()["origin"]) == (1, "scheduled")
     again = c.post("/messages", params=tp(token), json={"body": "More", "category": "admin"})
     assert again.status_code == 409
     state = c.get("/episode", params=tp(token)).json()
-    assert state["phase"] == "used" and state["next_opens_at"].startswith("2025-03-07T12:00")
+    assert state["phase"] == "used" and state["next_opens_at"].startswith("2025-03-09T11:00")
 
     # A doctor's message lets the patient reply once, outside the interval.
     sent = c.post(f"{env.clinic}/patients/{patient['id']}/messages", headers=auth,
@@ -144,19 +148,22 @@ def test_the_whole_story_and_the_audit_trail_that_comes_out_of_it(env):
     first = thread[0]
     assert c.post(f"{env.clinic}/messages/{first['id']}/read", headers=auth).status_code == 200
 
-    # Interval 2 opens; interval 3 opens the morning the clocks go forward.
-    at(env, TORONTO_0700[2])
-    assert c.post("/messages", params=tp(token),
-                  json={"body": "Day two", "category": "medication"}).json()["interval_no"] == 2
-    at(env, datetime(2025, 3, 9, 10, 59, 59, tzinfo=UTC))  # 06:59:59 EST: not yet 07:00
+    # Interval 2 opens the morning the clocks go forward: 06:59:59 is still interval 1.
+    at(env, datetime(2025, 3, 9, 10, 59, 59, tzinfo=UTC))
+    state = c.get("/episode", params=tp(token)).json()
+    assert state["interval_no"] == 1 and state["phase"] == "used"
+    at(env, OPENS[2])
     assert c.get("/episode", params=tp(token)).json()["interval_no"] == 2
-    at(env, TORONTO_0700[3])
+    assert c.post("/messages", params=tp(token),
+                  json={"body": "Day five", "category": "medication"}).json()["interval_no"] == 2
+    at(env, OPENS[3])
     assert c.get("/episode", params=tp(token)).json()["interval_no"] == 3
 
     # Interval 3 goes unused; later the clinic sees it as missed.
-    at(env, datetime(2025, 3, 12, 15, 0, tzinfo=UTC))  # interval 4 (Mar 11) is open
+    at(env, datetime(2025, 3, 24, 15, 0, tzinfo=UTC))  # interval 4 (from Mar 21) is open
     clinic_view = c.get(f"{env.clinic}/patients/{patient['id']}/episode", headers=auth).json()
     assert clinic_view["state"]["missed"] == [3] and clinic_view["state"]["interval_no"] == 4
+    assert clinic_view["schedule_version"] == 2 and clinic_view["state"]["intervals_total"] == 9
 
     # Resetting the link kills the old URL at once.
     new = c.post(f"{env.clinic}/episodes/{ep['id']}/link/reset", headers=auth).json()
@@ -199,22 +206,22 @@ def test_an_episode_that_runs_out_closes_itself_once_and_a_new_surgery_is_then_a
     token = link_token(env, ep["id"])
     c.post("/check-ins", params=tp(token), json={"answers": {}})
 
-    at(env, datetime(2025, 4, 22, 10, 59, 59, tzinfo=UTC))  # one second before 07:00 EDT
+    at(env, END - timedelta(seconds=1))  # one second before 07:00 EDT on day 59
     assert c.get("/messages", params=tp(token)).status_code == 200
-    at(env, datetime(2025, 4, 22, 11, 0, tzinfo=UTC))  # surgery + 49 days at 07:00
+    at(env, END)  # surgery + 59 days at 07:00
     assert c.get("/messages", params=tp(token)).status_code == 410
     assert c.get("/messages", params=tp(token)).status_code == 410
 
     row = env.pg.conn.execute("select * from episodes where id = %s", (ep["id"],)).fetchone()
     assert row["close_reason"] == "schedule_complete" and row["closed_by"] is None
-    assert row["closed_at"] == datetime(2025, 4, 22, 11, 0, tzinfo=UTC)  # the instant it ended
+    assert row["closed_at"] == END  # the instant it ended
     closes = [r for r in audit.fetch_chain(env.pg, env.w.clinic_a) if r["event_type"] == "episode.closed"]
     assert len(closes) == 1 and closes[0]["metadata"]["actor"] == {"type": "system"}
 
     # A new surgery for the same patient: the database allows it now.
-    at(env, datetime(2025, 5, 1, 15, 0, tzinfo=UTC))
+    at(env, datetime(2025, 5, 10, 15, 0, tzinfo=UTC))
     r = c.post(f"{env.clinic}/patients/{patient['id']}/episodes", headers=auth,
-               json={"surgery_date": "2025-04-29", "procedure_id": env.w.proc_a})
+               json={"surgery_date": "2025-05-08", "procedure_id": env.w.proc_a})
     assert r.status_code == 200 and r.json()["state"]["phase"] == "locked_checkin"
     assert reconcile.reconcile(env.pg).ok
 
@@ -222,18 +229,18 @@ def test_an_episode_that_runs_out_closes_itself_once_and_a_new_surgery_is_then_a
 def test_a_late_check_in_leaves_the_passed_intervals_missed_in_the_audit_event(env):
     patient = add_patient(env, "Pat Late")
     token = link_token(env, patient["episode"]["id"])
-    at(env, datetime(2025, 3, 12, 15, 0, tzinfo=UTC))  # intervals 1-3 passed, 4 is open
+    at(env, datetime(2025, 3, 12, 15, 0, tzinfo=UTC))  # interval 1 passed, 2 is open
     r = env.client.post("/check-ins", params=tp(token), json={"answers": {}})
     assert r.status_code == 200
     state = env.client.get("/episode", params=tp(token)).json()
-    assert state["phase"] == "open" and state["interval_no"] == 4  # this one is still usable
+    assert state["phase"] == "open" and state["interval_no"] == 2  # this one is still usable
     event = [r for r in audit.fetch_chain(env.pg, env.w.clinic_a)
              if r["event_type"] == "check_in.submitted"][0]
     assert event["metadata"]["episode_id"] == patient["episode"]["id"]
     clinic_view = env.client.get(
         f"{env.clinic}/patients/{patient['id']}/episode", headers=env.auth
     ).json()
-    assert clinic_view["state"]["missed"] == [1, 2, 3]
+    assert clinic_view["state"]["missed"] == [1]
 
 
 def test_the_correction_window_closes_at_the_check_in(env):
@@ -257,3 +264,48 @@ def test_a_delegate_cannot_discharge_and_another_clinic_cannot_see_the_episode(e
     other = {"Authorization": f"Bearer user:{env.w.user_b}"}
     r = env.client.post(f"/clinics/{env.w.clinic_b}/episodes/{ep}/link", headers=other)
     assert r.status_code == 404
+
+
+def test_new_patients_get_v2_and_an_older_episode_keeps_v1(env):
+    c, auth = env.client, env.auth
+    conn = env.pg.conn
+    # An episode made before v2 existed: recorded schedule v1.
+    old_patient = conn.execute(
+        "insert into patients (clinic_id, full_name) values (%s, 'Old Pat') returning id",
+        (env.w.clinic_a,),
+    ).fetchone()["id"]
+    conn.execute(
+        "insert into episodes (clinic_id, patient_id, procedure_id, surgery_date, schedule_version, "
+        "created_by) values (%s, %s, %s, %s, 1, %s)",
+        (env.w.clinic_a, old_patient, env.w.proc_a, SURGERY, env.w.user_a),
+    )
+    new = add_patient(env, "New Pat")
+    assert new["episode"]["schedule_version"] == 2
+
+    at(env, datetime(2025, 3, 12, 15, 0, tzinfo=UTC))  # day 8
+    listed = {p["full_name"]: p["episode"] for p in
+              c.get(f"{env.clinic}/patients", headers=auth).json()}
+    old, now_ = listed["Old Pat"], listed["New Pat"]
+    assert (old["schedule_version"], now_["schedule_version"]) == (1, 2)
+    assert old["state"]["interval_no"] == 4  # v1: window 4 (days 7-14) is open on day 8
+    assert now_["state"]["interval_no"] == 2  # v2: window 2 (days 5-10)
+    assert old["state"]["episode_closes_at"].startswith("2025-04-22")  # v1: day 49
+    assert now_["state"]["episode_closes_at"].startswith("2025-05-02")  # v2: day 59
+
+
+def test_retiring_the_default_version_changes_only_what_new_patients_get(env):
+    conn = env.pg.conn
+    first = add_patient(env, "Pat One")
+    conn.execute("update message_schedules set active = false where version = 2")  # retire v2
+    second = add_patient(env, "Pat Two")
+    conn.execute(
+        "insert into message_schedules (version, offsets_days, close_after_days, opens_at_local, "
+        "timezone, active) values (3, '{2,4}', 7, '07:00', 'America/Toronto', false)"
+    )  # staged, not yet the default
+    third = add_patient(env, "Pat Three")
+    conn.execute("update message_schedules set active = true where version = 3")
+    fourth = add_patient(env, "Pat Four")
+    assert [p["episode"]["schedule_version"] for p in (first, second, third, fourth)] == [2, 1, 1, 3]
+    # Pat One still computes with v2 after v2 was retired: the version is theirs.
+    now = env.client.get(f"{env.clinic}/patients/{first['id']}/episode", headers=env.auth).json()
+    assert now["schedule_version"] == 2 and now["state"]["intervals_total"] == 9

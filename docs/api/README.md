@@ -43,10 +43,14 @@ Built (on `main`):
   (migration 9): surgery date and procedure entered by the clinic when the patient is added
   (`POST /clinics/{id}/patients` now takes `surgery_date` and `procedure_id`, and creates the
   patient and their episode together; `POST .../patients/{pid}/episodes` starts a new surgery
-  for an existing patient), on the newest `message_schedules` version. The schedule is DATA
-  (offsets in days from the surgery date, opening time, timezone, close-after), versioned; v1 =
-  2,3,5,7,14,21,28,35,42 at 07:00 America/Toronto, closing 7 days after the last opening --
-  **placeholder offsets pending the surgeon**. Messaging is locked until the patient completes
+  for an existing patient), on the default schedule: **the newest active `message_schedules`
+  version** (highest `version` with `active = true`; `core/episodes.default_schedule`; a 503 if none
+  is active). An episode keeps the version it recorded, forever. The schedule is DATA (offsets in
+  days from the surgery date, opening time, timezone, close-after), versioned. **v2** (migration 11)
+  is the surgeon's confirmed schedule: windows open at 07:00 America/Toronto on days 2, 5, 10, 17,
+  24, 31, 38, 45, 52 and the episode closes on day 59; v1 (2,3,5,7,14,21,28,35,42, close day 49)
+  was a placeholder and remains only for episodes made on it. Nothing in the api, the engine or the
+  web app hard-codes either: counts, offsets and the close day are read from the schedule row. Messaging is locked until the patient completes
   the post-op check-in (one per episode); then they may send ONE message per interval (a
   category key is required: `core/categories.py`, placeholders), intervals open on the clock
   not on the last message, an unused interval is gone when the next opens, and a late check-in
@@ -84,7 +88,8 @@ Built (on `main`):
   runs it against Postgres: every patient lands in the declared state, the chain verifies,
   `reconcile` is clean, and the readable metadata of each event matches what the api writes
   (a drift guard: change an event in the api and that test says to change the seed).
-  `--include-alternate-schedule` adds schedule v2, which then becomes the newest version.
+  All 13 are on v2; `--include-v1-patient` adds a 14th on v1. The seed never changes the schedules
+  or which one new patients get.
 - **AI prompts under Messaging v2:** `draft_reply_v4` and `summary_v4` show each patient message's
   topic key and window next to the speaker, "patient (symptom_or_wound, window 3)" or "patient
   (reply)" (`core/thread_text.py`; parentheses, never square brackets, which the summary format

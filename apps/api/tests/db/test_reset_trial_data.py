@@ -139,13 +139,14 @@ def test_execute_after_migration_9_wipes_episodes_too_and_frees_the_schedule(db)
         (w.clinic_a, w.patient_a, w.user_a),
     )
     with pytest.raises(Exception, match="message_schedules_in_use"):
-        c.execute("update message_schedules set note = 'x' where version = 1")
+        c.execute("update message_schedules set offsets_days = '{2,3}' where version = 1")
 
     out = psql(db, "-f", str(SQL), execute=True)
     assert out.returncode == 0, out.stderr
     assert all(count(c, t) == 0 for t in WIPED + ["episodes", "thread_summaries"])
     assert count(c, "clinics") >= 2 and count(c, "procedures") >= 2 and count(c, "clinic_members") == 2
-    c.execute("update message_schedules set note = 'editable again' where version = 1")
+    # Nothing uses v1 any more, so its offsets are editable again (it is placeholder data).
+    c.execute("update message_schedules set offsets_days = '{2,3}' where version = 1")
 
 
 @needs_psql

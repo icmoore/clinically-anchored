@@ -11,6 +11,7 @@ from tests.fakes import (
     CLINIC_B,
     PROC_A,
     USER,
+    V2_ROW,
     FakeSupabase,
     install,
     pin_clock,
@@ -86,7 +87,7 @@ def test_create_patient_also_creates_the_episode_and_audits_both(client, fake):
     (episode,) = fake.tables["episodes"]
     assert (episode["patient_id"], episode["surgery_date"], episode["procedure_id"],
             episode["schedule_version"], episode["created_by"]) == (
-        body["id"], "2026-10-01", PROC_A, 1, USER,
+        body["id"], "2026-10-01", PROC_A, 2, USER,  # the newest active schedule: v2
     )
     assert body["episode"]["id"] == episode["id"]
     assert body["episode"]["state"]["phase"] == "locked_checkin"
@@ -98,19 +99,61 @@ def test_create_patient_also_creates_the_episode_and_audits_both(client, fake):
     assert patient_event["metadata"]["actor"]["role"] == "owner"
     assert episode_event["event_type"] == "episode.created"
     assert episode_event["metadata"]["ref_id"] == episode["id"]
-    assert episode_event["metadata"]["schedule_version"] == 1
+    assert episode_event["metadata"]["schedule_version"] == 2
     snapshot = episode_event["payload"]["schedule"]  # what the episode was created under
-    assert snapshot["offsets_days"] == [2, 3, 5, 7, 14, 21, 28, 35, 42]
+    assert snapshot["offsets_days"] == [2, 5, 10, 17, 24, 31, 38, 45, 52]
+    assert snapshot["close_after_days"] == 7
     assert snapshot["opens_at_local"] == "07:00:00" and snapshot["timezone"] == "America/Toronto"
 
 
-def test_a_new_patient_gets_the_newest_schedule_version(client, fake):
-    fake.tables["message_schedules"].append(
-        {"version": 2, "offsets_days": [2, 5, 10, 17, 24, 31, 38, 45, 52], "close_after_days": 7,
-         "opens_at_local": "07:00:00", "timezone": "America/Toronto"}
-    )
+def _version(fake):
+    return fake.tables["episodes"][-1]["schedule_version"]
+
+
+def test_a_new_patient_gets_the_newest_active_schedule(client, fake):
     client.post(f"/clinics/{A}/patients", headers=AUTH, json=NEW)
-    assert fake.tables["episodes"][0]["schedule_version"] == 2
+    assert _version(fake) == 2
+
+
+def test_a_newer_version_that_is_not_active_is_skipped(client, fake):
+    # Staged for review: inserted with active = false, so it is not the default yet.
+    fake.tables["message_schedules"].append({**V2_ROW, "version": 3, "active": False})
+    client.post(f"/clinics/{A}/patients", headers=AUTH, json=NEW)
+    assert _version(fake) == 2
+    fake.tables["message_schedules"][-1]["active"] = True  # flipped on: now it is the default
+    client.post(f"/clinics/{A}/patients", headers=AUTH, json={**NEW, "full_name": "Second"})
+    assert _version(fake) == 3
+
+
+def test_retiring_the_newest_version_falls_back_to_the_one_before(client, fake):
+    fake.tables["message_schedules"][1]["active"] = False  # v2 off
+    client.post(f"/clinics/{A}/patients", headers=AUTH, json=NEW)
+    assert _version(fake) == 1
+
+
+def test_no_active_schedule_is_a_clear_error_and_writes_no_episode(client, fake):
+    for row in fake.tables["message_schedules"]:
+        row["active"] = False
+    r = client.post(f"/clinics/{A}/patients", headers=AUTH, json=NEW)
+    assert r.status_code == 503 and "schedule" in r.json()["detail"]
+    assert fake.tables["episodes"] == []
+
+
+def test_an_existing_episode_keeps_the_version_it_recorded(client, fake):
+    # A v1 episode made before v2 existed, and a patient added now (v2), side by side.
+    fake.add_episode(id="e-v1", patient="p0", surgery_date="2026-10-01", schedule_version=1,
+                     checkin_completed_at="2026-10-02T12:00:00+00:00")
+    client.post(f"/clinics/{A}/patients", headers=AUTH, json=NEW)
+    listed = {p["full_name"]: p["episode"] for p in
+              client.get(f"/clinics/{A}/patients", headers=AUTH).json()}
+    old, new = listed["Amy"], listed["Test Person"]
+    assert (old["schedule_version"], new["schedule_version"]) == (1, 2)
+    # NOW is Saturday 3 Oct 07:30 Toronto, day 2 after Thursday 1 Oct surgery. Under v1 that is
+    # window 1 (opened 3 Oct 07:00, closes 4 Oct); under v2 window 1 runs to day 5, 6 Oct.
+    assert old["state"]["interval_closes_at"].startswith("2026-10-04T11:00")
+    assert new["state"]["intervals_total"] == old["state"]["intervals_total"] == 9
+    assert new["state"]["episode_closes_at"].startswith("2026-11-29T12:00")  # day 59
+    assert old["state"]["episode_closes_at"].startswith("2026-11-19T12:00")  # v1's day 49
 
 
 @pytest.mark.parametrize(

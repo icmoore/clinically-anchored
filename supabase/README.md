@@ -68,8 +68,10 @@ It writes 13 synthetic patients into a separate demo clinic (created if missing)
 the schedule engine can report (locked, waiting, open, used, discharged, ran out, a reply open,
 a late check-in, red flags), with the same audit events the api writes. It checks its plan
 against the engine and the schedules in the database first and refuses to write if they
-disagree (e.g. you edited v1's offsets). `--include-alternate-schedule` adds a v2 schedule and a
-v2 patient, **and makes v2 the schedule new dashboard patients get**; leave it off normally.
+disagree (e.g. someone edited a schedule's offsets). All 13 patients are on schedule v2 (migration
+11); `--include-v1-patient` adds a 14th on the old v1, to show that an episode keeps the version it
+recorded. The seed never writes to `message_schedules` and never changes which schedule new
+dashboard patients get (the newest active version).
 Check afterwards with `python -m clinically_anchored_api.core.reconcile --clinic <demo clinic id>`.
 
 `--clinic dev` fills the shared dev clinic instead (the same 13 patients, so each account has its own
