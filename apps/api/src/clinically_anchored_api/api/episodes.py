@@ -29,6 +29,7 @@ from clinically_anchored_api.schemas import (
     EpisodeStateOut,
     LinkOut,
     NewEpisode,
+    WindowStateOut,
 )
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,16 @@ def state_out(state: EpisodeState) -> EpisodeStateOut:
         reply_available=state.reply_available,
         can_send_scheduled=state.can_send_scheduled,
         can_reply=state.can_reply,
+        windows=[
+            WindowStateOut(
+                number=w.number,
+                opens_at=w.opens_at.isoformat(),
+                closes_at=w.closes_at.isoformat(),
+                status=w.status.value,
+                missed_reason=w.missed_reason.value if w.missed_reason else None,
+            )
+            for w in state.windows
+        ],
     )
 
 

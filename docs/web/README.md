@@ -72,15 +72,21 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   surgery), add patient (the clinic enters the **surgery date and procedure**, both required;
   they create the patient's care period), and all patients, each with where their care period
   stands ("Check-in pending", "Window 3 of 9 open", "Discharged", ...).
-- `/dashboard/patients/[id]`: the **Care period** card (`components/episode-card.tsx`: procedure,
-  surgery date, day, the state computed by the api, windows that passed unused, whether the patient
-  has a reply open, one **patient link** to copy or reset, "fix surgery date or procedure" until
-  the patient has checked in, and **discharge** with a confirmation, owner/clinician only, no
-  undo), review check-ins, read and reply to the message thread (one compose box, below; each patient message shows its
+- `/dashboard/patients/[id]`, top to bottom: **Patient links** (`components/patient-links.tsx`:
+  copy or reset the one link; once the care period has ended it says the link no longer works and
+  hides the buttons; no care period yet says so), **Physician Summary**
+  (`components/physician-summary.tsx`: computed from the schedule and the record, never by AI, so it
+  has no AI badge: procedure, surgery date, "Post-op day N", status badge, a row of the nine
+  message windows with each one's state and opening date, why any missed window was missed ("closed
+  before the check-in" or "no message sent"), the latest check-in (completed date, flagged,
+  reviewed), the care period's end, whether a reply is open, schedule version in small print, "fix
+  surgery date or procedure" until the patient has checked in, and **discharge** with a
+  confirmation, owner/clinician only, no undo; the two actions are in `components/episode-actions.tsx`),
+  then **Conversation Summary** (below), review check-ins, read and reply to the message thread (one compose box, below; each patient message shows its
   category and window, or "Reply"; once the care period has ended the box is replaced by a note,
   because the patient's link no longer works and a message could never be seen; every message
   you send lets the patient send one reply, and the box says so), plus an AI summary:
-  - **Summary** (`components/summary-view.tsx`): opening a patient shows the newest saved summary
+  - **Conversation Summary** (`components/summary-view.tsx`): opening a patient shows the newest saved summary
     (read back without calling the model; "Refresh summary" asks again). "Summarise this conversation"
     calls the api on demand (never automatic). Each line shows chips for the messages it cites; clicking a
     chip scrolls to and highlights that message in the thread. The api has already verified

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ApiError } from "@/lib/api";
 import { Message, Summary, generateSummary, getLatestSummary } from "@/lib/clinician-api";
 import { clock, timeAgo } from "@/lib/format";
+import { Section } from "./section";
 import { StatusBadge } from "./status-badge";
 
 /** On-demand AI summary of the thread. Every line cites the messages it came from;
@@ -61,77 +62,72 @@ export function SummarySection({
     : 0;
 
   return (
-    <section>
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted">
-        Summary
-      </h2>
-      <div className="rounded-lg border border-border bg-surface p-4">
-        {summary === null ? (
-          <p className="text-sm text-muted">
-            Ask the AI to summarise this conversation. Every line links to the messages it came
-            from, so you can check it.
-          </p>
-        ) : (
-          <>
-            <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
-              <StatusBadge variant="ai">AI summary</StatusBadge>
-              <span className="text-muted">
-                {timeAgo(summary.generated_at)} &middot; covers {summary.covers_messages}{" "}
-                {summary.covers_messages === 1 ? "message" : "messages"}
-              </span>
-            </div>
+    <Section title="Conversation Summary">
+      {summary === null ? (
+        <p className="text-sm text-muted">
+          Ask the AI to summarise this conversation. Every line links to the messages it came
+          from, so you can check it.
+        </p>
+      ) : (
+        <>
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+            <StatusBadge variant="ai">AI summary</StatusBadge>
+            <span className="text-muted">
+              {timeAgo(summary.generated_at)} &middot; covers {summary.covers_messages}{" "}
+              {summary.covers_messages === 1 ? "message" : "messages"}
+            </span>
+          </div>
 
-            {newer > 0 && (
-              <p className="mb-3 rounded-md border border-info-border bg-info-bg px-3 py-2 text-sm text-info-text">
-                {newer} new {newer === 1 ? "message has" : "messages have"} arrived since this
-                summary was written.
-              </p>
-            )}
-            {summary.truncated && (
-              <p className="mb-3 text-sm text-muted">
-                Only the most recent {summary.covers_messages} messages are covered; older ones
-                are left out.
-              </p>
-            )}
-
-            <ul className="space-y-3">
-              {summary.lines.map((line, i) => (
-                <li key={i} className="text-sm text-ink">
-                  <span>{line.text}</span>{" "}
-                  <span>
-                    {line.citations.map((id) => (
-                      <CitationLink key={id} id={id} message={byId.get(id) ?? null} onJump={onJump} />
-                    ))}
-                  </span>
-                </li>
-              ))}
-            </ul>
-
-            <p className="mt-3 text-xs text-muted">
-              Written by AI ({summary.model_id}, {summary.prompt_version}). Check anything
-              important against the linked messages.
+          {newer > 0 && (
+            <p className="mb-3 rounded-md border border-info-border bg-info-bg px-3 py-2 text-sm text-info-text">
+              {newer} new {newer === 1 ? "message has" : "messages have"} arrived since this
+              summary was written.
             </p>
-          </>
-        )}
+          )}
+          {summary.truncated && (
+            <p className="mb-3 text-sm text-muted">
+              Only the most recent {summary.covers_messages} messages are covered; older ones
+              are left out.
+            </p>
+          )}
 
-        {error && (
-          <p className="mt-3 text-sm text-flag-text">
-            {error}
-            {summary && " The summary above is the previous one."}
+          <ul className="space-y-3">
+            {summary.lines.map((line, i) => (
+              <li key={i} className="text-sm text-ink">
+                <span>{line.text}</span>{" "}
+                <span>
+                  {line.citations.map((id) => (
+                    <CitationLink key={id} id={id} message={byId.get(id) ?? null} onJump={onJump} />
+                  ))}
+                </span>
+              </li>
+            ))}
+          </ul>
+
+          <p className="mt-3 text-xs text-muted">
+            Written by AI ({summary.model_id}, {summary.prompt_version}). Check anything
+            important against the linked messages.
           </p>
-        )}
-        <button
-          onClick={handleGenerate}
-          disabled={busy || thread === null || thread.length === 0}
-          className="mt-3 rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-        >
-          {busy ? "Summarising..." : summary ? "Refresh summary" : "Summarise this conversation"}
-        </button>
-        {thread !== null && thread.length === 0 && (
-          <p className="mt-2 text-xs text-muted">There are no messages to summarise yet.</p>
-        )}
-      </div>
-    </section>
+        </>
+      )}
+
+      {error && (
+        <p className="mt-3 text-sm text-flag-text">
+          {error}
+          {summary && " The summary above is the previous one."}
+        </p>
+      )}
+      <button
+        onClick={handleGenerate}
+        disabled={busy || thread === null || thread.length === 0}
+        className="mt-3 rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+      >
+        {busy ? "Summarising..." : summary ? "Refresh summary" : "Summarise this conversation"}
+      </button>
+      {thread !== null && thread.length === 0 && (
+        <p className="mt-2 text-xs text-muted">There are no messages to summarise yet.</p>
+      )}
+    </Section>
   );
 }
 

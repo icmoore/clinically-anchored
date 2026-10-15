@@ -8,8 +8,10 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from clinically_anchored_api.core.schedule import (
+    MissedReason,
     Phase,
     Schedule,
+    WindowStatus,
     episode_end,
     episode_state,
     windows,
@@ -25,13 +27,13 @@ def local(y, mo, d, h=7, mi=0, s=0) -> datetime:
     return datetime(y, mo, d, h, mi, s, tzinfo=TORONTO).astimezone(UTC)
 
 
-def state(now, *, surgery=SURGERY, schedule=V1, checkin=True, closed_at=None, reason=None,
-          used=(), reply=False):
+def state(now, *, surgery=SURGERY, schedule=V1, checkin=True, checkin_at=None, closed_at=None,
+          reason=None, used=(), reply=False):
     return episode_state(
         surgery_date=surgery,
         schedule=schedule,
         now=now,
-        checkin_completed_at=local(2026, 10, 2) if checkin else None,
+        checkin_completed_at=(checkin_at or local(2026, 10, 2)) if checkin else None,
         closed_at=closed_at,
         close_reason=reason,
         used_intervals=set(used),
@@ -361,3 +363,93 @@ def test_a_v1_episode_keeps_computing_with_v1_beside_a_v2_one_for_the_same_surge
     assert old.episode_closes_at == local(2026, 11, 19)  # v1: day 49
     assert new.episode_closes_at == local(2026, 11, 29)  # v2: day 59
     assert old.missed == (1, 2, 3, 4) and new.missed == (1, 2)
+
+
+# --- per-window status and why a window was missed ------------------------------------------
+
+B = MissedReason.BEFORE_CHECK_IN
+N = MissedReason.NO_MESSAGE
+S = WindowStatus
+
+
+def statuses(st):
+    return [w.status.value for w in st.windows]
+
+
+def reasons(st):
+    return {w.number: w.missed_reason for w in st.windows if w.missed_reason}
+
+
+def test_every_state_lists_all_nine_windows_in_order_and_missed_matches_the_missed_ones():
+    st = state(local(2026, 10, 15, 9), schedule=V2, used={3})
+    assert [w.number for w in st.windows] == list(range(1, 10))
+    assert st.windows[0].opens_at == windows(SURGERY, V2)[0].opens_at
+    assert tuple(w.number for w in st.windows if w.status is S.MISSED) == st.missed
+
+
+def test_a_late_check_in_on_day_11_marks_the_windows_that_closed_before_it_as_such():
+    # V2 windows open on days 2, 5, 10, 17 ...; surgery 1 Oct, so day 11 is 12 Oct.
+    checkin = local(2026, 10, 12, 9)
+    st = state(local(2026, 10, 12, 10), schedule=V2, checkin_at=checkin)
+    assert st.phase is Phase.OPEN and st.interval_no == 3
+    assert reasons(st) == {1: B, 2: B}
+    assert statuses(st)[:4] == ["missed", "missed", "open", "upcoming"]
+
+
+def test_a_window_the_patient_could_have_used_but_did_not_is_no_message():
+    # Checked in on day 1, so every window was available; 1 and 2 passed unused, 3 is open.
+    st = state(local(2026, 10, 12, 10), schedule=V2, checkin_at=local(2026, 10, 2, 9))
+    assert reasons(st) == {1: N, 2: N}
+
+
+def test_both_reasons_appear_together_when_the_check_in_lands_inside_a_window():
+    # Check-in on day 6 (inside window 2, days 5-10): window 1 closed before it, window 2 did not,
+    # and the patient then wrote nothing in window 2 before it closed.
+    st = state(local(2026, 10, 12, 10), schedule=V2, checkin_at=local(2026, 10, 7, 9))
+    assert reasons(st) == {1: B, 2: N}
+
+
+def test_a_check_in_at_the_exact_close_of_a_window_is_too_late_for_it():
+    close_1 = windows(SURGERY, V2)[0].closes_at
+    st = state(close_1 + timedelta(hours=5), schedule=V2, checkin_at=close_1)
+    assert reasons(st) == {1: B}
+    st = state(close_1 + timedelta(hours=5), schedule=V2, checkin_at=close_1 - timedelta(seconds=1))
+    assert reasons(st) == {1: N}
+
+
+def test_without_a_check_in_every_closed_window_is_closed_before_the_check_in():
+    st = state(local(2026, 10, 12, 10), schedule=V2, checkin=False)
+    assert st.phase is Phase.LOCKED_CHECKIN
+    assert reasons(st) == {1: B, 2: B}
+    # The window that is open by the clock cannot be used yet: it is locked, not open.
+    assert statuses(st)[:4] == ["missed", "missed", "locked", "upcoming"]
+
+
+def test_used_windows_have_no_reason_and_the_open_one_is_open_or_used():
+    st = state(local(2026, 10, 12, 10), schedule=V2, used={1, 3})
+    assert reasons(st) == {2: N}
+    assert statuses(st)[:4] == ["used", "missed", "used", "upcoming"]
+    assert state(local(2026, 10, 12, 10), schedule=V2).windows[2].status is S.OPEN
+
+
+def test_before_window_1_everything_is_upcoming():
+    st = state(local(2026, 10, 2, 6, 59), schedule=V2)
+    assert statuses(st) == ["upcoming"] * 9 and reasons(st) == {}
+
+
+def test_a_discharge_cuts_short_the_open_and_later_windows_and_keeps_the_reasons():
+    st = state(
+        local(2026, 10, 30), schedule=V2, checkin_at=local(2026, 10, 12, 9),
+        closed_at=local(2026, 10, 12, 10), reason="discharged", used={3},
+    )
+    # Windows 1, 2 ended before the day-11 check-in; 3 was used; the rest never ran.
+    assert statuses(st) == ["missed", "missed", "used"] + ["cut_short"] * 6
+    assert reasons(st) == {1: B, 2: B}
+    assert st.missed == (1, 2)
+
+
+def test_when_the_schedule_runs_out_the_remaining_unused_windows_are_missed():
+    st = state(local(2026, 12, 1), schedule=V2, used={1, 9})
+    assert st.phase is Phase.CLOSED and st.close_reason == "schedule_complete"
+    assert statuses(st) == ["used"] + ["missed"] * 7 + ["used"]
+    assert set(reasons(st).values()) == {N}
