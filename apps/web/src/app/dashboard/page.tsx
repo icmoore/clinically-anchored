@@ -7,6 +7,7 @@ import { AppHeader } from "@/components/app-header";
 import { StatusBadge } from "@/components/status-badge";
 import { ApiError } from "@/lib/api";
 import {
+  Clinic,
   Patient,
   QueueItem,
   createPatient,
@@ -30,12 +31,12 @@ export default function DashboardPage() {
   return (
     <>
       <AppHeader clinician={clinician} />
-      <Dashboard clinicId={clinician.clinic.id} />
+      <Dashboard clinicId={clinician.clinic.id} clinic={clinician.clinic} />
     </>
   );
 }
 
-function Dashboard({ clinicId }: { clinicId: string }) {
+function Dashboard({ clinicId, clinic }: { clinicId: string; clinic: Clinic }) {
   const fetchAll = useCallback(
     async () => {
       const [queue, patients] = await Promise.all([getQueue(clinicId), listPatients(clinicId)]);
@@ -51,6 +52,7 @@ function Dashboard({ clinicId }: { clinicId: string }) {
   return (
     <main className="mx-auto max-w-3xl space-y-8 px-4 py-6">
       {error && <p className="text-sm text-flag-text">{error}</p>}
+      {!clinic.office_phone && <OfficePhoneWarning clinic={clinic} />}
 
       <section>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted">
@@ -147,7 +149,37 @@ function Dashboard({ clinicId }: { clinicId: string }) {
           </ul>
         )}
       </section>
+
+      <p className="text-sm text-muted">
+        <Link href="/dashboard/settings" className="underline">
+          Clinic settings
+        </Link>
+        {clinic.office_phone ? <> &middot; office phone {clinic.office_phone}</> : null}
+      </p>
     </main>
+  );
+}
+
+/** Patients' urgent notices tell them to call the office, and name its number if there is one.
+ *  Until an owner sets it they see no number, so everyone in the clinic is told. */
+function OfficePhoneWarning({ clinic }: { clinic: Clinic }) {
+  return (
+    <section
+      role="alert"
+      className="rounded-lg border border-watch-border bg-watch-bg p-4 text-sm text-watch-text"
+    >
+      <p className="font-medium">No office phone number is set for {clinic.name}.</p>
+      <p className="mt-1">
+        Patients&apos; urgent notices tell them to call your office, but they cannot see a number.{" "}
+        {clinic.role === "owner" ? (
+          <Link href="/dashboard/settings" className="font-medium underline">
+            Set it in clinic settings
+          </Link>
+        ) : (
+          "Ask a clinic owner to set it in clinic settings."
+        )}
+      </p>
+    </section>
   );
 }
 

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 
 from clinically_anchored_api.api.episodes import iso
 from clinically_anchored_api.core import categories
+from clinically_anchored_api.core.clinic_info import office_phone
 from clinically_anchored_api.core.db import get_supabase
 from clinically_anchored_api.core.security import (
     PatientLink,
@@ -14,11 +15,6 @@ from clinically_anchored_api.schemas import PatientStateOut
 router = APIRouter(tags=["patient"])
 
 
-def _office_phone(supabase, clinic_id: str) -> str | None:
-    rows = supabase.table("clinics").select("office_phone").eq("id", clinic_id).execute().data
-    return rows[0]["office_phone"] if rows else None
-
-
 @router.get("/episode", response_model=PatientStateOut)
 def patient_state(
     link: PatientLink = Depends(require_patient_link_even_if_closed),
@@ -27,7 +23,7 @@ def patient_state(
     one patient route that still answers once the episode has closed, and then it says only
     "closed" and the office phone: the link no longer opens anything else."""
     supabase = get_supabase()
-    phone = _office_phone(supabase, link.clinic_id)
+    phone = office_phone(supabase, link.clinic_id)
     state = link.state
     if state.closed:
         return PatientStateOut(phase=state.phase.value, office_phone=phone)

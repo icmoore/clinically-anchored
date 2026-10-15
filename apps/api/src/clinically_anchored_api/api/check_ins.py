@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 
 from clinically_anchored_api.core.audit import AuditWriteError, record_event
+from clinically_anchored_api.core.clinic_info import office_phone
 from clinically_anchored_api.core.db import get_supabase
 from clinically_anchored_api.core.rules import evaluate_red_flags
 from clinically_anchored_api.core.security import PatientLink, require_patient_link
@@ -39,6 +40,7 @@ def check_in_context(link: PatientLink = Depends(require_patient_link)) -> Check
         procedure=Procedure(**rows[0]),
         post_op_day=link.state.post_op_day,
         check_in_done=link.episode["checkin_completed_at"] is not None,
+        office_phone=office_phone(get_supabase(), link.clinic_id),
     )
 
 

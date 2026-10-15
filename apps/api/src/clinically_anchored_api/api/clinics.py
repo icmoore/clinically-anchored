@@ -20,9 +20,11 @@ from clinically_anchored_api.core.auth import (
 )
 from clinically_anchored_api.core.db import get_supabase
 from clinically_anchored_api.core.episodes import COLUMNS as EPISODE_COLUMNS
+from clinically_anchored_api.core.phone import normalize_na_phone
 from clinically_anchored_api.schemas import (
     ClinicOut,
     MeOut,
+    OfficePhoneIn,
     PatientCreate,
     PatientOut,
 )
@@ -64,10 +66,63 @@ def me(user: AuthedUser = Depends(require_user)) -> MeOut:
     if memberships:
         roles = {m["clinic_id"]: m["role"] for m in memberships}
         rows = (
-            supabase.table("clinics").select("id, name").in_("id", sorted(roles)).execute().data
+            supabase.table("clinics")
+            .select("id, name, office_phone")
+            .in_("id", sorted(roles))
+            .execute()
+            .data
         )
-        clinics = [ClinicOut(id=r["id"], name=r["name"], role=roles[r["id"]]) for r in rows]
+        clinics = [
+            ClinicOut(
+                id=r["id"], name=r["name"], role=roles[r["id"]],
+                office_phone=(r.get("office_phone") or "").strip() or None,
+            )
+            for r in rows
+        ]
     return MeOut(user_id=user.user_id, email=user.email, clinics=clinics)
+
+
+@router.put("/clinics/{clinic_id}/office-phone", response_model=ClinicOut)
+def set_office_phone(
+    clinic_id: str, body: OfficePhoneIn, member: ClinicMember = Depends(require_clinic_member)
+) -> ClinicOut:
+    """Set (or clear, with null or blank) the office phone number patients are told to call on
+    urgent screens. Owner only. Validated as a North American number and stored as
+    `905-555-0100`. A real change is audited as `clinic.office_phone_changed`; setting what is
+    already there writes and audits nothing."""
+    if member.role != "owner":
+        raise HTTPException(status_code=403, detail="Only a clinic owner can change this.")
+    wanted: str | None = None
+    if body.office_phone is not None and body.office_phone.strip():
+        try:
+            wanted = normalize_na_phone(body.office_phone)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    supabase = get_supabase()
+    rows = (
+        supabase.table("clinics").select("id, name, office_phone").eq("id", clinic_id)
+        .execute().data
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Clinic not found.")
+    current = (rows[0].get("office_phone") or "").strip() or None
+    if wanted != current:
+        updated = (
+            supabase.table("clinics").update({"office_phone": wanted}).eq("id", clinic_id)
+            .execute().data
+        )
+        if not updated:
+            raise HTTPException(status_code=500, detail="The phone number was not saved.")
+        action = "cleared" if wanted is None else "set" if current is None else "changed"
+        _audit_or_500(
+            supabase,
+            member,
+            "clinic.office_phone_changed",
+            {"ref_type": "clinic", "ref_id": clinic_id, "action": action},
+            {"clinic_id": clinic_id, "from": current, "to": wanted},
+        )
+    return ClinicOut(id=clinic_id, name=rows[0]["name"], role=member.role, office_phone=wanted)
 
 
 @router.get("/clinics/{clinic_id}/patients", response_model=list[PatientOut])

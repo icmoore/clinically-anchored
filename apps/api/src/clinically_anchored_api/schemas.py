@@ -81,6 +81,7 @@ class CheckInContext(BaseModel):
     procedure: Procedure
     post_op_day: int  # negative before the surgery date
     check_in_done: bool
+    office_phone: str | None = None  # for the urgent notice; null if the clinic has not set one
 
 
 class PatientCheckInOut(BaseModel):
@@ -246,6 +247,14 @@ class ClinicOut(BaseModel):
     id: str
     name: str
     role: str
+    # The office line patients are told to call on urgent screens; null until an owner sets it.
+    office_phone: str | None = None
+
+
+class OfficePhoneIn(BaseModel):
+    # Any way of writing a North American number; null or blank clears it. Validated in the route
+    # (core/phone.py) so the reason comes back as a plain sentence the clinic can act on.
+    office_phone: str | None = Field(default=None, max_length=60)
 
 
 class MeOut(BaseModel):
