@@ -23,6 +23,17 @@ export function zoneDate(iso: string, timeZone: string | null): string {
   });
 }
 
+/** "Oct 3, 8:00 a.m." in the given zone, for a record's own time. */
+export function zoneClock(iso: string, timeZone: string | null): string {
+  return new Date(iso).toLocaleString("en-CA", {
+    timeZone: timeZone ?? "America/Toronto",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 /** "Post-op day 4", or "Surgery in 3 days" before the surgery date. */
 export function dayLabel(postOpDay: number): string {
   if (postOpDay >= 0) return `Post-op day ${postOpDay}`;

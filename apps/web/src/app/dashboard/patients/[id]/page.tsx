@@ -11,6 +11,7 @@ import { PhysicianSummarySection } from "@/components/physician-summary";
 import { StatusBadge } from "@/components/status-badge";
 import { SummarySection } from "@/components/summary-view";
 import {
+  BriefSource,
   CheckInDetail,
   Draft,
   Episode,
@@ -34,6 +35,12 @@ import { useClinician } from "@/lib/use-clinician";
 import { usePolling } from "@/lib/use-polling";
 
 const REFRESH_MS = 10000;
+// The element id each kind of cited record has on this page.
+const ANCHOR: Record<BriefSource["kind"], string> = {
+  message: "message",
+  check_in: "checkin",
+  touchpoint: "touchpoint",
+};
 
 export default function PatientPage() {
   const clinician = useClinician();
@@ -64,15 +71,23 @@ function PatientView({
   const marked = useRef<Set<string>>(new Set());
   const [highlighted, setHighlighted] = useState<string | null>(null);
 
-  // Scroll a cited message into view in the thread and flash it, so a summary
-  // citation lands on the exact message.
-  const jumpToMessage = useCallback((messageId: string) => {
-    const el = document.getElementById(`message-${messageId}`);
+  // Scroll a cited record into view and flash it: a message in the thread, a check-in card, or a
+  // contact-history entry (that list is folded away, so it is opened first). Used by the summary
+  // citations and by the AI patient summary's source chips.
+  const jumpTo = useCallback((source: BriefSource) => {
+    const domId = `${ANCHOR[source.kind]}-${source.id}`;
+    const el = document.getElementById(domId);
     if (!el) return;
+    const folded = el.closest("details");
+    if (folded) folded.open = true;
     el.scrollIntoView({ behavior: "smooth", block: "center" });
-    setHighlighted(messageId);
-    window.setTimeout(() => setHighlighted((cur) => (cur === messageId ? null : cur)), 2500);
+    setHighlighted(domId);
+    window.setTimeout(() => setHighlighted((cur) => (cur === domId ? null : cur)), 2500);
   }, []);
+  const jumpToMessage = useCallback(
+    (messageId: string) => jumpTo({ kind: "message", id: messageId }),
+    [jumpTo],
+  );
 
   const fetchAll = useCallback(async () => {
     const [patients, episode, checkIns, thread, drafts, touchpoints] = await Promise.all([
@@ -139,7 +154,11 @@ function PatientView({
         clinicId={clinicId}
         role={role}
         episode={episode}
+        patientId={patientId}
         checkIns={checkIns}
+        thread={thread}
+        touchpoints={touchpoints}
+        onJump={jumpTo}
         onChanged={load}
       />
 
@@ -163,7 +182,13 @@ function PatientView({
         ) : (
           <ul className="space-y-2">
             {checkIns.map((c) => (
-              <CheckInCard key={c.id} checkIn={c} clinicId={clinicId} onChanged={load} />
+              <CheckInCard
+                key={c.id}
+                checkIn={c}
+                clinicId={clinicId}
+                highlighted={highlighted === `checkin-${c.id}`}
+                onChanged={load}
+              />
             ))}
           </ul>
         )}
@@ -192,6 +217,7 @@ function PatientView({
         patientId={patientId}
         touchpoints={touchpoints}
         thread={thread}
+        highlighted={highlighted}
         onChanged={load}
       />
     </main>
@@ -201,10 +227,12 @@ function PatientView({
 function CheckInCard({
   checkIn,
   clinicId,
+  highlighted,
   onChanged,
 }: {
   checkIn: CheckInDetail;
   clinicId: string;
+  highlighted: boolean;
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -227,9 +255,10 @@ function CheckInCard({
 
   return (
     <li
-      className={`rounded-lg border p-4 ${
+      id={`checkin-${checkIn.id}`}
+      className={`rounded-lg border p-4 transition-shadow ${
         checkIn.is_red_flag && !reviewed ? "border-flag-border bg-flag-bg" : "border-border bg-surface"
-      }`}
+      } ${highlighted ? "ring-2 ring-primary" : ""}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted">
@@ -299,7 +328,7 @@ function Thread({
               id={`message-${m.id}`}
               className={`rounded-lg p-1 transition-shadow ${
                 m.sender === "clinician" ? "text-right" : "text-left"
-              } ${highlighted === m.id ? "bg-primary-tint ring-2 ring-primary" : ""}`}
+              } ${highlighted === `message-${m.id}` ? "bg-primary-tint ring-2 ring-primary" : ""}`}
             >
               <div
                 className={`inline-block max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-left text-sm ${

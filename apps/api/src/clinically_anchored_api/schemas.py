@@ -230,6 +230,7 @@ class CheckInDetail(BaseModel):
 
     id: str
     patient_id: str
+    episode_id: str | None = None  # the care period it belongs to (one check-in per episode)
     patient_name: str | None
     procedure_id: str | None
     procedure_name: str | None
@@ -383,6 +384,40 @@ class SummaryOut(BaseModel):
     lines: list[SummaryLineOut]
     covers_messages: int  # how many of the thread's messages the model was shown
     truncated: bool  # true if older messages were left out
+
+
+class BriefSourceOut(BaseModel):
+    kind: Literal["message", "check_in", "touchpoint"]
+    id: str  # a record of this clinic's, for this patient; verified before it is shown
+
+
+class BriefBulletOut(BaseModel):
+    label: Literal["The picture now", "Trends", "Loose ends"]
+    text: str
+    sources: list[BriefSourceOut]
+
+
+class BriefCountsOut(BaseModel):
+    messages: int = 0
+    check_ins: int = 0
+    touchpoints: int = 0  # calls, visits and emails in the contact log
+
+
+class PatientBriefOut(BaseModel):
+    """The AI patient summary: exactly three labelled bullets, every source verified. Saved
+    (migration 13) after its `patient_brief.generated` audit event, so a saved one has always been
+    audited. `new_since` counts what has been added since it was generated."""
+
+    brief_id: str  # ties this response to its audit event
+    patient_id: str
+    episode_id: str
+    generated_at: str
+    model_id: str
+    prompt_version: str
+    bullets: list[BriefBulletOut]
+    covers: BriefCountsOut  # how much the model was shown
+    truncated: bool  # older messages or contacts were left out
+    new_since: BriefCountsOut
 
 
 class TouchpointCreate(BaseModel):

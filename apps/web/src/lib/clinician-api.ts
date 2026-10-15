@@ -80,6 +80,7 @@ export interface Patient {
 export interface CheckInDetail {
   id: string;
   patient_id: string;
+  episode_id: string | null; // the care period it belongs to; null from an older api
   patient_name: string | null;
   procedure_name: string | null;
   post_op_day: number | null;
@@ -207,6 +208,42 @@ export const generateSummary = (clinic: string, patient: string) =>
   post<Summary>(`/clinics/${clinic}/patients/${patient}/summaries`);
 export const getLatestSummary = (clinic: string, patient: string) =>
   authed<Summary | null>(`/clinics/${clinic}/patients/${patient}/summaries/latest`);
+
+// AI patient summary ("brief"): three labelled bullets, each citing the messages (M), check-ins (C)
+// and calls/visits (T) it came from. Like the conversation summary, generateBrief calls the model and
+// the api saves what it generates; getLatestBrief reads the newest saved one back for free (null if
+// none), with counts of what has arrived since.
+export type BriefSourceKind = "message" | "check_in" | "touchpoint";
+export interface BriefSource {
+  kind: BriefSourceKind;
+  id: string; // verified by the api to be this clinic's record for this patient
+}
+export interface BriefBullet {
+  label: "The picture now" | "Trends" | "Loose ends";
+  text: string;
+  sources: BriefSource[];
+}
+export interface BriefCounts {
+  messages: number;
+  check_ins: number;
+  touchpoints: number; // calls, visits and emails
+}
+export interface PatientBrief {
+  brief_id: string;
+  patient_id: string;
+  episode_id: string;
+  generated_at: string;
+  model_id: string;
+  prompt_version: string;
+  bullets: BriefBullet[];
+  covers: BriefCounts; // what the model was shown
+  truncated: boolean;
+  new_since: BriefCounts; // added after it was generated
+}
+export const generateBrief = (clinic: string, patient: string) =>
+  post<PatientBrief>(`/clinics/${clinic}/patients/${patient}/patient-brief`);
+export const getLatestBrief = (clinic: string, patient: string) =>
+  authed<PatientBrief | null>(`/clinics/${clinic}/patients/${patient}/patient-brief/latest`);
 
 // Contact/time log. Manual entries are calls, visits and emails; `message` rows are
 // written by the api itself whenever a clinician message is sent (never by this UI).

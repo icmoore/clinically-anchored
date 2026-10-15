@@ -183,6 +183,13 @@ def test_list_check_ins_filters_and_resolves_names(client):
     assert [c["id"] for c in one] == ["c1"]
 
 
+def test_list_check_ins_names_the_episode_each_belongs_to(client, fake):
+    fake.t["check_ins"][0]["episode_id"] = "ep-1"
+    rows = client.get(f"/clinics/{A}/check-ins?patient_id={P1}", headers=AUTH).json()
+    assert "ep-1" in {r["episode_id"] for r in rows}
+    assert all("episode_id" in r for r in rows)  # null for a row that has none (older fakes)
+
+
 def test_list_limit_is_bounded(client):
     assert client.get(f"/clinics/{A}/check-ins?limit=0", headers=AUTH).status_code == 422
     assert client.get(f"/clinics/{A}/check-ins?limit=201", headers=AUTH).status_code == 422
