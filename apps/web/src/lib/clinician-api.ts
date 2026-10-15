@@ -7,6 +7,8 @@ export interface Clinic {
   id: string;
   name: string;
   role: string;
+  /** The office line patients are told to call on urgent screens; null until an owner sets it. */
+  office_phone: string | null;
 }
 export interface Me {
   user_id: string;
@@ -142,6 +144,13 @@ const post = <T>(path: string, body?: unknown) =>
   authed<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
 
 export const getMe = () => authed<Me>("/me");
+/** Owner only (the api enforces it). Any way of writing a North American number; null or blank
+ *  clears it. Returns the clinic as saved, with the number in its one stored form. */
+export const setOfficePhone = (clinic: string, officePhone: string | null) =>
+  authed<Clinic>(`/clinics/${clinic}/office-phone`, {
+    method: "PUT",
+    body: JSON.stringify({ office_phone: officePhone }),
+  });
 export const getQueue = (clinic: string) => authed<QueueItem[]>(`/clinics/${clinic}/queue`);
 export const listPatients = (clinic: string) => authed<Patient[]>(`/clinics/${clinic}/patients`);
 export const createPatient = (

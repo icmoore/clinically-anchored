@@ -46,7 +46,9 @@ def client(fake):
 def test_me_lists_only_my_clinics(client):
     body = client.get("/me", headers=AUTH).json()
     assert body["email"] == "u@example.com"
-    assert body["clinics"] == [{"id": A, "name": "A", "role": "owner"}]
+    assert body["clinics"] == [
+        {"id": A, "name": "A", "role": "owner", "office_phone": "905-555-0100"}
+    ]
 
 
 def test_me_requires_auth(client):

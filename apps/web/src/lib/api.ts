@@ -39,6 +39,7 @@ export interface CheckInContext {
   procedure: Procedure;
   post_op_day: number; // negative before the surgery date
   check_in_done: boolean;
+  office_phone: string | null; // for the urgent notice
 }
 
 export interface CheckInOut {

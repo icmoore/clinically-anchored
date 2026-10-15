@@ -10,7 +10,7 @@ export function UrgentNotice({ phone }: { phone?: string | null }) {
     >
       <p className="font-medium">Is this urgent?</p>
       <p className="mt-1">
-        This app is not for emergencies. For an urgent problem, call the office
+        This app is not for emergencies. For an urgent problem, call your surgeon&apos;s office
         {phone ? (
           <>
             {" "}
@@ -51,7 +51,7 @@ export function InvalidLinkScreen({ phone }: { phone?: string | null }) {
     <PatientFrame title="This link doesn't work" phone={phone}>
       <p className="text-ink">
         This link is not valid any more. The care team may have sent you a newer one. If you
-        can&apos;t find it, please call the office.
+        can&apos;t find it, please call your surgeon&apos;s office.
       </p>
     </PatientFrame>
   );
@@ -66,7 +66,7 @@ export function ClosedScreen({ phone }: { phone?: string | null }) {
         check-in.
       </p>
       <p className="mt-3 text-sm text-muted">
-        If you have a question, please call the office.
+        If you have a question, please call your surgeon&apos;s office.
       </p>
     </PatientFrame>
   );

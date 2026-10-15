@@ -60,6 +60,13 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   since the session lives in the browser). No middleware is involved.
 - `/login`: clinician email + password via Supabase Auth (session handling only; all data
   goes through `apps/api`).
+- **Office phone** (`/dashboard/settings`, linked from the foot of the dashboard): the number patients are
+  told to call on every urgent notice. Anyone in the clinic sees it; only an **owner** gets the form (the
+  api enforces it, 403 otherwise). Any North American format is accepted and shown in one form; blank
+  removes it. While it is empty the dashboard shows everyone in the clinic a warning (owners get a link
+  to the settings page). Patients never see a blank number: with none set the urgent notice says "call
+  your surgeon's office or go to the nearest emergency department", and with one it adds "at <number>"
+  as a `tel:` link (also on the check-in page, which now loads it with its context).
 - **Clinic switcher** (`components/app-header.tsx`, `lib/clinic-choice.ts`): the header always names the
   clinic being worked in. A user who belongs to more than one clinic gets a dropdown in its place
   (a user with one sees just the name). The choice is remembered per user in this browser

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ApiError, CheckInContext, getCheckInContext, submitCheckIn } from "@/lib/api";
-import { ClosedScreen, InvalidLinkScreen } from "@/components/patient-frame";
+import { ClosedScreen, InvalidLinkScreen, UrgentNotice } from "@/components/patient-frame";
 import {
   CONCERNS_TEXT_MAX_LENGTH,
   CheckInAnswers,
@@ -21,7 +21,19 @@ type Status = "loading" | "ready" | "submitting" | "submitted" | "error";
 const buttonClass =
   "inline-block rounded-md bg-primary hover:bg-primary-hover active:bg-primary-active px-4 py-2 font-medium text-white";
 
-export function CheckInForm() {
+/** The check-in page's body and its urgent notice. The notice names the clinic's office number once
+ *  the form has loaded it, and says "call your surgeon's office" without a number if there is none. */
+export function CheckInScreen() {
+  const [phone, setPhone] = useState<string | null>(null);
+  return (
+    <>
+      <CheckInForm onPhone={setPhone} />
+      <UrgentNotice phone={phone} />
+    </>
+  );
+}
+
+function CheckInForm({ onPhone }: { onPhone: (phone: string | null) => void }) {
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
 
@@ -42,6 +54,7 @@ export function CheckInForm() {
     getCheckInContext(token)
       .then((ctx) => {
         setContext(ctx);
+        onPhone(ctx.office_phone);
         setStatus("ready");
       })
       .catch((err: unknown) => {
@@ -50,7 +63,7 @@ export function CheckInForm() {
         setStatus("error");
         setError(err instanceof ApiError ? err.message : "Couldn't load this check-in link.");
       });
-  }, [token]);
+  }, [token, onPhone]);
 
   // The procedure is the clinic's choice for this episode, so the symptom set is known up front.
   const procedure = context?.procedure ?? null;

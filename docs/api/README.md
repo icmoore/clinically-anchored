@@ -79,6 +79,16 @@ Built (on `main`):
   (dev: `POST /dev/episode-links`). Patient routes: `GET /episode`, `GET`/`POST /messages`
   (`kind` scheduled|reply, `category`), `GET /check-ins/context`, `POST /check-ins` (the
   post-op day is computed, the procedure is the clinic's), `/consents`.
+- **Office phone** (`clinics.office_phone`, shown to patients on every urgent notice):
+  `PUT /clinics/{id}/office-phone` (`{"office_phone": "..."}`; null or blank clears it) is **owner only**
+  (403 for clinician and delegate), accepts a North American number however it is written and stores it
+  as `905-555-0100` (`core/phone.py`: 10 digits, optional +1/1, area code and exchange not starting with
+  0 or 1 and not N11, no letters or extension; a refusal is a 422 with a sentence). A real change is
+  audited as its own event, `clinic.office_phone_changed` (hashed payload: from, to; readable metadata:
+  clinic id, actor, `action` set / changed / cleared); saving what is already there writes and audits
+  nothing. `/me` carries each clinic's `office_phone` (so the clinic can see it is empty); the patient
+  routes (`GET /episode`, `GET /check-ins/context`) return it as null, never a blank string, when it is
+  unset. The change has no row of its own for `reconcile` to match (like link events).
 - Check-in intake: `POST /check-ins`, `GET /check-ins/context`, and `GET /check-ins/mine` (the patient reads
   back their own answers: null until they have checked in; no red flag or review state) (see above).
 - **Demo data** (`seed_trial_patients.py`, run by hand, never by CI): 13 synthetic patients in a
