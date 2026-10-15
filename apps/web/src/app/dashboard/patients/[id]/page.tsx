@@ -41,7 +41,7 @@ export default function PatientPage() {
   if (clinician.status === "error") return <p className="p-6 text-flag-text">{clinician.message}</p>;
   return (
     <>
-      <AppHeader clinicName={clinician.clinic.name} email={clinician.email} />
+      <AppHeader clinician={clinician} />
       <PatientView
         clinicId={clinician.clinic.id}
         role={clinician.clinic.role}

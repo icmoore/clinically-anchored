@@ -29,7 +29,7 @@ export default function DashboardPage() {
   if (clinician.status === "error") return <p className="p-6 text-flag-text">{clinician.message}</p>;
   return (
     <>
-      <AppHeader clinicName={clinician.clinic.name} email={clinician.email} />
+      <AppHeader clinician={clinician} />
       <Dashboard clinicId={clinician.clinic.id} />
     </>
   );
