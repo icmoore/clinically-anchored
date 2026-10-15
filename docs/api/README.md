@@ -201,6 +201,27 @@ Built (on `main`):
   saved rows against `summary.generated`. Same data-flow caveats as drafts: sends thread
   text to Bedrock, inert without AWS credentials. Older versions are kept but unused; the
   template pins the output format the parser expects. Placeholder wording, pending clinical review.
+- AI patient summary / "brief" (`api/briefs.py`, `core/brief.py`, migration 13): `POST
+  /clinics/{id}/patients/{pid}/patient-brief` -- on demand only (a clinician's button), any clinic
+  member, nothing automatic. Three labelled bullets, in this order: **The picture now**, **Trends**,
+  **Loose ends**, each one or two short sentences ending in the sources it came from. The model
+  (template `patient_brief_v1`, placeholder wording pending clinical review) is shown the care
+  period's computed state, the care period's check-in with its answers, own words and the red-flag
+  rules it matched, the care period's last 50 messages, and the calls/visits/emails logged since it
+  began (last 30), as `[M1]` messages, `[C1]` check-ins, `[T1]` contacts. It is **never** shown the
+  conversation summary or any earlier AI output. **Every source is verified before anything is
+  returned:** each label must be one it was given, and each record must exist for *this clinic and
+  this patient* (checked in the database). Anything other than exactly the three bullets, a bullet
+  with no citation, an unknown label, a missing or misordered bullet label, or a source that is
+  another patient's or clinic's discards the whole summary (502, nothing shown, nothing audited);
+  nothing is repaired. "Loose ends: None." still cites the most recent item the model checked. A
+  verified brief is audited as `patient_brief.generated` (model id, prompt version, counts and tokens
+  in readable metadata; text and sources only in the hashed payload) and then **saved** (`patient_briefs`,
+  one row per generation, never edited; `id` = the event's `brief_id`). 422 when the patient has no
+  care period, or no check-in and no messages yet. `GET .../patient-brief/latest` reads the newest
+  back (null if none) without calling the model, with `new_since`: how many messages and check-ins
+  of that care period, and calls/visits/emails, were added after it was generated. Reconcile
+  checks saved rows against `patient_brief.generated`. Same data-flow caveats as drafts.
 - AI message drafts (`api/drafts.py`, migration 6, data-catalogue D8): `POST
   /clinics/{id}/patients/{pid}/drafts` asks the model for a reply to the patient's latest message
   and stores it `pending` -- it sends nothing. It is refused with **409 before any model call**

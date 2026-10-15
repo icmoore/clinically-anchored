@@ -1,26 +1,44 @@
 "use client";
 
-import { CheckInDetail, Episode, WindowState } from "@/lib/clinician-api";
+import {
+  BriefSource,
+  CheckInDetail,
+  Episode,
+  Message,
+  Touchpoint,
+  WindowState,
+} from "@/lib/clinician-api";
 import { dayLabel, episodeSummary, plainDate, zoneDate } from "@/lib/episode";
 import { inZone } from "@/lib/format";
 import { CorrectForm, DISCHARGE_ROLES, Discharge } from "./episode-actions";
+import { PatientBriefSection } from "./patient-brief";
 import { Section } from "./section";
 import { StatusBadge } from "./status-badge";
 
-/** Where the care period stands, for the physician: worked out from the schedule, the clock and
- *  the record. Nothing on this card is written by AI, so it never carries the AI badge. Also the
- *  two things only the clinic can do to a care period: fix a typo before the check-in, discharge. */
+/** Where the care period stands, for the physician. The facts at the top are worked out from the
+ *  schedule, the clock and the record: nothing there is written by AI, so none of it carries the AI
+ *  badge. Below a line, set visibly apart, is the AI patient summary (on request only). Last come
+ *  the two things only the clinic can do to a care period: fix a typo before the check-in
+ *  (with the facts it changes), and discharge. */
 export function PhysicianSummarySection({
   clinicId,
   role,
   episode,
+  patientId,
   checkIns,
+  thread,
+  touchpoints,
+  onJump,
   onChanged,
 }: {
   clinicId: string;
   role: string;
   episode: Episode | null;
+  patientId: string;
   checkIns: CheckInDetail[] | null;
+  thread: Message[] | null;
+  touchpoints: Touchpoint[] | null;
+  onJump: (source: BriefSource) => void;
   onChanged: () => void;
 }) {
   if (episode === null) return null;
@@ -28,6 +46,8 @@ export function PhysicianSummarySection({
   const s = episode.state;
   const closed = s.phase === "closed";
   const windows = s.windows ?? [];
+  const flagged = checkIns === null ? null : checkIns.filter((c) => c.is_red_flag && inEpisode(c, episode));
+  const day = (iso: string) => zoneDate(iso, episode.timezone);
 
   return (
     <Section title="Physician Summary">
@@ -51,6 +71,13 @@ export function PhysicianSummarySection({
 
       <ul className="mt-3 space-y-0.5 text-xs text-muted">
         <li>{latestCheckIn(episode, checkIns)}</li>
+        {flagged !== null && flagged.length === 0 && <li>No red flags.</li>}
+        {flagged?.map((c) => (
+          <li key={c.id} className="text-flag-text">
+            Red flag: check-in {day(c.created_at)} &middot;{" "}
+            {c.reviewed_at ? `reviewed ${day(c.reviewed_at)}` : "not reviewed yet"}
+          </li>
+        ))}
         {!closed && <li>The care period ends {zoneDate(s.episode_closes_at, episode.timezone)}.</li>}
         {!closed && s.reply_available && (
           <li>The patient can send one reply to your latest message (it doesn&apos;t use a window).</li>
@@ -58,27 +85,47 @@ export function PhysicianSummarySection({
       </ul>
 
       {s.phase === "locked_checkin" && <CorrectForm clinicId={clinicId} episode={episode} onChanged={onChanged} />}
+
+      <div className="mt-4 border-t border-border pt-4">
+        <PatientBriefSection
+          clinicId={clinicId}
+          patientId={patientId}
+          timeZone={episode.timezone}
+          thread={thread}
+          checkIns={checkIns}
+          touchpoints={touchpoints}
+          onJump={onJump}
+        />
+      </div>
+
       {!closed && DISCHARGE_ROLES.includes(role) && (
         <Discharge clinicId={clinicId} episodeId={episode.id} onChanged={onChanged} />
       )}
 
       <p className="mt-4 text-[11px] text-muted">
-        Worked out from the schedule and the record, not written by AI. Schedule version{" "}
-        {episode.schedule_version}.
+        The facts above are worked out from the schedule and the record, not written by AI. Schedule
+        version {episode.schedule_version}.
       </p>
     </Section>
   );
 }
 
-/** Completed date, whether it was flagged, whether it has been reviewed. The check-in that
- *  completed this care period's check-in is the one whose time the episode recorded. */
+/** Is this check-in the one for this care period? There is one per care period; the api names it.
+ *  (An older api does not: then it is the one whose time the care period recorded.) */
+function inEpisode(c: CheckInDetail, episode: Episode): boolean {
+  if (c.episode_id) return c.episode_id === episode.id;
+  return (
+    episode.checkin_completed_at !== null &&
+    new Date(c.created_at).getTime() === new Date(episode.checkin_completed_at).getTime()
+  );
+}
+
+/** Completed date, whether it was flagged, whether it has been reviewed. */
 function latestCheckIn(episode: Episode, checkIns: CheckInDetail[] | null): string {
   if (!episode.checkin_completed_at) return "Check-in: not done yet.";
   const day = (iso: string) => zoneDate(iso, episode.timezone);
   const done = `Latest check-in: completed ${day(episode.checkin_completed_at)}`;
-  if (checkIns === null) return `${done}.`;
-  const at = new Date(episode.checkin_completed_at).getTime();
-  const c = checkIns.find((x) => new Date(x.created_at).getTime() === at);
+  const c = (checkIns ?? []).find((x) => inEpisode(x, episode));
   if (!c) return `${done}.`;
   return [
     done,

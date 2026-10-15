@@ -81,7 +81,15 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   before the check-in" or "no message sent"), the latest check-in (completed date, flagged,
   reviewed), the care period's end, whether a reply is open, schedule version in small print, "fix
   surgery date or procedure" until the patient has checked in, and **discharge** with a
-  confirmation, owner/clinician only, no undo; the two actions are in `components/episode-actions.tsx`),
+  confirmation, owner/clinician only, no undo; the two actions are in `components/episode-actions.tsx`;
+  every flagged check-in of this care period is listed with its date and whether it has been
+  reviewed, or "No red flags."). Below a line in the same box, set apart from the computed facts, is
+  the **AI patient summary** (`components/patient-brief.tsx`, AI badge): three labelled bullets (The
+  picture now, Trends, Loose ends) with source chips that jump to the message, the check-in card or
+  the contact-history entry (the folded list opens). "Generate" / "Refresh" are the only things that
+  call the model; opening the patient shows the newest saved one, "Last updated ..." in the clinic's
+  time zone, and "· N new messages, check-ins, contacts since" when something has arrived; with no
+  check-in and no messages the button is off and says why),
   then **Conversation Summary** (below), review check-ins, read and reply to the message thread (one compose box, below; each patient message shows its
   category and window, or "Reply"; once the care period has ended the box is replaced by a note,
   because the patient's link no longer works and a message could never be seen; every message

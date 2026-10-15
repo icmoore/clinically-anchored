@@ -37,12 +37,14 @@ export function ContactLogSection({
   patientId,
   touchpoints,
   thread,
+  highlighted,
   onChanged,
 }: {
   clinicId: string;
   patientId: string;
   touchpoints: Touchpoint[] | null;
   thread: Message[] | null;
+  highlighted: string | null; // the page element id to flash (a cited contact-history entry)
   onChanged: () => void;
 }) {
   const [formOpen, setFormOpen] = useState(false);
@@ -246,7 +248,11 @@ export function ContactLogSection({
             ) : (
               <ul className="mt-2 divide-y divide-border">
                 {touchpoints.map((t) => (
-                  <li key={t.id} className="py-2">
+                  <li
+                    key={t.id}
+                    id={`touchpoint-${t.id}`}
+                    className={`py-2 ${highlighted === `touchpoint-${t.id}` ? "bg-primary-tint ring-2 ring-primary" : ""}`}
+                  >
                     <div className="flex flex-wrap items-center gap-2 text-sm">
                       <span className="font-medium text-ink">{KIND_LABEL[t.kind]}</span>
                       <span className="text-muted">{clock(t.occurred_at)}</span>

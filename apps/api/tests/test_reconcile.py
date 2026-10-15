@@ -49,7 +49,7 @@ class _Db:
     def __init__(self):
         self.t = {n: [] for n in (
             "patients", "episodes", "check_ins", "messages", "consents", "message_drafts",
-            "touchpoints", "thread_summaries", "audit_log",
+            "touchpoints", "thread_summaries", "patient_briefs", "audit_log",
         )}
 
     def table(self, name):
@@ -264,3 +264,15 @@ def test_saved_summaries_are_checked_against_summary_generated(db):
     ]
     db.audit(A, "summary.generated", "s-ok")
     assert _gaps(rec.reconcile(db)) == {("thread_summaries", "s-orphan", "summary.generated")}
+
+
+def test_saved_patient_briefs_are_checked_against_patient_brief_generated(db):
+    t = "2026-10-01T10:00:00Z"
+    db.t["patient_briefs"] += [
+        {"id": "b-ok", "clinic_id": A, "generated_at": t},
+        {"id": "b-orphan", "clinic_id": A, "generated_at": t},
+    ]
+    db.audit(A, "patient_brief.generated", "b-ok")
+    report = rec.reconcile(db)
+    assert _gaps(report) == {("patient_briefs", "b-orphan", "patient_brief.generated")}
+    assert report.checked["patient_brief.generated"] == 2

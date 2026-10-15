@@ -26,7 +26,7 @@ RESTORE_SQL = SCRIPTS / "restore_trial_data.sql"
 RESTORE_SH = SCRIPTS / "restore_trial_data.sh"
 RESET_SH = SCRIPTS / "reset_trial_data.sh"
 RESET_SQL = SCRIPTS / "reset_trial_data.sql"
-TABLES = ["message_drafts", "thread_summaries", "touchpoints", "consents", "messages", "check_ins",
+TABLES = ["message_drafts", "thread_summaries", "patient_briefs", "touchpoints", "consents", "messages", "check_ins",
           "episodes", "patients", "audit_log"]
 
 needs_tools = pytest.mark.skipif(
@@ -85,6 +85,14 @@ def populate(conn):
         "(gen_random_uuid(), %s, %s, '[\"a\"]', 1, false, 'm', 'summary_v4', %s, now())",
         (w.clinic_a, w.patient_a, w.user_a),
     )
+    if conn.execute("select to_regclass('patient_briefs') as t").fetchone()["t"]:  # migration 13
+        conn.execute(
+            "insert into patient_briefs (id, clinic_id, patient_id, episode_id, bullets, covers, "
+            "truncated, model_id, prompt_version, generated_by, generated_at) values "
+            "(gen_random_uuid(), %s, %s, %s, '[{\"label\": \"Trends\", \"text\": \"t\", "
+            "\"sources\": []}]', '{\"messages\": 1}', false, 'm', 'patient_brief_v1', %s, now())",
+            (w.clinic_a, w.patient_a, episode, w.user_a),
+        )
     prev = None
     for n in range(3):
         row = conn.execute(

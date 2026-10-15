@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["queue"])
 
 _CHECK_IN_COLS = (
-    "id, patient_id, procedure_id, post_op_day, answers, is_red_flag, "
+    "id, patient_id, episode_id, procedure_id, post_op_day, answers, is_red_flag, "
     "created_at, reviewed_at, reviewed_by"
 )
 

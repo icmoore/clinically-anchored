@@ -2,8 +2,8 @@
 -- which adds the safety rails (confirmation, backup, no CI). Never from a workflow, a
 -- migration or a seed file.
 --
---   Wiped:  message_drafts, thread_summaries, touchpoints, consents, messages, check_ins,
---           episodes, patients, audit_log
+--   Wiped:  message_drafts, thread_summaries, patient_briefs, touchpoints, consents, messages,
+--           check_ins, episodes, patients, audit_log
 --   Kept:   clinics, clinic_members, procedures, message_schedules, auth.users
 --
 -- One transaction, one TRUNCATE over an explicit list (no CASCADE): a table that
@@ -29,8 +29,8 @@ set local lock_timeout = '5s';
 
 do $$
 declare
-  wipe text[] := array['message_drafts', 'thread_summaries', 'touchpoints', 'consents',
-                       'messages', 'check_ins', 'episodes', 'patients', 'audit_log'];
+  wipe text[] := array['message_drafts', 'thread_summaries', 'patient_briefs', 'touchpoints',
+                       'consents', 'messages', 'check_ins', 'episodes', 'patients', 'audit_log'];
   keep text[] := array['clinics', 'clinic_members', 'procedures', 'message_schedules'];
   t text;
   n bigint;
