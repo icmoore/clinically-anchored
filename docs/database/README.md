@@ -104,6 +104,12 @@ episodes explicit: **a new episode gets the newest active version** (highest `ve
 on; and the used-version guard now lets `active` and `note` change on a version episodes use
 (retiring it, or rolling a bad new one back) while still refusing any change to what it computes.
 
+Migration `00000000000012_reply_guard_qualified.sql` makes `messages_reply_target_guard` say
+`public.messages`. `pg_dump` starts every dump with an empty `search_path`, and the guard (migration
+9) looked `messages` up unqualified, so loading a dumped reply row failed with `relation "messages"
+does not exist`. Same checks, same error text, no data changes. See "Restoring a backup" in
+`supabase/README.md`.
+
 Migration `00000000000010_thread_summaries.sql` adds `thread_summaries`: every AI thread summary the api
 generates, saved after its `summary.generated` audit event (`id` = that event's `summary_id`). One row
 per generation, never updated or deleted (trigger; TRUNCATE by the reset script still works), RLS read

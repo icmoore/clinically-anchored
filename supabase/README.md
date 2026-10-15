@@ -43,11 +43,36 @@ DATABASE_URL='postgresql://postgres:...@db.<ref>.supabase.co:5432/postgres' \
 ```
 
 Use the direct connection as `postgres` (the service-role REST key can't do this). It writes a
-data-only `pg_dump` to `scripts/.backups/` first (git-ignored). It uses one `TRUNCATE` over an
+data-only `pg_dump` to `scripts/.backups/` first (git-ignored), then **proves the backup restores**
+(loads it back inside a transaction that always rolls back and compares every table before and
+after) and stops without wiping if it does not. It uses one `TRUNCATE` over an
 explicit table list: that gets past `message_drafts`' delete trigger and its foreign keys, and a
 table missing from the list fails the statement instead of being wiped silently. Migration 9
 needs the data gone first, so the order is: reset, `db push` / psql migration 9, deploy api + web,
 re-seed with `apps/api`'s `seed_trial_patients` (see below). The scripts live outside `migrations/` and are not `seed.sql`, so nothing loads them.
+
+### Restoring a backup
+
+Put a backup back into a database that was just reset (its tables must be empty; a table that
+holds rows stops it). Same rails as the reset: never in CI, `--execute` needs a terminal and the
+host typed.
+
+```
+DATABASE_URL='postgresql://postgres:...@db.<ref>.supabase.co:5432/postgres' \
+  supabase/scripts/restore_trial_data.sh supabase/scripts/.backups/reset-<stamp>.sql            # trial load, rolled back
+  supabase/scripts/restore_trial_data.sh supabase/scripts/.backups/reset-<stamp>.sql --execute  # for real
+```
+
+Apply any pending migrations first (the backup is data only, so the schema must already match:
+the tables and columns it names must exist). Then check the audit log still verifies for each
+clinic. Do not restore the file with a bare `psql -f`: a plain `pg_dump` data file does not load
+back into this schema without help (an empty `search_path` breaks the reply guard on `messages`
+before migration 12, a reply can come before the message it answers, and `SET transaction_timeout`
+fails on servers older than 17). `restore_trial_data.sh` prepares the file for exactly those three
+things (see `scripts/backup_common.sh`). It does not use `pg_dump --disable-triggers`, which needs
+a superuser; nothing here needs more than the privileges the reset already uses. pg_dump prints a
+warning about circular foreign keys on `messages` when taking the backup: that is the reply link,
+and the restore handles it.
 
 ## Database tests
 

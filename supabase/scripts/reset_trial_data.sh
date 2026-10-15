@@ -11,19 +11,25 @@
 #   * it refuses to wipe without an interactive terminal (there is no --yes);
 #   * --execute needs you to type the database host as shown;
 #   * it saves a data-only pg_dump of the tables first (the free Supabase plan has no
-#     backups, and the audit log is evidence even when the data is synthetic).
+#     backups, and the audit log is evidence even when the data is synthetic), then PROVES the
+#     backup restores (loads it back inside a transaction that is rolled back) and stops
+#     before wiping if it does not.
 # Dev and production share one database here: a wipe is a wipe of both.
+# To put a backup back, see restore_trial_data.sh.
 
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sql="$here/reset_trial_data.sql"
+restore_sql="$here/restore_trial_data.sql"
+# shellcheck source=backup_common.sh
+source "$here/backup_common.sh"
 execute=false
 
 for arg in "$@"; do
   case "$arg" in
     --execute) execute=true ;;
-    -h|--help) sed -n '2,16p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help) sed -n '2,18p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "Unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -69,15 +75,22 @@ fi
 backup_dir="$here/.backups"
 mkdir -p "$backup_dir"
 backup="$backup_dir/reset-$(date -u +%Y%m%dT%H%M%SZ).sql"
-tables=()
-for t in message_drafts thread_summaries touchpoints consents messages check_ins episodes patients audit_log; do
-  exists="$(psql "$DATABASE_URL" -X -At -c "select to_regclass('public.$t') is not null")"
-  [[ "$exists" == t ]] && tables+=(-t "public.$t")
-done
-pg_dump "$DATABASE_URL" --data-only --no-owner --no-privileges "${tables[@]}" -f "$backup"
-chmod 600 "$backup"
+take_backup "$DATABASE_URL" "$backup"
 echo "Backup written: $backup"
+
+# A backup nobody has restored is a hope. Load it back into the live tables inside a transaction
+# that always rolls back, and compare every table before and after. Nothing is wiped until this passes.
+prepared="$(mktemp "${TMPDIR:-/tmp}/reset-backup.XXXXXX")"
+trap 'rm -f "$prepared"' EXIT
+prepare_backup "$backup" "$prepared"
+if ! psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -v mode=verify -v "tables=$(backup_tables_csv)" \
+     -v "backup=$prepared" -f "$restore_sql"; then
+  echo "The backup does not restore cleanly. NOT wiping. Fix that first (backup kept at $backup)." >&2
+  exit 1
+fi
+echo
 
 psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -v execute=true -f "$sql"
 echo
-echo "Next: apply migration 9 (if not applied), deploy api + web, then re-seed."
+echo "Next: apply any pending migrations, deploy api + web, then re-seed."
+echo "To undo this reset: supabase/scripts/restore_trial_data.sh $backup"
