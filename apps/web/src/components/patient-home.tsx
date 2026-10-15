@@ -14,10 +14,13 @@ import {
   sendPatientMessage,
 } from "@/lib/api";
 import { categoryLabel } from "@/lib/categories";
-import { inZone } from "@/lib/format";
+import { inZone, plainTime } from "@/lib/format";
+import { PATIENT_TEXT } from "@/lib/patient-strings";
 import { buildSummary } from "@/lib/symptoms";
 import { usePolling } from "@/lib/use-polling";
+import { PatientExplainer } from "./patient-explainer";
 import { ClosedScreen, InvalidLinkScreen, PatientFrame } from "./patient-frame";
+import { PatientTimeline } from "./patient-timeline";
 
 const REFRESH_MS = 10000;
 
@@ -56,7 +59,8 @@ export function PatientHome() {
   if (state.phase === "closed") return <ClosedScreen phone={state.office_phone} />;
 
   return (
-    <PatientFrame title="Messages with your care team" phone={state.office_phone}>
+    <PatientFrame title="Messages with your care team" phone={state.office_phone} noticeFirst>
+      <PatientExplainer />
       {failed && <p className="mb-3 text-sm text-flag-text">Couldn&apos;t refresh. Retrying...</p>}
       {checkIn && <CheckInCard checkIn={checkIn} timeZone={state.timezone} />}
       <Thread thread={thread} timeZone={state.timezone} />
@@ -88,56 +92,58 @@ const PANEL = {
 const buttonClass =
   "rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2.5 text-base font-medium text-white disabled:opacity-60";
 
+/** The one plain sentence about what the patient can do now, the row of their message periods
+ *  under it, and (when there is one) the care team's message they can reply to. All the words are
+ *  in lib/patient-strings.ts; the api says which state the patient is in. */
 function StatusPanel({ state, token }: { state: PatientState; token: string }) {
-  const when = (iso: string | null) => (iso ? inZone(iso, state.timezone) : "");
+  const T = PATIENT_TEXT.status;
+  const when = (iso: string | null) => (iso ? plainTime(iso, state.timezone) : "");
   const day =
     state.post_op_day === null
       ? null
       : state.post_op_day >= 0
-        ? `Day ${state.post_op_day} after surgery`
-        : `Surgery in ${-state.post_op_day} day${state.post_op_day === -1 ? "" : "s"}`;
-  const window =
-    state.interval_no !== null && state.intervals_total !== null
-      ? `Message window ${state.interval_no} of ${state.intervals_total}`
-      : null;
+        ? T.dayAfterSurgery(state.post_op_day)
+        : T.surgeryIn(-state.post_op_day);
 
   let tone: keyof typeof PANEL = "info";
-  let heading = "";
-  let detail: string | null = null;
+  let sentence = "";
   let action: React.ReactNode = null;
 
   if (state.phase === "locked_checkin") {
     tone = "watch";
-    heading = "Messaging opens after your check-in";
-    detail = "Please complete your post-op check-in first. It only takes a few minutes.";
+    sentence = T.beforeCheckIn;
     action = (
       <Link href={`/check-in?token=${encodeURIComponent(token)}`} className={`${buttonClass} mt-3 inline-block`}>
-        Start your check-in
+        {T.startCheckIn}
       </Link>
     );
   } else if (state.phase === "waiting") {
-    heading = "Thanks for checking in";
-    detail = `You can send your first message from ${when(state.next_opens_at)}.`;
+    sentence = T.waiting(when(state.next_opens_at));
   } else if (state.phase === "open") {
     tone = "clear";
-    heading = "You can send one message now";
-    detail = `This window closes ${when(state.interval_closes_at)}. A message you don't send now can't be saved for later.`;
+    sentence = T.open(when(state.interval_closes_at));
   } else if (state.phase === "used") {
-    heading = "Your message for this window was sent";
-    detail = state.next_opens_at
-      ? `Your next window opens ${when(state.next_opens_at)}.`
-      : `That was your last message window. Your follow-up ends ${when(state.episode_closes_at)}.`;
+    sentence = state.next_opens_at ? T.used(when(state.next_opens_at)) : T.usedLast;
   }
 
   return (
-    <section aria-live="polite" className={`mb-4 rounded-lg border p-4 ${PANEL[tone]}`}>
-      <p className="font-medium">{heading}</p>
-      {detail && <p className="mt-1 text-sm">{detail}</p>}
-      {action}
-      {(day || window) && (
-        <p className="mt-2 text-xs opacity-80">{[day, window].filter(Boolean).join(" · ")}</p>
+    <>
+      <section aria-live="polite" className={`mb-3 rounded-lg border p-4 ${PANEL[tone]}`}>
+        <p className="font-medium">{sentence}</p>
+        {state.can_reply && <p className="mt-2 text-sm">{T.canReply}</p>}
+        {action}
+      </section>
+      {(state.windows ?? []).length > 0 && (
+        <section className="mb-4 rounded-lg border border-border bg-surface p-3">
+          <PatientTimeline
+            windows={state.windows ?? []}
+            timeZone={state.timezone}
+            nextOpensAt={state.next_opens_at}
+          />
+        </section>
       )}
-    </section>
+      {day && <p className="mb-4 text-xs text-muted">{day}</p>}
+    </>
   );
 }
 

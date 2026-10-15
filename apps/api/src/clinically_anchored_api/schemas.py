@@ -196,6 +196,20 @@ class EpisodeCorrect(BaseModel):
     procedure_id: str | None = None
 
 
+class PatientWindowOut(BaseModel):
+    """One message window as the PATIENT sees it: a number, a plain state and the two times.
+    Deliberately less than the clinic's view: no reason a window was missed beyond "before your
+    check-in", nothing about the schedule version, the check-in's review or any red flag."""
+
+    number: int
+    # used: they wrote in it. open: they can write now. upcoming: not yet (also a window running
+    # by the clock before their check-in, which they cannot use yet). passed: it ended unused.
+    # before_check_in: it ended before they had done their check-in (never "missed").
+    status: Literal["used", "open", "upcoming", "passed", "before_check_in"]
+    opens_at: str
+    closes_at: str
+
+
 class PatientStateOut(BaseModel):
     """What the patient's own screen needs. A closed episode answers `closed` and the office
     phone, nothing else."""
@@ -213,6 +227,8 @@ class PatientStateOut(BaseModel):
     timezone: str | None = None
     can_send_scheduled: bool = False
     can_reply: bool = False
+    # Every message window in order (added later; an older client ignores it). Empty once closed.
+    windows: list[PatientWindowOut] = []
 
 
 class AuditVerifyOut(BaseModel):

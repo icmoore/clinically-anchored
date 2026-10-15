@@ -138,12 +138,29 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   `/care?token=` (the api's `GET /episode` says where they stand; `/messages?token=` is the same
   screen, and `/check-in?token=` is the check-in). Nothing here decides what is allowed: the api
   computes it from the schedule and the clock, and the page only shows it.
-  - `/care` (`components/patient-home.tsx`): the thread, then a status panel just above the box it is about (check-in first -> "your first window
-    opens ..." -> "you can send one message now, closes ..." -> "sent, next opens ...", with the
-    last window saying when the follow-up ends), the thread (patient messages carry their
-    category, replies say "Reply"), a reply box when the care team has written (one reply, outside
-    the window), and the scheduled form: pick one of the categories, then write. All times are
-    shown in the clinic's timezone (`inZone`), not the device's.
+  - `/care` (`components/patient-home.tsx`), top to bottom: the **urgent notice first** (same words
+    as everywhere; with no office phone it still says to call the office or go to the emergency
+    department), the first-visit **"How this works"** panel (`patient-explainer.tsx`: three steps and
+    "Got it", remembered per browser in localStorage inside try/catch, so if storage fails it simply
+    shows again; a small "How this works" link brings it back), the thread (patient messages carry
+    their category, replies say "Reply"), then **one plain status sentence** just above the box it is
+    about ("Please complete your check-in first...", "You can send your first message from ...", "You
+    can send a message now, until ...", "Thanks, your message was sent. You can send your next one from
+    ...", plus "You can reply to your care team's latest message." whenever a reply is open), the
+    **timeline of the nine periods** (`patient-timeline.tsx`: a check mark for a period they wrote
+    in, a highlighted dot for the one open now, an outline for upcoming ones, and a plain grey dot
+    for ones that ended, never a cross or red; ones that ended before their check-in are grey too
+    and say "before your check-in" on tap; a glyph as well as a look for each, labelled for screen
+    readers; at phone width only the next opening day is written out and a tap on a circle gives its
+    dates, wider screens show every opening day under its marker), "You can write once in each
+    period. Most people don't need to use them all.", a reply box when the care team has written
+    (one reply, outside the periods), and the scheduled form: pick one of the categories, then write.
+    Once the care period has ended the whole screen is the urgent notice and "Your follow-up
+    through this app has ended. If you need help, call the office or go to the emergency
+    department." **Every word of this feature is in `lib/patient-strings.ts`** (placeholder wording
+    pending clinical review; "period" for patients, "window" for the clinic), so wording changes and
+    translation touch one file. Times are written plainly (`plainTime`, no zone name) in the
+    clinic's timezone, not the device's.
   - **Your check-in** (`CheckInCard` in `patient-home.tsx`): at the top of the conversation, what the
     patient entered at their check-in (their answers, and "in your own words"), collapsed to a
     one-line reminder that opens to the full answers; shown only once they have checked in. It

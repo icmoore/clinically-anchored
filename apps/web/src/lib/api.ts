@@ -67,6 +67,16 @@ export function submitCheckIn(token: string, body: { answers: CheckInAnswers }):
 
 export type PatientPhase = "locked_checkin" | "waiting" | "open" | "used" | "closed";
 
+/** One message period as the patient sees it. `before_check_in` is a period that ended before they
+ *  did their check-in; `passed` ended unused. Neither is ever shown as a failure. */
+export type PatientWindowStatus = "used" | "open" | "upcoming" | "passed" | "before_check_in";
+export interface PatientWindow {
+  number: number;
+  status: PatientWindowStatus;
+  opens_at: string;
+  closes_at: string;
+}
+
 /** Where the patient stands right now, worked out by the api. A closed episode answers
  *  only `phase` and `office_phone`. Times are UTC instants; show them in `timezone`. */
 export interface PatientState {
@@ -83,6 +93,7 @@ export interface PatientState {
   timezone: string | null;
   can_send_scheduled: boolean;
   can_reply: boolean; // the care team's latest message has no reply yet
+  windows?: PatientWindow[]; // every period in order; empty once closed, absent from an older api
 }
 
 export interface PatientMessage {

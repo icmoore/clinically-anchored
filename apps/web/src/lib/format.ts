@@ -35,3 +35,37 @@ export function inZone(iso: string, timeZone: string | null): string {
     timeZoneName: "short",
   });
 }
+
+/** A time written plainly in the clinic's own zone, no zone name: "Wed, Oct 21, 7:00 a.m." For
+ *  patient screens, where "EDT" is clutter. */
+export function plainTime(iso: string, timeZone: string | null): string {
+  const text = new Date(iso).toLocaleString("en-CA", {
+    timeZone: timeZone ?? "America/Toronto",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  // Keep "7:00" and "a.m." on one line.
+  return text.replace(/\s+(a\.m\.|p\.m\.)/i, "\u00a0$1");
+}
+
+/** Just the day, plainly, in the clinic's zone: "Wed, Oct 21". */
+export function plainDay(iso: string, timeZone: string | null): string {
+  return new Date(iso).toLocaleDateString("en-CA", {
+    timeZone: timeZone ?? "America/Toronto",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+/** "Oct 21", for under a timeline marker. */
+export function shortDay(iso: string, timeZone: string | null): string {
+  return new Date(iso).toLocaleDateString("en-CA", {
+    timeZone: timeZone ?? "America/Toronto",
+    month: "short",
+    day: "numeric",
+  });
+}
