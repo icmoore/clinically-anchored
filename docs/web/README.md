@@ -60,6 +60,13 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   since the session lives in the browser). No middleware is involved.
 - `/login`: clinician email + password via Supabase Auth (session handling only; all data
   goes through `apps/api`).
+- **Clinic switcher** (`components/app-header.tsx`, `lib/clinic-choice.ts`): the header always names the
+  clinic being worked in. A user who belongs to more than one clinic gets a dropdown in its place
+  (a user with one sees just the name). The choice is remembered per user in this browser
+  (`localStorage` key `ca.clinic.<user id>`, every access in try/catch); if the remembered clinic is
+  no longer one of theirs, or storage is blocked, the first clinic from `/me` opens. Switching does a
+  full page load of `/dashboard`, so the queue is the new clinic's and no patient from the old one stays
+  open. It is a convenience, not a permission: the api checks membership on every request.
 - `/dashboard`: "Needs attention" queue (red flags first, then latest activity; unchanged
   ordering: each card also shows a chip per unread message category, and today's day after
   surgery), add patient (the clinic enters the **surgery date and procedure**, both required;
