@@ -31,9 +31,16 @@ USER = "99999999-9999-9999-9999-999999999999"
 AUTH = {"Authorization": "Bearer good-jwt"}
 
 V1 = Schedule(1, (2, 3, 5, 7, 14, 21, 28, 35, 42), 7, time(7, 0), "America/Toronto")
+# Both schedules the database has (migrations 9 and 11). v1 is the old placeholder; episodes made
+# before v2 keep it. New episodes get the newest ACTIVE version: v2.
+V2 = Schedule(2, (2, 5, 10, 17, 24, 31, 38, 45, 52), 7, time(7, 0), "America/Toronto")
 V1_ROW = {
     "version": 1, "offsets_days": [2, 3, 5, 7, 14, 21, 28, 35, 42], "close_after_days": 7,
-    "opens_at_local": "07:00:00", "timezone": "America/Toronto",
+    "opens_at_local": "07:00:00", "timezone": "America/Toronto", "active": True,
+}
+V2_ROW = {
+    "version": 2, "offsets_days": [2, 5, 10, 17, 24, 31, 38, 45, 52], "close_after_days": 7,
+    "opens_at_local": "07:00:00", "timezone": "America/Toronto", "active": True,
 }
 # A Saturday morning, interval 1 of a Thursday 2026-10-01 surgery, 07:30 Toronto time.
 NOW = datetime(2026, 10, 3, 11, 30, tzinfo=UTC)
@@ -186,7 +193,7 @@ class FakeSupabase:
             ],
             "procedures": [{"id": PROC_A, "clinic_id": CLINIC_A, "name": "Colectomy",
                             "category": "abdominal_bowel_resection", "active": True}],
-            "message_schedules": [dict(V1_ROW)],
+            "message_schedules": [dict(V1_ROW), dict(V2_ROW)],
             "episodes": [],
             "messages": [],
             "check_ins": [],

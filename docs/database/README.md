@@ -72,7 +72,8 @@ scheduled patient messaging. Read its header first. In short:
   procedure can be corrected only before the check-in.
 - `message_schedules`: versioned data (`offsets_days`, `close_after_days`, `opens_at_local`,
   `timezone`), global rather than per clinic. A version is editable until an episode uses it.
-  v1 = offsets 2,3,5,7,14,21,28,35,42 and a 7-day close, PLACEHOLDER pending confirmation.
+  v1 = offsets 2,3,5,7,14,21,28,35,42 was a placeholder; the surgeon's confirmed schedule is v2
+  (migration 11), below.
 - `messages` gain `episode_id`, `origin` (`scheduled` / `reply` / `clinician`), `interval_no`,
   `category` (a stored key, not a label) and `reply_to_message_id`. Unique indexes give one
   scheduled message per interval and one reply per doctor message; a reply answers the LATEST
@@ -92,6 +93,16 @@ scheduled patient messaging. Read its header first. In short:
   `TRUNCATE` on `audit_log` is revoked from `authenticated`/`anon` as well.
 - It refuses to run unless messages, check-ins and patients are empty: run
   `supabase/scripts/reset_trial_data.sh` first (see `supabase/README.md`).
+
+Migration `00000000000011_schedule_v2.sql` adds **schedule v2**, the surgeon's confirmed offsets:
+each interval counted from the previous one, +48 h, +72 h, +5 days, then weekly. Windows open at
+07:00 America/Toronto on days **2, 5, 10, 17, 24, 31, 38, 45, 52** from the surgery date, and the
+episode closes on **day 59** (window 9 lasts one week). v1 is untouched: episodes that recorded v1
+keep computing with it. It also adds `message_schedules.active`, which makes the rule for NEW
+episodes explicit: **a new episode gets the newest active version** (highest `version` with
+`active = true`), so a future version can be staged with `active = false`, reviewed, then switched
+on; and the used-version guard now lets `active` and `note` change on a version episodes use
+(retiring it, or rolling a bad new one back) while still refusing any change to what it computes.
 
 Migration `00000000000010_thread_summaries.sql` adds `thread_summaries`: every AI thread summary the api
 generates, saved after its `summary.generated` audit event (`id` = that event's `summary_id`). One row

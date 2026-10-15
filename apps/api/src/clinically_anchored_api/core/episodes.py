@@ -78,13 +78,21 @@ def get_schedule(supabase, version: int) -> Schedule:
     return Schedule.from_row(rows[0])
 
 
-def latest_schedule(supabase) -> Schedule:
+def default_schedule(supabase) -> Schedule:
+    """The schedule a NEW episode gets: the newest active version (highest `version` with
+    `active = true`, migration 11). Existing episodes never move: each keeps the version it
+    recorded. Raises LookupError if no version is active."""
     rows = (
-        supabase.table("message_schedules").select("*").order("version", desc=True).limit(1)
-        .execute().data
+        supabase.table("message_schedules")
+        .select("*")
+        .eq("active", True)
+        .order("version", desc=True)
+        .limit(1)
+        .execute()
+        .data
     )
     if not rows:
-        raise LookupError("no message schedule exists")
+        raise LookupError("no active message schedule exists")
     return Schedule.from_row(rows[0])
 
 

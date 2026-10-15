@@ -248,3 +248,116 @@ def test_exactly_one_interval_is_open_at_every_instant_inside_the_episode(schedu
         s = state(before, surgery=surgery, schedule=schedule)
         assert s.phase is Phase.WAITING and s.next_opens_at == start
     assert state(end, surgery=surgery, schedule=schedule).phase is Phase.CLOSED
+
+
+# --- schedule v2: the surgeon's confirmed offsets (days 2, 5, 10, 17, 24, 31, 38, 45, 52) ---------
+# Each interval is counted from the previous one: +48 h, +72 h, +5 days, then weekly; every one
+# opens at 07:00 Toronto time and the episode closes on day 59 (interval 9 lasts one week).
+
+V2_OFFSETS = (2, 5, 10, 17, 24, 31, 38, 45, 52)
+
+# Surgery dates chosen so a Toronto clock change falls inside the episode in each way it can:
+#   inside an interval, and ON an opening day.
+V2_CASES = {
+    "no clock change": date(2026, 6, 1),
+    "fall back inside interval 3 (1 Nov 2026)": date(2026, 10, 20),
+    "fall back on the day interval 2 opens": date(2026, 10, 27),
+    "spring forward inside interval 3 (14 Mar 2027)": date(2027, 3, 2),
+    "spring forward on the day interval 2 opens": date(2027, 3, 9),
+}
+
+
+def test_v2_nine_windows_open_at_0700_on_the_confirmed_days_and_close_on_day_59():
+    w = windows(date(2026, 6, 1), V2)
+    assert [x.opens_at.astimezone(TORONTO).date() for x in w] == [
+        date(2026, 6, 1) + timedelta(days=d) for d in V2_OFFSETS
+    ]
+    assert all(x.opens_at.astimezone(TORONTO).time() == time(7, 0) for x in w)
+    assert w[-1].closes_at == episode_end(date(2026, 6, 1), V2)
+    day_59 = date(2026, 6, 1) + timedelta(days=59)
+    assert day_59 == date(2026, 7, 30)
+    assert w[-1].closes_at.astimezone(TORONTO) == datetime(2026, 7, 30, 7, 0, tzinfo=TORONTO)
+    assert w[-1].closes_at - w[-1].opens_at == timedelta(days=7)  # interval 9 lasts one week
+    assert [(b.opens_at - a.opens_at) for a, b in zip(w, w[1:], strict=False)] == [
+        timedelta(days=d) for d in (3, 5, 7, 7, 7, 7, 7, 7)
+    ]
+
+
+@pytest.mark.parametrize("surgery", V2_CASES.values(), ids=V2_CASES.keys())
+def test_v2_every_interval_flips_exactly_at_0700_local_on_its_opening_day(surgery):
+    for n, offset in enumerate(V2_OFFSETS, start=1):
+        opens = local(*(surgery + timedelta(days=offset)).timetuple()[:3], 7, 0)
+        before = state(opens - timedelta(seconds=1), surgery=surgery, schedule=V2)  # 06:59:59
+        at = state(opens, surgery=surgery, schedule=V2)  # 07:00:00
+        assert at.interval_no == n and at.phase is Phase.OPEN, (n, "at 07:00")
+        assert at.interval_opens_at == opens
+        if n == 1:
+            assert before.phase is Phase.WAITING and before.next_opens_at == opens
+        else:
+            assert before.interval_no == n - 1, (n, "at 06:59:59")
+            assert before.interval_closes_at == opens
+
+
+@pytest.mark.parametrize("surgery", V2_CASES.values(), ids=V2_CASES.keys())
+def test_v2_closes_on_day_59_at_0700_and_not_a_second_before(surgery):
+    end = local(*(surgery + timedelta(days=59)).timetuple()[:3], 7, 0)
+    assert episode_end(surgery, V2) == end
+    last = state(end - timedelta(seconds=1), surgery=surgery, schedule=V2)
+    assert last.interval_no == 9 and last.phase is Phase.OPEN
+    closed = state(end, surgery=surgery, schedule=V2)
+    assert closed.phase is Phase.CLOSED and closed.close_reason == "schedule_complete"
+    assert closed.closed_at == end and not closed.can_send_scheduled
+    assert state(end + timedelta(days=30), surgery=surgery, schedule=V2).closed
+
+
+def test_v2_across_the_fall_back_interval_3_is_a_week_and_an_hour_and_still_opens_at_0700():
+    surgery = date(2026, 10, 20)  # interval 3 opens Fri 30 Oct, interval 4 opens Fri 6 Nov
+    w = windows(surgery, V2)
+    assert w[2].opens_at == datetime(2026, 10, 30, 11, 0, tzinfo=UTC)  # 07:00 EDT
+    assert w[3].opens_at == datetime(2026, 11, 6, 12, 0, tzinfo=UTC)  # 07:00 EST
+    assert w[2].closes_at - w[2].opens_at == timedelta(days=7, hours=1)
+    # The same instant that is 07:00 under EDT is 06:00 under EST: not open yet.
+    at_0600_est = datetime(2026, 11, 6, 11, 0, tzinfo=UTC)
+    at_0700_est = datetime(2026, 11, 6, 12, 0, tzinfo=UTC)
+    assert state(at_0600_est, surgery=surgery, schedule=V2).interval_no == 3
+    assert state(at_0700_est, surgery=surgery, schedule=V2).interval_no == 4
+    assert episode_end(surgery, V2) == datetime(2026, 12, 18, 12, 0, tzinfo=UTC)  # day 59, EST
+
+
+def test_v2_when_the_clocks_go_back_on_the_day_interval_2_opens():
+    surgery = date(2026, 10, 27)  # interval 2 opens Sunday 1 Nov, the day the clocks go back
+    w = windows(surgery, V2)
+    assert w[0].opens_at == datetime(2026, 10, 29, 11, 0, tzinfo=UTC)  # 07:00 EDT
+    assert w[1].opens_at == datetime(2026, 11, 1, 12, 0, tzinfo=UTC)  # 07:00 EST
+    assert w[0].closes_at - w[0].opens_at == timedelta(days=3, hours=1)  # 73 hours, not 72
+
+
+def test_v2_across_the_spring_forward_interval_3_is_a_week_less_an_hour():
+    surgery = date(2027, 3, 2)  # interval 3 opens Fri 12 Mar, interval 4 opens Fri 19 Mar
+    w = windows(surgery, V2)
+    assert w[2].opens_at == datetime(2027, 3, 12, 12, 0, tzinfo=UTC)  # 07:00 EST
+    assert w[3].opens_at == datetime(2027, 3, 19, 11, 0, tzinfo=UTC)  # 07:00 EDT
+    assert w[2].closes_at - w[2].opens_at == timedelta(days=7) - timedelta(hours=1)
+
+
+def test_v2_when_the_clocks_go_forward_on_the_day_interval_2_opens():
+    surgery = date(2027, 3, 9)  # interval 2 opens Sunday 14 Mar, the day the clocks go forward
+    w = windows(surgery, V2)
+    assert w[1].opens_at == datetime(2027, 3, 14, 11, 0, tzinfo=UTC)  # 07:00 EDT
+    assert w[0].closes_at - w[0].opens_at == timedelta(days=3) - timedelta(hours=1)  # 71 hours
+    # 06:59:59 EST would be 07:59:59 EDT: before the change it is still interval 1.
+    before = datetime(2027, 3, 14, 10, 59, 59, tzinfo=UTC)
+    at = datetime(2027, 3, 14, 11, 0, tzinfo=UTC)
+    assert state(before, surgery=surgery, schedule=V2).interval_no == 1
+    assert state(at, surgery=surgery, schedule=V2).interval_no == 2
+
+
+def test_a_v1_episode_keeps_computing_with_v1_beside_a_v2_one_for_the_same_surgery_date():
+    surgery = date(2026, 10, 1)
+    now = local(2026, 10, 15, 9)  # day 14
+    old = state(now, surgery=surgery, schedule=V1)  # opened day 14: interval 5 of v1
+    new = state(now, surgery=surgery, schedule=V2)  # day 14 is inside interval 3 (days 10-17)
+    assert (old.interval_no, new.interval_no) == (5, 3)
+    assert old.episode_closes_at == local(2026, 11, 19)  # v1: day 49
+    assert new.episode_closes_at == local(2026, 11, 29)  # v2: day 59
+    assert old.missed == (1, 2, 3, 4) and new.missed == (1, 2)

@@ -4,18 +4,20 @@ Creates (or reuses) a separate demo clinic, adds the clinician as its owner, cop
 active procedure list from the dev clinic, then writes invented patients, each with an
 EPISODE (surgery date, procedure, schedule version), backdated check-in, messages,
 contact-log entries and reviews, chosen so that every state the schedule engine
-(core/schedule.py) can report is on screen:
+(core/schedule.py) can report is on screen. All 13 are on schedule v2 (the surgeon's confirmed
+offsets: windows open on days 2, 5, 10, 17, 24, 31, 38, 45, 52 and the episode closes on day 59):
 
-   1  Elena Marchetti      cholecystectomy: window 4 open, unused; late check-in (window 1 missed)
+   1  Elena Marchetti      cholecystectomy: window 3 open, unused; window 1 missed (late check-in);
+                           replies to two doctor-initiated messages
    2  Gordon Whitlock      right hemicolectomy: window 5 open; red-flag check-in (ileus), call and
-                           ED visit
+                           ED visit; the clinic wrote last, a reply is open
    3  Nadia Haddad         hemorrhoid surgery: red-flag check-in today and a message awaiting a
                            reply (the one to try "Draft a reply with AI" on)
    4  Marcus Bennett       sigmoid resection: window 4 used; the clinic wrote last, a reply is open
    5  Priya Raman          fistulotomy: window 5 used, window 6 opens tomorrow
    6  Walter Kowalski      inguinal hernia: an all-clear check-in not yet reviewed; no messages
    7  Sophie Tremblay      appendectomy: wound infection (red flag), call and same-day visit
-   8  Raymond Ashby        rectal cancer surgery: checked in on day 12 (windows 1-3 missed) with a
+   8  Raymond Ashby        rectal cancer surgery: checked in on day 14 (windows 1-2 missed) with a
                            dizziness red flag; the longest thread; window 7 open
    9  Amara Nwosu          ventral hernia: a worried swelling question awaiting a reply
   10  Daniel Cho           sphincterotomy: DISCHARGED by the clinic
@@ -23,8 +25,8 @@ contact-log entries and reviews, chosen so that every state the schedule engine
                            written and she has a reply open
   12  Tomas Reyes          anal advancement flap: checked in, waiting for window 1 to open
   13  Beatrice Lang        colon resection: the schedule ran out and the care period closed itself
-  14  Gerald Fox           right hemicolectomy on schedule v2 (only with
-                           --include-alternate-schedule)
+  14  Gerald Fox           right hemicolectomy on the OLD schedule v1 (only with
+                           --include-v1-patient): shows that an episode keeps its recorded version
 
 Everything here is invented. No real patient data.
 
@@ -55,17 +57,17 @@ Usage, from apps/api with the same .env the api uses locally:
     uv run python -m clinically_anchored_api.seed_trial_patients --dry-run
     uv run python -m clinically_anchored_api.seed_trial_patients --email you@example.com
 
-Needs migration 9 applied (after supabase/scripts/reset_trial_data.sh). Re-running is safe: the
-demo clinic, membership and procedures are reused, and a patient that already exists (matched by
-its synthetic contact address) is skipped, never duplicated.
+Needs migrations 9 and 11 applied (after supabase/scripts/reset_trial_data.sh). Re-running is
+safe: the demo clinic, membership and procedures are reused, and a patient that already exists
+(matched by its synthetic contact address) is skipped, never duplicated.
 
 --clinic dev fills the shared dev clinic instead of the separate demo clinic (the same patients,
 so each account has its own copy to click through). The dev clinic must already exist and the
 account must already be a member of it: this never adds a membership to it.
 
---include-alternate-schedule also adds schedule version 2 (offsets 2,5,10,17,...) and patient 14.
-Version 2 then becomes the NEWEST schedule, and every patient added from the dashboard afterwards
-gets it. Leave it off unless you mean that.
+--include-v1-patient adds patient 14 on schedule v1. It writes nothing to message_schedules: v1
+and v2 both already exist (migrations 9 and 11), and which schedule NEW dashboard patients get
+is the newest active version, which the seed never changes.
 """
 
 import argparse
@@ -75,6 +77,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from clinically_anchored_api.core import categories
+from clinically_anchored_api.core.episodes import default_schedule
 from clinically_anchored_api.core.rules import evaluate_red_flags
 from clinically_anchored_api.core.schedule import (
     EpisodeState,
@@ -91,8 +94,11 @@ SEED_ACTOR = {"type": "system", "id": "seed_trial_patients"}
 DEMO_CLINIC_NAME = "Major Mackenzie Surgery (demo)"
 SOURCE_CLINIC_ID = "00000000-0000-0000-0000-0000000000c1"  # dev clinic (migrations 2 and 7)
 
-# The schedule versions the plan is written for. The database's copies win when writing (see
-# the module docstring); these are what migration 9 seeds and what a dry run assumes.
+# The schedule the plan is written for (the confirmed offsets, migration 11) and the old one
+# (migration 9) that patient 14 keeps. The database's copies win when writing (see the module
+# docstring); these are what the migrations insert and what a dry run assumes.
+SEED_SCHEDULE_VERSION = 2
+LEGACY_SCHEDULE_VERSION = 1
 DEFAULT_SCHEDULES = {
     1: Schedule(1, (2, 3, 5, 7, 14, 21, 28, 35, 42), 7, time(7, 0), "America/Toronto"),
     2: Schedule(2, (2, 5, 10, 17, 24, 31, 38, 45, 52), 7, time(7, 0), "America/Toronto"),
@@ -235,11 +241,12 @@ def _answers(symptoms, *, abdominal=True, wound="staples", surgery="laparoscopic
     return answers
 
 
-def build_plan(now: datetime, include_alternate_schedule: bool = False) -> list[PatientPlan]:
+def build_plan(now: datetime, include_v1_patient: bool = False) -> list[PatientPlan]:
     t = Clock(now)
     plans: list[PatientPlan] = []
 
-    def new(label, name, procedure, pod, expect, *, version=1, created="15:00", **kw):
+    def new(label, name, procedure, pod, expect, *, version=SEED_SCHEDULE_VERSION,
+            created="15:00", **kw):
         s = Surgery(t, pod)
         plan = PatientPlan(
             label=label,
@@ -255,45 +262,50 @@ def build_plan(now: datetime, include_alternate_schedule: bool = False) -> list[
         plans.append(plan)
         return s, plan
 
-    # 1: laparoscopic cholecystectomy, day 8. Checked in on day 3, so window 1 went by.
-    s = Surgery(t, 8)
+    # Schedule v2 windows (days from surgery): 1 [2,5)  2 [5,10)  3 [10,17)  4 [17,24)
+    # 5 [24,31)  6 [31,38)  7 [38,45)  8 [45,52)  9 [52,59); the episode closes on day 59.
+    # Each patient's "today" is chosen so that it is never an opening day, so what the engine says
+    # does not change at 07:00.
+
+    # 1: laparoscopic cholecystectomy, day 12. Checked in on day 5, so window 1 went by.
+    s = Surgery(t, 12)
     new(
-        "Trial Patient 1", "Elena Marchetti", "Cholecystectomy", 8,
+        "Trial Patient 1", "Elena Marchetti", "Cholecystectomy", 12,
         Expect(Phase.OPEN, missed=(1,)),
         created="15:10",
         check_in=CheckIn(
-            s.at(3, "19:30"),
+            s.at(5, "19:30"),
             _answers(["pain", "fatigue"], wound="absorbing_sutures", pain=_pain(2),
                      fatigue={"trend": "better", "interfering_with_activities": False}),
         ),
         messages=[
-            _p(s.at(3, "20:05"),
+            _p(s.at(5, "20:05"),
                "Hi Dr. Moore, it's Elena. Is it okay to shower? Also a sharp pain in my right "
                "shoulder, mostly when I lie down. The incisions themselves feel ok.",
                "symptom_or_wound"),
-            _c(s.at(4, "08:30"),
+            _c(s.at(6, "08:30"),
                "Hi Elena, yes, you can shower now; pat the incisions dry, no scrubbing. The "
                "shoulder pain is referred pain from the gas used during surgery and usually "
                "settles in a few days. Walking helps."),
-            _r(s.at(4, "08:52"), "Thanks, that's reassuring."),
-            _p(s.at(6, "20:05"),
-               "Shoulder pain is gone. When can I drive and go back to work? I have a desk job.",
-               "recovery_update"),
-            _c(s.at(7, "08:30"),
+            _r(s.at(6, "08:52"), "Thanks, that's reassuring."),
+            _c(s.at(9, "10:00"), "Checking in, Elena. How is the shoulder?"),
+            _r(s.at(9, "10:30"),
+               "Shoulder pain is gone. When can I drive and go back to work? I have a desk job."),
+            _c(s.at(9, "12:00"),
                "Glad to hear it. You can drive once you're off the oxycodone and can brake hard "
                "without pain, usually about a week. Desk work whenever you feel up to it."),
-            _r(s.at(7, "09:02"), "Perfect, thank you so much!"),
+            _r(s.at(9, "12:20"), "Perfect, thank you so much!"),
         ],
     )
 
-    # 2: right hemicolectomy, day 15. Red-flag check-in on day 4 (ileus): call, ED visit.
-    s = Surgery(t, 15)
+    # 2: right hemicolectomy, day 26. Red-flag check-in on day 5 (ileus): call, ED visit.
+    s = Surgery(t, 26)
     new(
-        "Trial Patient 2", "Gordon Whitlock", "Right hemicolectomy", 15,
+        "Trial Patient 2", "Gordon Whitlock", "Right hemicolectomy", 26,
         Expect(Phase.OPEN, missed=(1,), reply=True),
         created="14:00",
         check_in=CheckIn(
-            s.at(4, "08:05"),
+            s.at(5, "08:05"),
             _answers(
                 ["pain", "nausea_vomiting", "no_bowel_movement", "distension"],
                 pain=_pain(6, "same", meds=("tylenol", "oxycodone")),
@@ -302,44 +314,45 @@ def build_plan(now: datetime, include_alternate_schedule: bool = False) -> list[
                 no_bowel_movement={"days": 3, "distension": True, "nausea_vomiting": True},
                 distension={"trend": "worse", "associated_pain": True},
             ),
-            reviewed_at=s.at(4, "08:38"),
+            reviewed_at=s.at(5, "08:38"),
             expect_red_flag=True,
         ),
         messages=[
-            _p(s.at(4, "08:20"),
+            _p(s.at(5, "08:20"),
                "Belly is very swollen and I'm nauseous. No gas since yesterday. I just filled in "
                "the check-in.", "symptom_or_wound"),
-            _c(s.at(4, "09:00"),
+            _c(s.at(5, "09:00"),
                "Gordon, please go to the emergency department now. I've called ahead and they "
                "are expecting you."),
-            _r(s.at(4, "09:25"), "Leaving now."),
-            _p(s.at(6, "10:10"),
-               "Home since this morning. Passing gas, and I kept down some soup.",
+            _r(s.at(5, "09:25"), "Leaving now."),
+            _p(s.at(11, "10:10"),
+               "Home since last week. Passing gas, eating normally, and the incision looks fine.",
                "recovery_update"),
-            _c(s.at(6, "12:30"), "That's what we wanted to hear. Small meals, keep walking."),
-            _r(s.at(6, "13:00"), "Will do, thanks."),
-            _p(s.at(12, "09:30"),
-               "Can I stop the oxycodone now? And is it ok to keep taking my aspirin?",
-               "medication"),
-            _c(s.at(12, "11:00"),
-               "Yes to stopping the oxycodone if Tylenol is enough. Restart the aspirin now; "
-               "take it with food."),
-            _r(s.at(12, "11:20"), "Great, thank you."),
+            _c(s.at(11, "12:30"), "That's what we wanted to hear. Keep walking."),
+            _r(s.at(11, "13:00"), "Will do, thanks."),
             _c(s.at(14, "12:00"),
                "Staples are out and the incision looks good. See you in clinic."),
+            _p(s.at(20, "09:30"),
+               "Can I stop the oxycodone now? And is it ok to keep taking my aspirin?",
+               "medication"),
+            _c(s.at(20, "11:00"),
+               "Yes to stopping the oxycodone if Tylenol is enough. Restart the aspirin now; "
+               "take it with food."),
+            _r(s.at(20, "11:20"), "Great, thank you."),
+            _c(s.at(25, "12:00"), "Your pathology came back normal. We'll go over it in clinic."),
         ],
         touchpoints=[
-            ManualTouchpoint(s.at(4, "08:50"), "call", 12,
+            ManualTouchpoint(s.at(5, "08:50"), "call", 12,
                              "Called about no gas, distension, vomiting. Sent to ED."),
-            ManualTouchpoint(s.at(4, "11:30"), "visit", 240,
-                             "ED assessment: ileus, managed conservatively, discharged day 6."),
+            ManualTouchpoint(s.at(5, "11:30"), "visit", 240,
+                             "ED assessment: ileus, managed conservatively, home on day 7."),
             ManualTouchpoint(s.at(14, "10:00"), "visit", 15, "Staple removal."),
         ],
     )
 
-    # 3: hemorrhoid surgery, day 6. Red flag today and a message waiting for a reply.
+    # 3: hemorrhoid surgery, day 11. Red flag today and a message waiting for a reply.
     new(
-        "Trial Patient 3", "Nadia Haddad", "Hemorrhoid surgery", 6,
+        "Trial Patient 3", "Nadia Haddad", "Hemorrhoid surgery", 11,
         Expect(Phase.USED, missed=(1, 2)),
         created="10:00",
         check_in=CheckIn(
@@ -363,47 +376,46 @@ def build_plan(now: datetime, include_alternate_schedule: bool = False) -> list[
         ],
     )
 
-    # 4: sigmoid colon resection, day 12. The clinic wrote last; she has a reply open.
-    s = Surgery(t, 12)
+    # 4: sigmoid colon resection, day 20. The clinic wrote last; she has a reply open.
+    s = Surgery(t, 20)
     new(
-        "Trial Patient 4", "Marcus Bennett", "Sigmoid colon resection", 12,
+        "Trial Patient 4", "Marcus Bennett", "Sigmoid colon resection", 20,
         Expect(Phase.USED, missed=(1,), reply=True),
         created="15:30",
         check_in=CheckIn(
-            s.at(3, "18:00"),
+            s.at(5, "18:00"),
             _answers(["pain", "fatigue"],
                      pain=_pain(5, meds=("tylenol", "oxycodone")),
                      fatigue={"trend": "same", "interfering_with_activities": True}),
-            reviewed_at=s.at(3, "20:00"),
+            reviewed_at=s.at(5, "20:00"),
         ),
         messages=[
-            _p(s.at(3, "18:20"),
+            _p(s.at(5, "18:20"),
                "Home since last night after my sigmoid resection. Is it normal to be this "
                "tired? Small loose bowel movement this afternoon.", "recovery_update"),
-            _c(s.at(3, "20:15"),
+            _c(s.at(5, "20:15"),
                "Very normal, and the bowel movement is a good sign. Short walks, small frequent "
                "meals, rest when you need to."),
-            _r(s.at(4, "08:30"), "Thanks, will do."),
-            _p(s.at(6, "10:10"),
+            _r(s.at(6, "08:30"), "Thanks, will do."),
+            _p(s.at(12, "10:10"),
                "Can I shower with the staples in? Do I need to cover them?", "recovery_update"),
-            _c(s.at(6, "13:30"),
+            _c(s.at(12, "13:30"),
                "Yes, shower daily and pat dry. No baths or swimming until the staples are out."),
-            _p(s.at(9, "16:30"), "When can I get back to golf? Asking for a friend.",
+            _p(s.at(18, "16:30"), "When can I get back to golf? Asking for a friend.",
                "recovery_update"),
-            _c(s.at(9, "19:05"),
+            _c(s.at(18, "19:05"),
                "Putting and short walks now. Full swings and carrying a bag after about 6 weeks."),
-            _r(s.at(10, "09:00"), "Ha, thanks. Staples out tomorrow at 10."),
-            _c(s.at(11, "12:30"),
-               "Nothing special to do. Eat normally and take a Tylenol an hour beforehand."),
+            _r(s.at(19, "09:00"), "Ha, thanks. I'll stick to putting."),
+            _c(s.at(19, "12:30"), "Good. Let me know if the incision gives you any trouble."),
         ],
-        touchpoints=[ManualTouchpoint(s.at(11, "10:20"), "visit", 15, "Staples removed.")],
+        touchpoints=[ManualTouchpoint(s.at(14, "10:20"), "visit", 15, "Staples removed.")],
     )
 
-    # 5: fistulotomy, day 20. Window 5 used; window 6 opens tomorrow.
-    s = Surgery(t, 20)
+    # 5: fistulotomy, day 30. Window 5 used; window 6 opens tomorrow.
+    s = Surgery(t, 30)
     new(
-        "Trial Patient 5", "Priya Raman", "Fistulotomy for fistula", 20,
-        Expect(Phase.USED, missed=(1, 2)),
+        "Trial Patient 5", "Priya Raman", "Fistulotomy for fistula", 30,
+        Expect(Phase.USED, missed=(1,)),
         created="11:00",
         check_in=CheckIn(
             s.at(5, "09:40"),
@@ -419,32 +431,35 @@ def build_plan(now: datetime, include_alternate_schedule: bool = False) -> list[
             _c(s.at(5, "13:00"),
                "Yes, a fistulotomy wound drains for a few weeks. Change the dressing when it is "
                "damp, and call us if it turns thick, foul-smelling or the pain jumps."),
-            _p(s.at(9, "08:45"), "How often should I be changing the dressing now?",
+            _p(s.at(11, "08:45"), "How often should I be changing the dressing now?",
                "recovery_update"),
-            _c(s.at(9, "11:20"), "Once or twice a day is fine, whenever it's wet."),
-            _p(s.at(16, "19:10"), "Settling nicely. Almost no drainage now.", "recovery_update"),
-            _c(s.at(17, "09:00"), "Excellent. You can drop to one dressing a day."),
-            _r(s.at(17, "09:30"), "Thank you!"),
+            _c(s.at(11, "11:20"), "Once or twice a day is fine, whenever it's wet."),
+            _p(s.at(19, "19:10"), "Settling nicely. Almost no drainage now.", "recovery_update"),
+            _c(s.at(20, "09:00"), "Excellent. You can drop to one dressing a day."),
+            _r(s.at(20, "09:30"), "Thank you!"),
+            _p(s.at(26, "10:00"), "Back at work part-time and managing fine.", "recovery_update"),
+            _c(s.at(26, "13:00"), "Good to hear. Build up slowly."),
+            _r(s.at(26, "13:30"), "Will do."),
         ],
     )
 
-    # 6: inguinal hernia repair, day 4. An all-clear check-in waiting to be closed out.
-    s = Surgery(t, 4)
+    # 6: inguinal hernia repair, day 6. An all-clear check-in waiting to be closed out.
+    s = Surgery(t, 6)
     new(
-        "Trial Patient 6", "Walter Kowalski", "Inguinal hernia repair (in the groin)", 4,
+        "Trial Patient 6", "Walter Kowalski", "Inguinal hernia repair (in the groin)", 6,
         Expect(Phase.OPEN, missed=(1,)),
         created="13:00",
         check_in=CheckIn(
-            s.at(3, "14:00"),
+            s.at(5, "14:00"),
             _answers(["pain"], wound="absorbing_sutures", pain=_pain(3)),
         ),
     )
 
-    # 7: appendectomy, day 9. Wound infection on day 5: call and same-day visit.
-    s = Surgery(t, 9)
+    # 7: appendectomy, day 13. Wound infection on day 5: call and same-day visit.
+    s = Surgery(t, 13)
     new(
-        "Trial Patient 7", "Sophie Tremblay", "Appendectomy", 9,
-        Expect(Phase.USED, missed=(1, 2)),
+        "Trial Patient 7", "Sophie Tremblay", "Appendectomy", 13,
+        Expect(Phase.USED, missed=(1,)),
         created="12:00",
         check_in=CheckIn(
             s.at(5, "07:40"),
@@ -465,12 +480,12 @@ def build_plan(now: datetime, include_alternate_schedule: bool = False) -> list[
             _c(s.at(5, "08:25"),
                "Sophie, please come to the clinic this morning. I've booked you at 10:30."),
             _r(s.at(5, "08:50"), "On my way."),
-            _p(s.at(8, "09:10"),
+            _p(s.at(11, "09:10"),
                "The antibiotic is upsetting my stomach. Should I take it with food?",
                "medication"),
-            _c(s.at(8, "11:00"),
+            _c(s.at(11, "11:00"),
                "Yes, take it with a meal and keep going to the end of the course."),
-            _r(s.at(8, "11:20"), "Thanks, that helped."),
+            _r(s.at(11, "11:20"), "Thanks, that helped."),
         ],
         touchpoints=[
             ManualTouchpoint(s.at(5, "08:20"), "call", 10, "Fever 39.1 and purulent discharge."),
@@ -479,91 +494,91 @@ def build_plan(now: datetime, include_alternate_schedule: bool = False) -> list[
         ],
     )
 
-    # 8: rectal cancer surgery, day 30. Late check-in on day 12 (dizziness): the longest thread.
-    s = Surgery(t, 30)
+    # 8: rectal cancer surgery, day 40. Late check-in on day 14 (dizziness): the longest thread.
+    s = Surgery(t, 40)
     new(
-        "Trial Patient 8", "Raymond Ashby", "Rectal cancer surgery", 30,
-        Expect(Phase.OPEN, missed=(1, 2, 3)),
+        "Trial Patient 8", "Raymond Ashby", "Rectal cancer surgery", 40,
+        Expect(Phase.OPEN, missed=(1, 2, 6)),
         created="09:30",
         check_in=CheckIn(
-            s.at(12, "09:10"),
+            s.at(14, "09:10"),
             _answers(["dizziness", "fatigue", "diarrhea"], wound="absorbing_sutures",
                      dizziness={"trend": "worse", "orthostatic": True, "since": "yesterday"},
                      fatigue={"trend": "worse", "interfering_with_activities": True},
                      diarrhea={"frequency_per_day": 7, "blood_in_stool": False,
                                "duration": "several_days"}),
-            reviewed_at=s.at(12, "09:40"),
+            reviewed_at=s.at(14, "09:40"),
             expect_red_flag=True,
         ),
         messages=[
-            _p(s.at(12, "09:20"),
+            _p(s.at(14, "09:20"),
                "I get dizzy every time I stand up, since yesterday. Bowels are going 7 times "
                "a day.", "symptom_or_wound"),
-            _c(s.at(12, "09:55"),
+            _c(s.at(14, "09:55"),
                "Raymond, please come to the clinic today so we can check your bloodwork."),
-            _r(s.at(12, "10:15"), "Coming at noon."),
-            _p(s.at(16, "08:40"),
+            _r(s.at(14, "10:15"), "Coming at noon."),
+            _p(s.at(20, "08:40"),
                "Dizziness is gone. Bowels are still frequent. Would a fibre supplement help?",
                "medication"),
-            _c(s.at(16, "11:30"), "Yes, start psyllium once a day and drink plenty of fluids."),
-            _r(s.at(16, "12:00"), "Will do."),
-            _p(s.at(24, "18:20"),
+            _c(s.at(20, "11:30"), "Yes, start psyllium once a day and drink plenty of fluids."),
+            _r(s.at(20, "12:00"), "Will do."),
+            _p(s.at(28, "18:20"),
                "Who do I call about the pathology appointment? Nobody has phoned me.",
                "admin"),
-            _c(s.at(24, "19:40"),
+            _c(s.at(28, "19:40"),
                "The office books it. I've asked them to call you tomorrow morning."),
-            _c(s.at(28, "10:00"), "Just checking in. How are you feeling this week?"),
-            _r(s.at(28, "10:30"), "Doing well, thanks for checking."),
+            _c(s.at(35, "10:00"), "Just checking in. How are you feeling this week?"),
+            _r(s.at(35, "10:30"), "Doing well, thanks for checking."),
         ],
         touchpoints=[
-            ManualTouchpoint(s.at(12, "09:50"), "call", 15,
+            ManualTouchpoint(s.at(14, "09:50"), "call", 15,
                              "Dizziness on standing, 7 loose stools a day."),
-            ManualTouchpoint(s.at(12, "13:00"), "visit", 60,
+            ManualTouchpoint(s.at(14, "13:00"), "visit", 60,
                              "Dehydrated; IV fluids, bloodwork, held the diuretic."),
         ],
     )
 
-    # 9: ventral hernia repair, day 6. A worried swelling question awaiting a reply.
-    s = Surgery(t, 6)
+    # 9: ventral hernia repair, day 11. A worried swelling question awaiting a reply.
+    s = Surgery(t, 11)
     new(
-        "Trial Patient 9", "Amara Nwosu", "Ventral hernia repair (on the belly)", 6,
+        "Trial Patient 9", "Amara Nwosu", "Ventral hernia repair (on the belly)", 11,
         Expect(Phase.USED, missed=(1,)),
         created="14:00",
         check_in=CheckIn(
-            s.at(4, "17:30"),
+            s.at(6, "17:30"),
             _answers(["pain"], wound="absorbing_sutures", pain=_pain(4)),
-            reviewed_at=s.at(4, "18:30"),
+            reviewed_at=s.at(6, "18:30"),
         ),
         messages=[
-            _p(s.at(4, "17:50"), "Pain is fine. A bit of bruising around the incision.",
+            _p(s.at(6, "17:50"), "Pain is fine. A bit of bruising around the incision.",
                "recovery_update"),
-            _c(s.at(4, "19:30"), "Bruising is normal and fades over a couple of weeks."),
-            _r(s.at(4, "20:00"), "Thanks."),
+            _c(s.at(6, "19:30"), "Bruising is normal and fades over a couple of weeks."),
+            _r(s.at(6, "20:00"), "Thanks."),
             _p(t.ago(100),
                "The area above my incision has swollen up since this morning and feels firm. "
                "I'm worried something's wrong.", "symptom_or_wound"),
         ],
     )
 
-    # 10: sphincterotomy for fissure, day 10. Minimal contact, then discharged by the clinic.
-    s = Surgery(t, 10)
+    # 10: sphincterotomy for fissure, day 20. Minimal contact, then discharged by the clinic.
+    s = Surgery(t, 20)
     new(
-        "Trial Patient 10", "Daniel Cho", "Sphincterotomy for fissure", 10,
+        "Trial Patient 10", "Daniel Cho", "Sphincterotomy for fissure", 20,
         Expect(Phase.CLOSED, missed=(1,)),
         created="11:00",
         check_in=CheckIn(
-            s.at(3, "20:00"),
+            s.at(5, "20:00"),
             _answers(["pain"], abdominal=False, pain=_pain(2)),
-            reviewed_at=s.at(3, "20:30"),
+            reviewed_at=s.at(5, "20:30"),
         ),
         messages=[
-            _p(s.at(3, "20:15"),
+            _p(s.at(5, "20:15"),
                "Is it normal to have a little bleeding with bowel movements?", "symptom_or_wound"),
-            _c(s.at(3, "21:00"),
+            _c(s.at(5, "21:00"),
                "A little on the tissue is expected for a week or two. Call if it's more."),
-            _r(s.at(4, "07:50"), "Ok, thanks."),
+            _r(s.at(6, "07:50"), "Ok, thanks."),
         ],
-        closed=Closed(s.at(6, "11:00"), "discharged"),
+        closed=Closed(s.at(8, "11:00"), "discharged"),
     )
 
     # 11: seton surgery, day 1. Check-in pending, so messaging is locked; the clinic has written.
@@ -586,36 +601,38 @@ def build_plan(now: datetime, include_alternate_schedule: bool = False) -> list[
         check_in=CheckIn(t.ago(90), _answers(["pain"], abdominal=False, pain=_pain(3))),
     )
 
-    # 13: colon resection, day 52. The schedule ran out three days ago and closed itself.
-    s = Surgery(t, 52)
+    # 13: colon resection, day 62. The schedule ended on day 59 (three days ago) and closed itself.
+    s = Surgery(t, 62)
     new(
-        "Trial Patient 13", "Beatrice Lang", "Other colon resection", 52,
-        Expect(Phase.CLOSED, missed=(1, 3, 4, 7, 8, 9)),
+        "Trial Patient 13", "Beatrice Lang", "Other colon resection", 62,
+        Expect(Phase.CLOSED, missed=(1, 4, 6, 7, 8, 9)),
         created="10:30",
         check_in=CheckIn(
-            s.at(3, "11:00"),
+            s.at(5, "11:00"),
             _answers(["fatigue"],
                      fatigue={"trend": "better", "interfering_with_activities": False}),
-            reviewed_at=s.at(3, "12:00"),
+            reviewed_at=s.at(5, "12:00"),
         ),
         messages=[
-            _p(s.at(4, "10:00"), "Feeling tired but eating well.", "recovery_update"),
-            _c(s.at(4, "15:00"), "Good. Keep up the walking."),
-            _r(s.at(4, "16:00"), "Will do."),
+            _p(s.at(6, "10:00"), "Feeling tired but eating well.", "recovery_update"),
+            _c(s.at(6, "15:00"), "Good. Keep up the walking."),
+            _r(s.at(6, "16:00"), "Will do."),
             _p(s.at(15, "09:30"), "Back to short walks outside. Any limits on lifting?",
                "recovery_update"),
             _c(s.at(15, "13:00"), "Nothing over 10 lb until six weeks."),
-            _p(s.at(22, "10:30"), "Nothing heavy, all good. Thank you for everything.", "admin"),
+            _p(s.at(28, "10:30"), "Nothing heavy, all good. Thank you for everything.", "admin"),
         ],
         closed=Closed(None, "schedule_complete"),
     )
 
-    if include_alternate_schedule:
-        # 14: right hemicolectomy on schedule v2, day 11 (v2 opens on days 2, 5, 10, 17, ...).
+    if include_v1_patient:
+        # 14: right hemicolectomy on the OLD schedule v1, day 11 (v1 windows: 1 [2,3) 2 [3,5)
+        # 3 [5,7) 4 [7,14) ...). An episode keeps the version it recorded: this one is computed
+        # with v1's offsets even though new patients get v2.
         s = Surgery(t, 11)
         new(
             "Trial Patient 14", "Gerald Fox", "Right hemicolectomy", 11,
-            Expect(Phase.OPEN), version=2, created="14:00",
+            Expect(Phase.OPEN, missed=(3,)), version=LEGACY_SCHEDULE_VERSION, created="14:00",
             check_in=CheckIn(
                 s.at(2, "08:30"),
                 _answers(["pain"], pain=_pain(4)),
@@ -627,9 +644,9 @@ def build_plan(now: datetime, include_alternate_schedule: bool = False) -> list[
                 _c(s.at(2, "11:30"),
                    "Some swelling is expected. Call us if it becomes hot or red."),
                 _r(s.at(2, "11:50"), "Thanks."),
-                _p(s.at(7, "19:00"), "Eating normally again.", "recovery_update"),
-                _c(s.at(7, "20:10"), "Wonderful."),
-                _r(s.at(7, "20:30"), "Thanks!"),
+                _p(s.at(4, "19:00"), "Eating normally again.", "recovery_update"),
+                _c(s.at(4, "20:10"), "Wonderful."),
+                _r(s.at(4, "20:30"), "Thanks!"),
             ],
         )
 
@@ -913,29 +930,6 @@ def ensure_dev_clinic(supabase, user_id: str) -> str:
     return SOURCE_CLINIC_ID
 
 
-def ensure_alternate_schedule(supabase) -> None:
-    """Add schedule version 2 if it is missing. It becomes the newest version, which new
-    patients from the dashboard use: say so loudly."""
-    have = supabase.table("message_schedules").select("version").eq("version", 2).execute().data
-    if have:
-        return
-    schedule = DEFAULT_SCHEDULES[2]
-    supabase.table("message_schedules").insert(
-        {
-            "version": 2,
-            "offsets_days": list(schedule.offsets_days),
-            "close_after_days": schedule.close_after_days,
-            "opens_at_local": schedule.opens_at_local.isoformat(),
-            "timezone": schedule.timezone,
-            "note": "Alternate schedule added by seed_trial_patients --include-alternate-schedule.",
-        }
-    ).execute()
-    print(
-        "WARNING: added message schedule version 2. It is now the NEWEST version, so patients "
-        "added from the dashboard from now on get it."
-    )
-
-
 def load_schedules(supabase, versions: set[int]) -> dict[int, Schedule]:
     rows = (
         supabase.table("message_schedules").select("*").in_("version", sorted(versions))
@@ -944,7 +938,10 @@ def load_schedules(supabase, versions: set[int]) -> dict[int, Schedule]:
     found = {r["version"]: Schedule.from_row(r) for r in rows}
     missing = versions - set(found)
     if missing:
-        raise SystemExit(f"Message schedule version(s) {sorted(missing)} not in the database.")
+        raise SystemExit(
+            f"Message schedule version(s) {sorted(missing)} not in the database. "
+            "Version 2 comes from migration 11: apply it first."
+        )
     return found
 
 
@@ -1265,14 +1262,14 @@ def main(argv: list[str] | None = None) -> int:
         "the shared dev clinic (it must exist, and the account must already be a member)",
     )
     parser.add_argument(
-        "--include-alternate-schedule",
+        "--include-v1-patient",
         action="store_true",
-        help="also add schedule version 2 and patient 14 (v2 then becomes the newest schedule)",
+        help="also add patient 14 on the old schedule v1 (writes nothing to message_schedules)",
     )
     args = parser.parse_args(argv)
 
     now = datetime.now(UTC)
-    plans = build_plan(now, args.include_alternate_schedule)
+    plans = build_plan(now, args.include_v1_patient)
     versions = {p.schedule_version for p in plans}
     print(describe(plans))
 
@@ -1294,9 +1291,13 @@ def main(argv: list[str] | None = None) -> int:
             "Migration 9 (Messaging v2) is not applied to this database: there is no episodes "
             "table. Run supabase/scripts/reset_trial_data.sh, apply the migration, then seed."
         )
-    if args.include_alternate_schedule:
-        ensure_alternate_schedule(supabase)
     schedules = load_schedules(supabase, versions)
+    default = default_schedule(supabase)
+    print(f"New dashboard patients get schedule v{default.version} (the newest active version).")
+    if default.version != SEED_SCHEDULE_VERSION:
+        print(
+            f"Note: the seed's patients are on v{SEED_SCHEDULE_VERSION}, not the current default."
+        )
     problems = validate_plan(plans, now, schedules)
     if problems:
         print("\nPlan problems, nothing written:\n  " + "\n  ".join(problems))

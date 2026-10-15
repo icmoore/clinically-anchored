@@ -133,9 +133,14 @@ def _require_active_procedure(supabase, clinic_id: str, procedure_id: str) -> No
 
 def check_new_episode(supabase, clinic_id: str, procedure_id: str, surgery_date: date) -> Schedule:
     """Validate what a new episode would be made from (422 if not) and return its schedule:
-    the newest version. Nothing is written."""
+    the newest active version. Nothing is written."""
     _require_active_procedure(supabase, clinic_id, procedure_id)
-    schedule = episodes.latest_schedule(supabase)
+    try:
+        schedule = episodes.default_schedule(supabase)
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=503, detail="No message schedule is available for new patients."
+        ) from exc
     if episode_end(surgery_date, schedule) <= clock.now():
         raise HTTPException(
             status_code=422,
@@ -152,7 +157,8 @@ def create_episode(
     procedure_id: str,
     surgery_date: date,
 ) -> dict:
-    """Create the patient's episode on the newest schedule and audit it. The caller has
+    """Create the patient's episode on the default schedule (the newest active version) and
+    audit it. The caller has
     already checked that the patient belongs to the clinic."""
     clinic_id = member.clinic_id
     schedule = check_new_episode(supabase, clinic_id, procedure_id, surgery_date)

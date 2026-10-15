@@ -59,11 +59,9 @@ def env(db, monkeypatch):
     return e
 
 
-def run_seed(env, alternate=True):
+def run_seed(env, v1_patient=True):
     pg = env.pg
-    if alternate:
-        seed.ensure_alternate_schedule(pg)
-    plans = seed.build_plan(NOW, alternate)
+    plans = seed.build_plan(NOW, v1_patient)
     schedules = seed.load_schedules(pg, {p.schedule_version for p in plans})
     assert seed.validate_plan(plans, NOW, schedules) == []
     clinic_id = seed.ensure_demo_clinic(pg, env.user_id)
@@ -169,11 +167,25 @@ def test_running_it_again_adds_nothing(env):
     assert counts(env.conn) == before
 
 
-def test_without_the_alternate_flag_no_second_schedule_is_added(env):
-    run_seed(env, alternate=False)
-    versions = env.conn.execute("select version from message_schedules order by 1").fetchall()
-    assert [v["version"] for v in versions] == [1]  # new patients keep getting v1
+def test_the_seed_never_touches_the_schedules_or_which_one_new_patients_get(env):
+    before = env.conn.execute("select * from message_schedules order by version").fetchall()
+    run_seed(env, v1_patient=False)
+    assert env.conn.execute("select * from message_schedules order by version").fetchall() == before
     assert counts(env.conn)["episodes"] == 13
+    versions = {r["schedule_version"] for r in env.conn.execute("select schedule_version from episodes")}
+    assert versions == {2}  # the confirmed schedule; v1 is only used by the optional patient 14
+    assert episodes.default_schedule(env.pg).version == 2  # still what a new dashboard patient gets
+
+
+def test_the_optional_v1_patient_keeps_v1_beside_everyone_on_v2(env):
+    clinic_id, plans = run_seed(env, v1_patient=True)
+    rows = env.conn.execute(
+        "select p.full_name, e.schedule_version from episodes e join patients p on p.id = e.patient_id"
+    ).fetchall()
+    by_name = {r["full_name"]: r["schedule_version"] for r in rows}
+    assert by_name.pop("Gerald Fox") == 1
+    assert set(by_name.values()) == {2} and len(by_name) == 13
+    assert episodes.default_schedule(env.pg).version == 2
 
 
 def test_the_api_shows_the_seeded_patients(env):
@@ -226,13 +238,13 @@ def test_the_dev_clinic_can_be_seeded_too_without_touching_membership(env):
     )
     members_before = counts_of(env.conn, "clinic_members")
     plans = seed.build_plan(NOW)
-    schedules = seed.load_schedules(env.pg, {1})
+    schedules = seed.load_schedules(env.pg, {2})
     assert seed.validate_plan(plans, NOW, schedules) == []
     clinic_id = seed.ensure_dev_clinic(env.pg, env.user_id)
     assert clinic_id == seed.SOURCE_CLINIC_ID
     for plan in plans:
         seed.seed_patient(
-            env.pg, clinic_id=clinic_id, user_id=env.user_id, plan=plan, schedule=schedules[1]
+            env.pg, clinic_id=clinic_id, user_id=env.user_id, plan=plan, schedule=schedules[2]
         )
     assert counts_of(env.conn, "clinic_members") == members_before
     rows = audit.fetch_chain(env.pg, clinic_id)
