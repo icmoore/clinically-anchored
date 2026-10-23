@@ -46,9 +46,9 @@ def test_plan_is_valid_on_every_day_for_a_season():
 
 def test_plan_shape():
     plans = build_plan(NOON)
-    assert [p.label for p in plans] == [f"Trial Patient {i}" for i in range(1, 14)]
-    assert len({p.contact for p in plans}) == 13
-    assert len({p.full_name for p in plans}) == 13
+    assert [p.label for p in plans] == [f"Trial Patient {i}" for i in (*range(1, 14), 15, 16, 17)]
+    assert len({p.contact for p in plans}) == 16
+    assert len({p.full_name for p in plans}) == 16
     assert all(p.contact.endswith("@example.com") for p in plans)
     # Everyone is on the confirmed schedule (v2); only the optional patient 14 keeps v1.
     assert {p.schedule_version for p in plans} == {2}
@@ -146,3 +146,34 @@ def test_a_v1_patient_is_computed_with_v1_and_everyone_else_with_v2():
     assert old.phase is Phase.OPEN and old.interval_no == 4  # v1: window 4 (days 7-14) is open
     assert new.interval_no == 3  # the same dates under v2 would be window 3: not what v1 says
     assert old.episode_closes_at != new.episode_closes_at  # day 49 vs day 59
+
+
+def test_every_follow_up_extension_state_is_on_screen():
+    """Migration 16: ended and eligible (13), request pending (15), extension open (16),
+    declined (17)."""
+    from clinically_anchored_api.core.extension import Standing, extension_status
+    from clinically_anchored_api.seed_trial_patients import extension_episode
+
+    plans = {p.label: p for p in build_plan(NOON)}
+    ext = DEFAULT_SCHEDULES[3]
+
+    def standing(label, request=None):
+        plan = plans[label]
+        state, _ = simulate(plan, DEFAULT_SCHEDULES[2], NOON)
+        return extension_status(state=state, request=request, extension=ext, now=NOON).standing
+
+    assert plans["Trial Patient 13"].extension is None
+    assert standing("Trial Patient 13") is Standing.ELIGIBLE
+    assert standing("Trial Patient 15", {"status": "pending"}) is Standing.PENDING
+    declined = plans["Trial Patient 17"].extension
+    assert declined.decision == "declined" and declined.decision_message
+    assert standing(
+        "Trial Patient 17", {"status": "declined", "decided_at": declined.decided_at}
+    ) is Standing.DECLINED
+
+    accepted = plans["Trial Patient 16"]
+    episode = extension_episode(accepted)
+    state, problems = simulate(episode, ext, NOON)
+    assert problems == [] and state.phase is Phase.OPEN and state.interval_no == 2
+    assert state.intervals_total == 6 and state.kind == "extension"
+    assert extension_episode(plans["Trial Patient 15"]) is None

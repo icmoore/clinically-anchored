@@ -214,6 +214,7 @@ def chain(supabase, episode: dict) -> list[dict]:
         root = parent
         seen.add(root["id"])
     out = [root]
+    seen = {root["id"]}
     while (nxt := extended_by(supabase, out[-1]["id"])) is not None and nxt["id"] not in seen:
         out.append(nxt)
         seen.add(nxt["id"])
