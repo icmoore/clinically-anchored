@@ -144,12 +144,20 @@ def test_execute_after_migration_9_wipes_episodes_too_and_frees_the_schedule(db)
         "(gen_random_uuid(), %s, %s, %s, '[]', '{}', false, 'm', 'patient_brief_v1', %s, now())",
         (w.clinic_a, w.patient_a, e, w.user_a),
     )
+    c.execute(
+        "insert into care_provider_summaries (id, clinic_id, patient_id, episode_id, summary_text, "
+        "covers, truncated, model_id, prompt_version, generated_by, generated_at) values "
+        "(gen_random_uuid(), %s, %s, %s, 'text', '{}', false, 'm', 'care_provider_summary_v1', "
+        "%s, now())",
+        (w.clinic_a, w.patient_a, e, w.user_a),
+    )
     with pytest.raises(Exception, match="message_schedules_in_use"):
         c.execute("update message_schedules set offsets_days = '{2,3}' where version = 1")
 
     out = psql(db, "-f", str(SQL), execute=True)
     assert out.returncode == 0, out.stderr
-    assert all(count(c, t) == 0 for t in WIPED + ["episodes", "thread_summaries", "patient_briefs"])
+    emptied = WIPED + ["episodes", "thread_summaries", "patient_briefs", "care_provider_summaries"]
+    assert all(count(c, t) == 0 for t in emptied)
     assert count(c, "clinics") >= 2 and count(c, "procedures") >= 2 and count(c, "clinic_members") == 2
     # Nothing uses v1 any more, so its offsets are editable again (it is placeholder data).
     c.execute("update message_schedules set offsets_days = '{2,3}' where version = 1")

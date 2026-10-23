@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from clinically_anchored_api.api import (
     audit,
     briefs,
+    care_provider_summaries,
     check_ins,
     clinics,
     consents,
@@ -48,6 +49,7 @@ app.include_router(drafts.router)
 app.include_router(queue.router)
 app.include_router(summaries.router)
 app.include_router(briefs.router)
+app.include_router(care_provider_summaries.router)
 app.include_router(touchpoints.router)
 
 if settings.environment == "development":

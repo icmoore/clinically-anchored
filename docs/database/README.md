@@ -124,6 +124,15 @@ row per generation, never updated or deleted (trigger), RLS read for clinic memb
 `authenticated`/`anon`, TRUNCATE by the reset script. It is a table of its own rather than a `kind` column
 on `thread_summaries`, whose columns (message count, truncated) and message-only citations don't fit.
 
+Migration `00000000000014_care_provider_summaries.sql` adds `care_provider_summaries`: every AI care
+provider summary the api generates (one plain paragraph the physician can pass on to the patient's other
+care provider), saved after its `care_provider_summary.generated` audit event (`id` = that event's
+`summary_id`). The paragraph is in `summary_text`; `covers`, `truncated` and `episode_id` as in
+`patient_briefs`. Same rules: one row per generation, never updated or deleted (trigger), RLS read for
+clinic members, writes revoked from `authenticated`/`anon`, TRUNCATE by the reset script (which, like
+the backup script, now lists it). A table of its own because a brief's bullets and verified sources
+don't fit a paragraph with none.
+
 `audit_log` is append-only at the database level: `UPDATE`/`DELETE` are revoked for
 `authenticated`/`anon` entirely, not just gated by a policy. Only the service role
 (i.e. only `apps/api`) can write to it. Note the service role itself still *can*

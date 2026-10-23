@@ -9,6 +9,7 @@ import {
 } from "@/lib/clinician-api";
 import { dayLabel, episodeSummary, plainDate, zoneDate } from "@/lib/episode";
 import { inZone } from "@/lib/format";
+import { CareProviderSummarySection } from "./care-provider-summary";
 import { CheckInsBlock } from "./check-ins";
 import { CorrectForm, DISCHARGE_ROLES, Discharge } from "./episode-actions";
 import { PatientBriefSection } from "./patient-brief";
@@ -88,6 +89,17 @@ export function PhysicianSummarySection({
 
       <div className="mt-4 border-t border-border pt-4">
         <PatientBriefSection
+          clinicId={clinicId}
+          patientId={patientId}
+          timeZone={episode.timezone}
+          thread={thread}
+          checkIns={checkIns}
+          touchpoints={touchpoints}
+        />
+      </div>
+
+      <div className="mt-4 border-t border-border pt-4">
+        <CareProviderSummarySection
           clinicId={clinicId}
           patientId={patientId}
           timeZone={episode.timezone}

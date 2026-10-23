@@ -436,6 +436,24 @@ class PatientBriefOut(BaseModel):
     new_since: BriefCountsOut
 
 
+class CareProviderSummaryOut(BaseModel):
+    """The AI care provider summary: one plain paragraph with no citations, checked for shape
+    (core/provider_summary.py). Saved (migration 14) after its `care_provider_summary.generated`
+    audit event, so a saved one has always been audited. `new_since` counts what has been added
+    since it was generated."""
+
+    summary_id: str  # ties this response to its audit event
+    patient_id: str
+    episode_id: str
+    generated_at: str
+    model_id: str
+    prompt_version: str
+    text: str
+    covers: BriefCountsOut  # how much the model was shown
+    truncated: bool  # older messages or contacts were left out
+    new_since: BriefCountsOut
+
+
 class TouchpointCreate(BaseModel):
     # Manual entries only: messages are logged automatically when one is sent, so
     # offering "message" here would invite counting the same contact twice.

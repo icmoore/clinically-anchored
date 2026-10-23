@@ -245,6 +245,29 @@ export const generateBrief = (clinic: string, patient: string) =>
 export const getLatestBrief = (clinic: string, patient: string) =>
   authed<PatientBrief | null>(`/clinics/${clinic}/patients/${patient}/patient-brief/latest`);
 
+// AI care provider summary: one plain paragraph (no citations) the physician can pass on to the
+// patient's other care provider. Same pattern as the AI patient summary: generateCareProviderSummary
+// calls the model and the api saves what it generates; getLatestCareProviderSummary reads the newest
+// saved one back for free (null if none), with counts of what has arrived since.
+export interface CareProviderSummary {
+  summary_id: string;
+  patient_id: string;
+  episode_id: string;
+  generated_at: string;
+  model_id: string;
+  prompt_version: string;
+  text: string;
+  covers: BriefCounts; // what the model was shown
+  truncated: boolean;
+  new_since: BriefCounts; // added after it was generated
+}
+export const generateCareProviderSummary = (clinic: string, patient: string) =>
+  post<CareProviderSummary>(`/clinics/${clinic}/patients/${patient}/care-provider-summary`);
+export const getLatestCareProviderSummary = (clinic: string, patient: string) =>
+  authed<CareProviderSummary | null>(
+    `/clinics/${clinic}/patients/${patient}/care-provider-summary/latest`,
+  );
+
 // Contact/time log. Manual entries are calls, visits and emails; `message` rows are
 // written by the api itself whenever a clinician message is sent (never by this UI).
 export type TouchpointKind = "call" | "visit" | "email" | "message";

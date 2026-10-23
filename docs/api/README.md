@@ -229,6 +229,25 @@ Built (on `main`):
   back (null if none) without calling the model, with `new_since`: how many messages and check-ins
   of that care period, and calls/visits/emails, were added after it was generated. Reconcile
   checks saved rows against `patient_brief.generated`. Same data-flow caveats as drafts.
+- AI care provider summary (`api/care_provider_summaries.py`, `core/provider_summary.py`, migration
+  14): `POST /clinics/{id}/patients/{pid}/care-provider-summary` -- on demand only (a clinician's
+  button), any clinic member, nothing automatic. One short plain paragraph (at most about 120 words)
+  the physician can pass on to the patient's other care provider, with **no citations**. It reads the
+  same record as the AI patient summary (`gather_record` in `api/briefs.py`: the care period's
+  computed state, check-in answers and own words, last 50 messages, calls/visits/emails since it
+  began) plus the procedure name, which the AI patient summary leaves out because the page shows it.
+  The model (template `care_provider_summary_v1`, placeholder wording pending clinical review) is
+  **never** shown the conversation summary, the AI patient summary or any earlier AI output. Because
+  there are no sources to verify against the database, the server checks the shape instead: empty,
+  longer than 1500 characters, several paragraphs, a bullet or heading, or a leaked record label
+  (`[M1]`, `[C1]`, `[T1]`) discards the whole thing (502, nothing shown, nothing audited); nothing is
+  trimmed or repaired. A checked summary is audited as `care_provider_summary.generated` (model id,
+  prompt version, counts and tokens in readable metadata; the text only in the hashed payload) and then
+  **saved** (`care_provider_summaries`, one row per generation, never edited; `id` = the event's
+  `summary_id`). 422 when the patient has no care period, or no check-in and no messages yet.
+  `GET .../care-provider-summary/latest` reads the newest back (null if none) without calling the model,
+  with `new_since` counts as for the AI patient summary. Reconcile checks saved rows against
+  `care_provider_summary.generated`. Same data-flow caveats as drafts.
 - AI message drafts (`api/drafts.py`, migration 6, data-catalogue D8): `POST
   /clinics/{id}/patients/{pid}/drafts` asks the model for a reply to the patient's latest message
   and stores it `pending` -- it sends nothing. It is refused with **409 before any model call**

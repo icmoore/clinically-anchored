@@ -26,7 +26,8 @@ RESTORE_SQL = SCRIPTS / "restore_trial_data.sql"
 RESTORE_SH = SCRIPTS / "restore_trial_data.sh"
 RESET_SH = SCRIPTS / "reset_trial_data.sh"
 RESET_SQL = SCRIPTS / "reset_trial_data.sql"
-TABLES = ["message_drafts", "thread_summaries", "patient_briefs", "touchpoints", "consents", "messages", "check_ins",
+TABLES = ["message_drafts", "thread_summaries", "patient_briefs", "care_provider_summaries",
+          "touchpoints", "consents", "messages", "check_ins",
           "episodes", "patients", "audit_log"]
 
 needs_tools = pytest.mark.skipif(
@@ -91,6 +92,14 @@ def populate(conn):
             "truncated, model_id, prompt_version, generated_by, generated_at) values "
             "(gen_random_uuid(), %s, %s, %s, '[{\"label\": \"Trends\", \"text\": \"t\", "
             "\"sources\": []}]', '{\"messages\": 1}', false, 'm', 'patient_brief_v1', %s, now())",
+            (w.clinic_a, w.patient_a, episode, w.user_a),
+        )
+    if conn.execute("select to_regclass('care_provider_summaries') as t").fetchone()["t"]:  # 14
+        conn.execute(
+            "insert into care_provider_summaries (id, clinic_id, patient_id, episode_id, "
+            "summary_text, covers, truncated, model_id, prompt_version, generated_by, "
+            "generated_at) values (gen_random_uuid(), %s, %s, %s, 'text', '{\"messages\": 1}', "
+            "false, 'm', 'care_provider_summary_v1', %s, now())",
             (w.clinic_a, w.patient_a, episode, w.user_a),
         )
     prev = None

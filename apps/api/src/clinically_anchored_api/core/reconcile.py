@@ -62,6 +62,10 @@ CHECKS = [
     Check("touchpoints", "touchpoint", "touchpoint.logged", "created_at"),
     Check("thread_summaries", "summary", "summary.generated", "generated_at"),
     Check("patient_briefs", "patient_brief", "patient_brief.generated", "generated_at"),
+    Check(
+        "care_provider_summaries", "care_provider_summary", "care_provider_summary.generated",
+        "generated_at",
+    ),
     Check("message_drafts", "draft", "draft.generated", "created_at"),
     Check("message_drafts", "draft", "draft.approved", "decided_at", (("status", "approved"),)),
     Check("message_drafts", "draft", "draft.edited", "decided_at", (("status", "edited"),)),
