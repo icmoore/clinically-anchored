@@ -127,12 +127,19 @@ class MessageOut(BaseModel):
     episode_id: str
     sender: str
     body: str
-    origin: Literal["scheduled", "reply", "clinician"]
+    # extension_request / extension_decision are thread entries about a follow-up extension, not
+    # messages: they use no window and grant no reply (core/extension.py).
+    origin: Literal[
+        "scheduled", "reply", "clinician", "extension_request", "extension_decision"
+    ]
     interval_no: int | None
     category: str | None
     reply_to_message_id: str | None
     read_at: str | None
     created_at: str
+    # n > 0: the message used a window of the n-th follow-up extension (its windows number from 1
+    # again). Only the clinician's thread list fills it in.
+    extension_no: int = 0
 
 
 class WindowStateOut(BaseModel):
@@ -145,6 +152,8 @@ class WindowStateOut(BaseModel):
     closes_at: str
     status: Literal["used", "missed", "open", "locked", "upcoming", "cut_short"]
     missed_reason: Literal["closed_before_check_in", "no_message"] | None = None
+    # 0 = the main care period; n = the n-th follow-up extension (its windows number from 1 again).
+    extension_no: int = 0
 
 
 class EpisodeStateOut(BaseModel):
@@ -169,6 +178,72 @@ class EpisodeStateOut(BaseModel):
     windows: list[WindowStateOut] = []
 
 
+class ExtensionRequestOut(BaseModel):
+    """A patient's request for more follow-up, as the clinic sees it. `reason` is the patient's
+    text (their thread entry), `decision_message` the clinician's own words, if any."""
+
+    id: str
+    episode_id: str  # the ended episode it is about
+    status: Literal["pending", "accepted", "declined"]
+    reason: str | None
+    requested_at: str
+    decided_at: str | None = None
+    decided_by: str | None = None
+    decision_message: str | None = None
+    extension_episode_id: str | None = None
+
+
+class EpisodeExtensionOut(BaseModel):
+    """Follow-up extensions around an episode (migration 16). `number` is 0 for the main care
+    period and n for the n-th extension; `earlier_windows` are the windows of the episodes it
+    continues (the nine, then any earlier extension), for one continuous timeline. `request` is the
+    request about THIS episode (it ended by schedule and the patient asked)."""
+
+    number: int = 0
+    extends_episode_id: str | None = None
+    started_at: str | None = None
+    earlier_windows: list[WindowStateOut] = []
+    request: ExtensionRequestOut | None = None
+    request_by: str | None = None  # last moment the patient may ask, while they still may
+    can_request: bool = False
+
+
+class ExtensionDecision(BaseModel):
+    """The clinician's decision on a pending request; the message to the patient is optional."""
+
+    message: str | None = Field(default=None, max_length=5000)
+
+    @field_validator("message")
+    @classmethod
+    def _blank_is_none(cls, value):
+        return value.strip() or None if value is not None else None
+
+
+class ExtensionRequestCreate(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def _not_blank(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("reason must not be blank")
+        return value
+
+
+class PatientExtensionOut(BaseModel):
+    """What the patient's screen needs about follow-up. `standing`: eligible (may ask, until
+    `request_by`), pending (asked; the clinic has not decided), declined (final), accepted (an
+    extension is running; `extension_no` says which). Wording is the web app's."""
+
+    standing: Literal["eligible", "pending", "declined", "accepted"]
+    request_by: str | None = None
+    reason_max: int
+    requested_at: str | None = None
+    decision_message: str | None = None
+    extension_no: int = 0
+
+
 class EpisodeOut(BaseModel):
     id: str
     patient_id: str
@@ -182,6 +257,7 @@ class EpisodeOut(BaseModel):
     close_reason: Literal["discharged", "schedule_complete"] | None
     created_at: str
     state: EpisodeStateOut
+    extension: EpisodeExtensionOut = EpisodeExtensionOut()
 
 
 class NewEpisode(BaseModel):
@@ -229,6 +305,10 @@ class PatientStateOut(BaseModel):
     can_reply: bool = False
     # Every message window in order (added later; an older client ignores it). Empty once closed.
     windows: list[PatientWindowOut] = []
+    # Follow-up extensions (migration 16). Set when the episode ended by schedule and the limited
+    # "ended" mode applies (phase is "closed" then), or while inside an accepted extension.
+    ended_at: str | None = None
+    extension: PatientExtensionOut | None = None
 
 
 class AuditVerifyOut(BaseModel):
@@ -271,6 +351,7 @@ class QueueItem(BaseModel):
     latest_post_op_day: int | None
     unread_categories: list[str]  # category keys of the unread scheduled messages
     last_activity_at: str
+    extension_requested: bool = False  # a follow-up extension request is waiting for a decision
 
 
 class ClinicOut(BaseModel):

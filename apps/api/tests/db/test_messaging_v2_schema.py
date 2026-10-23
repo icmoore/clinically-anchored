@@ -93,7 +93,7 @@ def test_v2_is_the_surgeons_confirmed_schedule_and_v1_is_untouched(db):
         r["version"]: r
         for r in db.conn.execute("select * from message_schedules order by version").fetchall()
     }
-    assert set(rows) == {1, 2}
+    assert set(rows) == {1, 2, 3}  # 3 is extension v1 (migration 16)
     assert rows[1]["offsets_days"] == [2, 3, 5, 7, 14, 21, 28, 35, 42]  # v1 as migration 9 made it
     v2 = rows[2]
     assert v2["offsets_days"] == [2, 5, 10, 17, 24, 31, 38, 45, 52]
@@ -114,10 +114,10 @@ def test_a_version_can_be_staged_inactive_edited_then_switched_on(db):
     c = db.conn
     c.execute(
         "insert into message_schedules (version, offsets_days, close_after_days, opens_at_local, "
-        "timezone, active) values (3, '{2,4}', 7, '07:00', 'America/Toronto', false)"
+        "timezone, active) values (7, '{2,4}', 7, '07:00', 'America/Toronto', false)"
     )
-    c.execute("update message_schedules set offsets_days = '{2,6}' where version = 3")  # unused
-    c.execute("update message_schedules set active = true where version = 3")
+    c.execute("update message_schedules set offsets_days = '{2,6}' where version = 7")  # unused
+    c.execute("update message_schedules set active = true where version = 7")
 
 
 def test_a_version_in_use_cannot_change_what_it_computes_but_can_be_retired(db):
@@ -144,15 +144,15 @@ def test_new_rows_default_to_active(db):
     c = db.conn
     c.execute(
         "insert into message_schedules (version, offsets_days, close_after_days, opens_at_local, "
-        "timezone) values (4, '{2}', 7, '07:00', 'America/Toronto')"
+        "timezone) values (8, '{2}', 7, '07:00', 'America/Toronto')"
     )
-    assert c.execute("select active from message_schedules where version = 4").fetchone()["active"]
+    assert c.execute("select active from message_schedules where version = 8").fetchone()["active"]
 
 
 def test_signed_in_users_can_read_but_not_write_schedules(db):
     w = build_world(db.conn)
     as_member(db.conn, w.user_a)
-    assert db.conn.execute("select count(*) as n from message_schedules").fetchone()["n"] == 2
+    assert db.conn.execute("select count(*) as n from message_schedules").fetchone()["n"] == 3
     with pytest.raises(errors.InsufficientPrivilege):
         db.conn.execute("update message_schedules set note = 'x'")
     as_owner(db.conn)

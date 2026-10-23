@@ -80,6 +80,7 @@ class _Fake:
 
         self.t = {
             "message_schedules": [dict(V1_ROW)],
+            "extension_requests": [],
             "episodes": [
                 episode(P1, "2026-09-30"), episode(P2, "2026-10-02"), episode(P3, "2026-10-03"),
                 episode(PB, "2026-10-01", clinic=B),

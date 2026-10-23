@@ -138,7 +138,7 @@ def test_returns_three_verified_bullets_with_typed_sources(client, record, model
     ]
     assert body["bullets"][2]["sources"] == [{"kind": "touchpoint", "id": ids["T2"]}]
     assert body["bullets"][1]["text"] == "Pain 8 at check-in; bleeding and fever not reported."
-    assert (body["model_id"], body["prompt_version"]) == (MODEL, "patient_brief_v1")
+    assert (body["model_id"], body["prompt_version"]) == (MODEL, "patient_brief_v2")
     assert body["covers"] == {"messages": 2, "check_ins": 1, "touchpoints": 2}
     assert body["new_since"] == {"messages": 0, "check_ins": 0, "touchpoints": 0}
     assert body["truncated"] is False and body["episode_id"] == EPISODE_A
@@ -149,7 +149,7 @@ def test_the_model_is_shown_the_episodes_record_and_nothing_else(client, record,
     model["text"] = GOOD
     client.post(URL, headers=AUTH)
     (call,) = model["calls"]
-    assert call["clinic_id"] == CLINIC_A and call["prompt_version"] == "patient_brief_v1"
+    assert call["clinic_id"] == CLINIC_A and call["prompt_version"] == "patient_brief_v2"
     seen = call["system"] + call["prompt"]
 
     # computed state, in the clinic's time zone, with the red-flag rules the check-in matched
@@ -188,7 +188,7 @@ def test_it_is_audited_with_the_text_only_in_the_hashed_payload(client, record, 
     assert event["event_type"] == "patient_brief.generated" and event["clinic_id"] == CLINIC_A
     meta = event["metadata"]
     assert meta["ref_type"] == "patient_brief" and meta["ref_id"] == body["brief_id"]
-    assert (meta["model_id"], meta["prompt_version"]) == (MODEL, "patient_brief_v1")
+    assert (meta["model_id"], meta["prompt_version"]) == (MODEL, "patient_brief_v2")
     counts = (meta["covers_messages"], meta["covers_check_ins"], meta["covers_touchpoints"])
     assert counts == (2, 1, 2)
     assert meta["actor"]["id"] == USER and meta["patient_id"] == PATIENT_A

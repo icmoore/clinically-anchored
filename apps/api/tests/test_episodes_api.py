@@ -80,7 +80,7 @@ def test_the_state_lists_every_window_with_a_status_and_keeps_the_old_missed_lis
     assert len(state["windows"]) == state["intervals_total"] == 9
     assert [w["number"] for w in state["windows"]] == list(range(1, 10))
     assert set(state["windows"][0]) == {
-        "number", "opens_at", "closes_at", "status", "missed_reason",
+        "number", "opens_at", "closes_at", "status", "missed_reason", "extension_no",
     }
     assert "missed" in state and state["missed"] == [
         w["number"] for w in state["windows"] if w["status"] == "missed"

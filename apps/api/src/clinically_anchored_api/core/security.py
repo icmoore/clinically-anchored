@@ -6,9 +6,14 @@ generation it was issued under. The token itself proves nothing but that we issu
 every request the api loads the episode and decides (see `require_patient_link`):
 
   * a link is revoked by bumping the episode's `link_generation` ("reset link"): the old
-    token still verifies, but its generation no longer matches;
+    token still verifies, but its generation no longer matches (checked against the newest
+    episode of the chain, see below);
   * an episode that has closed (discharged, or the schedule ran out) refuses everything
-    except the state endpoint, which answers "closed" and nothing else.
+    except the state endpoint, which answers "closed" and nothing else -- with one exception:
+    an episode that ended BY SCHEDULE keeps a limited "ended" mode for a while (core/extension.py):
+    the state endpoint says more, and the patient may ask for a follow-up extension;
+  * an accepted extension is a new episode that continues the old one; the original link opens
+    the newest episode of the chain (`episodes.resolve_tail`).
 
 So the token is not what expires: it has no short lifetime, only a long backstop. The URL
 for a given generation is always the same, so the clinic can copy it again later without
@@ -27,6 +32,7 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from clinically_anchored_api.core import clock, episodes
 from clinically_anchored_api.core.config import get_settings
 from clinically_anchored_api.core.db import get_supabase
+from clinically_anchored_api.core.extension import ExtensionStatus
 from clinically_anchored_api.core.ratelimit import limit_patient_link
 from clinically_anchored_api.core.schedule import EpisodeState
 
@@ -67,6 +73,8 @@ class PatientLink:
     episode: dict
     state: EpisodeState
     now: datetime
+    extension: ExtensionStatus
+    request: dict | None = None  # the extension request made about `episode`, if any
 
     @property
     def episode_id(self) -> str:
@@ -81,7 +89,7 @@ class PatientLink:
         return self.episode["patient_id"]
 
 
-def _require_link(*, allow_closed: bool):
+def _require_link(*, allow_closed: bool, ended_mode: bool = False):
     def dependency(request: Request, token: str = Query(..., description="Patient link token")):
         try:
             episode_id, generation = verify_episode_token(token)
@@ -93,22 +101,33 @@ def _require_link(*, allow_closed: bool):
         episode = episodes.get_episode(supabase, episode_id)
         if episode is None:
             raise HTTPException(status_code=401, detail="This link is not valid.")
+        # An accepted extension is a new episode that starts on its predecessor's generation, so
+        # the token's generation is checked against the NEWEST episode of the chain: resetting the
+        # link there revokes the older URLs too (a closed episode's generation cannot change).
+        episode = episodes.resolve_tail(supabase, episode)
         if episode["link_generation"] != generation:
             raise HTTPException(status_code=401, detail="This link is no longer valid.")
 
         now = clock.now()
         episode, state = episodes.current_state(supabase, episode, now)
+        request, extension = episodes.ended_context(supabase, episode, state, now)
         if state.closed and not allow_closed:
-            raise HTTPException(status_code=410, detail="This care period has ended.")
-        return PatientLink(episode=episode, state=state, now=now)
+            if not (ended_mode and extension.link_works):
+                raise HTTPException(status_code=410, detail="This care period has ended.")
+        return PatientLink(
+            episode=episode, state=state, now=now, extension=extension, request=request
+        )
 
     return dependency
 
 
 # FastAPI dependencies for patient-facing routes.
 #   401  the link is not valid, or was reset
-#   410  the episode has closed (not raised by `require_patient_link_even_if_closed`)
+#   410  the episode has closed (not raised by `require_patient_link_even_if_closed`; the
+#        ended-mode dependency lets an episode that ended by schedule through while its limited
+#        "ended" mode lasts)
 #   429  the patient exceeded their request budget
 # Clinic and patient come from the episode, never from the URL or body.
 require_patient_link = _require_link(allow_closed=False)
 require_patient_link_even_if_closed = _require_link(allow_closed=True)
+require_patient_link_ended_mode = _require_link(allow_closed=False, ended_mode=True)

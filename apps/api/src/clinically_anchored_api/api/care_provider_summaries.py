@@ -59,7 +59,7 @@ timing_log = logging.getLogger("uvicorn.error.care_provider_summaries")
 
 router = APIRouter(tags=["care-provider-summaries"])
 
-_TEMPLATE = ("care_provider_summary", "v1")
+_TEMPLATE = ("care_provider_summary", "v2")
 
 
 def _procedure_name(supabase, episode: dict) -> str:

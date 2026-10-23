@@ -12,10 +12,13 @@ from psycopg import errors
 from tests.db.conftest import (
     MIGRATIONS,
     SCRIPTS,
+    ask_extension,
     build_world,
     check_in,
     clinician_msg,
+    end_by_schedule,
     make_episode,
+    new_patient,
     patient_msg,
 )
 
@@ -132,6 +135,9 @@ def test_execute_after_migration_9_wipes_episodes_too_and_frees_the_schedule(db)
     clinician_msg(c, w, e)
     patient_msg(c, w, e, interval=1)
     audit_row(c, w.clinic_a)
+    ended = make_episode(c, w, patient=new_patient(c, w))
+    end_by_schedule(c, w, ended)
+    ask_extension(c, w, ended)
     c.execute(
         "insert into thread_summaries (id, clinic_id, patient_id, lines, covers_messages, truncated, "
         "model_id, prompt_version, generated_by, generated_at) values "
@@ -164,7 +170,7 @@ def test_execute_after_migration_9_wipes_episodes_too_and_frees_the_schedule(db)
     assert out.returncode == 0, out.stderr
     emptied = WIPED + [
         "episodes", "thread_summaries", "patient_briefs", "care_provider_summaries",
-        "care_provider_summary_edits",
+        "care_provider_summary_edits", "extension_requests",
     ]
     assert all(count(c, t) == 0 for t in emptied)
     assert count(c, "clinics") >= 2 and count(c, "procedures") >= 2 and count(c, "clinic_members") == 2

@@ -248,3 +248,45 @@ def clinician_msg(conn, w: World, episode: str, body="hi", clinic=None) -> dict:
         "select * from send_clinician_message(%s, %s, %s)",
         (clinic or w.clinic_a, episode, body),
     )
+
+
+def end_by_schedule(conn, w: World, episode: str, closed_at: str = "2026-01-01T12:00:00+00:00"):
+    """The episode's schedule runs out (what the api's lazy settle does)."""
+    return _one(
+        conn,
+        "select close_episode(%s, %s, 'schedule_complete', null, %s) as r",
+        (w.clinic_a, episode, closed_at),
+    )["r"]
+
+
+def ask_extension(
+    conn, w: World, episode: str, reason: str = "Still very sore", version: int = 3,
+    expires_at: str = "2999-01-01T00:00:00+00:00",
+) -> dict:
+    """The patient asks (the api's request_extension call). Returns the function's JSON."""
+    return _one(
+        conn,
+        "select request_extension(%s, %s, gen_random_uuid(), gen_random_uuid(), %s, %s, %s) as r",
+        (w.clinic_a, episode, reason, version, expires_at),
+    )["r"]
+
+
+def decide_extension(
+    conn, w: World, request_id: str, decision: str, message: str | None = None, by=None
+) -> dict:
+    """A clinician decides (the api's decide_extension call). Returns the function's JSON."""
+    return _one(
+        conn,
+        "select decide_extension(%s, %s, %s, %s, %s, gen_random_uuid(), %s, gen_random_uuid()) as r",
+        (w.clinic_a, request_id, decision, by or w.user_a, message,
+         f"Extension request {decision}."),
+    )["r"]
+
+
+def new_patient(conn, w: World, name: str = "Pat New") -> str:
+    return str(
+        _one(
+            conn, "insert into patients (clinic_id, full_name) values (%s, %s) returning id",
+            (w.clinic_a, name),
+        )["id"]
+    )

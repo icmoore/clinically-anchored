@@ -106,7 +106,7 @@ def list_thread(
         .order("created_at")
         .execute()
     )
-    return [MessageOut(**row) for row in result.data]
+    return [MessageOut(**row) for row in episodes.tag_extension_windows(supabase, result.data)]
 
 
 @router.post(
@@ -166,7 +166,12 @@ def mark_read(
     first read sets read_at, and only that read is audited (`message.read`)."""
     supabase = get_supabase()
     row = _get_message(supabase, clinic_id, message_id)
-    if row["sender"] != "patient" or row["read_at"] is not None:
+    # An extension request is a thread entry the clinic answers by deciding it, not a message.
+    if (
+        row["sender"] != "patient"
+        or row["origin"] == "extension_request"
+        or row["read_at"] is not None
+    ):
         return MessageOut(**row)
 
     # `is null` in the update makes concurrent readers race safely: only one

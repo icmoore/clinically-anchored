@@ -48,6 +48,7 @@ def env(db, monkeypatch):
     monkeypatch.setattr(settings, "audit_signing_key", base64.b64encode(key).decode())
     monkeypatch.setattr(settings, "audit_key_id", "test-1")
     monkeypatch.setattr(clock, "now", lambda: NOW)
+    conn.execute("update message_schedules set active = true where version = 3")  # switch it on
     user = conn.execute("insert into auth.users (email) values ('doc@example.com') returning id")
     user_id = str(user.fetchone()["id"])
 
@@ -62,13 +63,12 @@ def env(db, monkeypatch):
 def run_seed(env, v1_patient=True):
     pg = env.pg
     plans = seed.build_plan(NOW, v1_patient)
-    schedules = seed.load_schedules(pg, {p.schedule_version for p in plans})
+    schedules = seed.load_schedules(pg, {1, 2, 3})
     assert seed.validate_plan(plans, NOW, schedules) == []
     clinic_id = seed.ensure_demo_clinic(pg, env.user_id)
     for plan in plans:
         seed.seed_patient(
-            pg, clinic_id=clinic_id, user_id=env.user_id, plan=plan,
-            schedule=schedules[plan.schedule_version],
+            pg, clinic_id=clinic_id, user_id=env.user_id, plan=plan, schedules=schedules
         )
     return clinic_id, plans
 
@@ -83,14 +83,14 @@ def counts(conn):
 def test_every_patient_is_in_the_state_the_plan_says(env):
     clinic_id, plans = run_seed(env)
     rows = env.pg.table("episodes").select(episodes.COLUMNS).eq("clinic_id", clinic_id).execute().data
-    by_patient = {r["patient_id"]: r for r in rows}
+    by_patient = {r["patient_id"]: r for r in rows if r["kind"] == "main"}
     states = episodes.states_for(env.pg, rows, NOW)
     patients = {
         p["contact"]: p["id"]
         for p in env.pg.table("patients").select("id, contact").eq("clinic_id", clinic_id)
         .execute().data
     }
-    assert len(plans) == len(rows) == 14
+    assert len(plans) == 17 and len(rows) == 18  # one follow-up extension episode (patient 16)
     for plan in plans:
         episode = by_patient[patients[plan.contact]]
         state = states[episode["id"]]
@@ -98,6 +98,12 @@ def test_every_patient_is_in_the_state_the_plan_says(env):
             plan.expect.phase, plan.expect.missed, plan.expect.reply,
         ), plan.label
         assert episode["schedule_version"] == plan.schedule_version
+        ext = seed.extension_episode(plan)
+        if ext is not None:
+            child = next(r for r in rows if r["extends_episode_id"] == episode["id"])
+            child_state = states[child["id"]]
+            assert (child_state.phase, child_state.missed) == (ext.expect.phase, ext.expect.missed)
+            assert child["kind"] == "extension" and child["schedule_version"] == 3
     assert {s.phase for s in states.values()} == set(seed.Phase)
 
 
@@ -133,7 +139,9 @@ def test_messages_obey_the_databases_rules_and_replies_answer_the_clinic(env):
         r["origin"]: r["n"]
         for r in c.execute("select origin, count(*) as n from messages group by origin").fetchall()
     }
-    assert set(by_origin) == {"scheduled", "reply", "clinician"}
+    assert set(by_origin) == {
+        "scheduled", "reply", "clinician", "extension_request", "extension_decision",
+    }
     # A reply always points at a clinic message of its own episode (the database trigger says so).
     orphans = c.execute(
         "select count(*) as n from messages r left join messages d on d.id = r.reply_to_message_id "
@@ -156,7 +164,7 @@ def test_the_seed_closes_what_it_says_it_closes(env):
         "where closed_at is not null group by 1, 2 order by 1"
     ).fetchall()
     assert [(r["close_reason"], r["by_user"], r["n"]) for r in rows] == [
-        ("discharged", True, 1), ("schedule_complete", False, 1),
+        ("discharged", True, 1), ("schedule_complete", False, 4),  # 13, 15, 16, 17
     ]
 
 
@@ -171,20 +179,22 @@ def test_the_seed_never_touches_the_schedules_or_which_one_new_patients_get(env)
     before = env.conn.execute("select * from message_schedules order by version").fetchall()
     run_seed(env, v1_patient=False)
     assert env.conn.execute("select * from message_schedules order by version").fetchall() == before
-    assert counts(env.conn)["episodes"] == 13
+    assert counts(env.conn)["episodes"] == 17  # 16 patients and patient 16's extension
     versions = {r["schedule_version"] for r in env.conn.execute("select schedule_version from episodes")}
-    assert versions == {2}  # the confirmed schedule; v1 is only used by the optional patient 14
+    # The confirmed schedule; v1 is only used by the optional patient 14, v3 by the extension.
+    assert versions == {2, 3}
     assert episodes.default_schedule(env.pg).version == 2  # still what a new dashboard patient gets
 
 
 def test_the_optional_v1_patient_keeps_v1_beside_everyone_on_v2(env):
     clinic_id, plans = run_seed(env, v1_patient=True)
     rows = env.conn.execute(
-        "select p.full_name, e.schedule_version from episodes e join patients p on p.id = e.patient_id"
+        "select p.full_name, e.schedule_version from episodes e join patients p on p.id = e.patient_id "
+        "where e.kind = 'main'"
     ).fetchall()
     by_name = {r["full_name"]: r["schedule_version"] for r in rows}
     assert by_name.pop("Gerald Fox") == 1
-    assert set(by_name.values()) == {2} and len(by_name) == 13
+    assert set(by_name.values()) == {2} and len(by_name) == 16
     assert episodes.default_schedule(env.pg).version == 2
 
 
@@ -197,10 +207,12 @@ def test_the_api_shows_the_seeded_patients(env):
     client = TestClient(app)
     headers = {"Authorization": f"Bearer user:{env.user_id}"}
     listed = client.get(f"/clinics/{clinic_id}/patients", headers=headers).json()
-    assert len(listed) == 14
+    assert len(listed) == 17
     phases = {p["full_name"]: p["episode"]["state"]["phase"] for p in listed}
     for plan in plans:
-        assert phases[plan.full_name] == plan.expect.phase.value
+        # The latest episode is shown: patient 16's is the follow-up extension.
+        want = seed.extension_episode(plan).expect if seed.extension_episode(plan) else plan.expect
+        assert phases[plan.full_name] == want.phase.value
     queue = client.get(f"/clinics/{clinic_id}/queue", headers=headers).json()
     names = [q["patient_name"] for q in queue]
     assert "Nadia Haddad" in names and "Amara Nwosu" in names  # awaiting a reply
@@ -217,6 +229,7 @@ def test_a_patient_link_for_a_seeded_episode_opens_what_the_plan_says(env, monke
     rows = {
         r["patient_id"]: r
         for r in env.pg.table("episodes").select(episodes.COLUMNS).execute().data
+        if r["kind"] == "main"
     }
     patients = {
         p["contact"]: p["id"] for p in env.pg.table("patients").select("id, contact").execute().data
@@ -225,9 +238,22 @@ def test_a_patient_link_for_a_seeded_episode_opens_what_the_plan_says(env, monke
         episode = rows[patients[plan.contact]]
         token = create_episode_token(episode_id=episode["id"], generation=1)
         state = client.get("/episode", params={"token": token}).json()
-        assert state["phase"] == plan.expect.phase.value, plan.label
+        # The first episode's link opens the NEWEST episode: patient 16's extension.
+        ext = seed.extension_episode(plan)
+        want = ext.expect if ext else plan.expect
+        assert state["phase"] == want.phase.value, plan.label
         thread = client.get("/messages", params={"token": token})
-        assert thread.status_code == (410 if plan.expect.phase is seed.Phase.CLOSED else 200)
+        assert thread.status_code == (410 if want.phase is seed.Phase.CLOSED else 200)
+        # Follow-up extension states: what the patient's screen shows.
+        standing = (state["extension"] or {}).get("standing")
+        expected = {
+            "Trial Patient 13": "eligible", "Trial Patient 15": "pending",
+            "Trial Patient 16": "accepted", "Trial Patient 17": "declined",
+        }.get(plan.label)
+        assert standing == expected, plan.label
+        if plan.label == "Trial Patient 16":
+            assert state["extension"]["extension_no"] == 1 and state["intervals_total"] == 6
+            assert state["extension"]["decision_message"] == plan.extension.decision_message
 
 
 def test_the_dev_clinic_can_be_seeded_too_without_touching_membership(env):
@@ -238,13 +264,13 @@ def test_the_dev_clinic_can_be_seeded_too_without_touching_membership(env):
     )
     members_before = counts_of(env.conn, "clinic_members")
     plans = seed.build_plan(NOW)
-    schedules = seed.load_schedules(env.pg, {2})
+    schedules = seed.load_schedules(env.pg, {1, 2, 3})
     assert seed.validate_plan(plans, NOW, schedules) == []
     clinic_id = seed.ensure_dev_clinic(env.pg, env.user_id)
     assert clinic_id == seed.SOURCE_CLINIC_ID
     for plan in plans:
         seed.seed_patient(
-            env.pg, clinic_id=clinic_id, user_id=env.user_id, plan=plan, schedule=schedules[2]
+            env.pg, clinic_id=clinic_id, user_id=env.user_id, plan=plan, schedules=schedules
         )
     assert counts_of(env.conn, "clinic_members") == members_before
     rows = audit.fetch_chain(env.pg, clinic_id)

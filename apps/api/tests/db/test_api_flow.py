@@ -300,12 +300,12 @@ def test_retiring_the_default_version_changes_only_what_new_patients_get(env):
     second = add_patient(env, "Pat Two")
     conn.execute(
         "insert into message_schedules (version, offsets_days, close_after_days, opens_at_local, "
-        "timezone, active) values (3, '{2,4}', 7, '07:00', 'America/Toronto', false)"
+        "timezone, active) values (7, '{2,4}', 7, '07:00', 'America/Toronto', false)"
     )  # staged, not yet the default
     third = add_patient(env, "Pat Three")
-    conn.execute("update message_schedules set active = true where version = 3")
+    conn.execute("update message_schedules set active = true where version = 7")
     fourth = add_patient(env, "Pat Four")
-    assert [p["episode"]["schedule_version"] for p in (first, second, third, fourth)] == [2, 1, 1, 3]
+    assert [p["episode"]["schedule_version"] for p in (first, second, third, fourth)] == [2, 1, 1, 7]
     # Pat One still computes with v2 after v2 was retired: the version is theirs.
     now = env.client.get(f"{env.clinic}/patients/{first['id']}/episode", headers=env.auth).json()
     assert now["schedule_version"] == 2 and now["state"]["intervals_total"] == 9

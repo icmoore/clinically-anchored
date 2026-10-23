@@ -56,7 +56,7 @@ DECIDER_ROLES = frozenset({"owner", "clinician"})
 # v2 added the NO_DRAFT instruction; v3 narrowed it (v2 declined on messages that needed a reply);
 # v4 shows each patient message's category and message window (Messaging v2).
 # Older drafts stay in the audit trail under their own version.
-_TEMPLATE = ("draft_reply", "v4")
+_TEMPLATE = ("draft_reply", "v5")
 # What the model answers (per the template) when there is nothing to reply to. Matched as a
 # token, never by reading its prose.
 NO_DRAFT_SENTINEL = "NO_DRAFT"
@@ -191,6 +191,7 @@ def generate_draft(
         .execute()
         .data
     )
+    recent = episodes.tag_extension_windows(supabase, recent)
 
     wanted = body.message_id if body else None
     if wanted:

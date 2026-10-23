@@ -18,6 +18,7 @@ from datetime import UTC, date, datetime, time
 
 from clinically_anchored_api.core import episodes as episodes_core
 from clinically_anchored_api.core import security
+from clinically_anchored_api.core.extension import extension_status
 from clinically_anchored_api.core.schedule import Schedule, episode_state
 
 CLINIC_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -36,11 +37,20 @@ V1 = Schedule(1, (2, 3, 5, 7, 14, 21, 28, 35, 42), 7, time(7, 0), "America/Toron
 V2 = Schedule(2, (2, 5, 10, 17, 24, 31, 38, 45, 52), 7, time(7, 0), "America/Toronto")
 V1_ROW = {
     "version": 1, "offsets_days": [2, 3, 5, 7, 14, 21, 28, 35, 42], "close_after_days": 7,
-    "opens_at_local": "07:00:00", "timezone": "America/Toronto", "active": True,
+    "opens_at_local": "07:00:00", "timezone": "America/Toronto", "active": True, "kind": "main",
+    "request_window_days": None,
 }
 V2_ROW = {
     "version": 2, "offsets_days": [2, 5, 10, 17, 24, 31, 38, 45, 52], "close_after_days": 7,
+    "opens_at_local": "07:00:00", "timezone": "America/Toronto", "active": True, "kind": "main",
+    "request_window_days": None,
+}
+# Extension v1 (migration 16): placeholder numbers, as in the migration.
+EXT = Schedule(3, (7, 14, 21, 28, 35), 7, time(7, 0), "America/Toronto", "extension", 30)
+EXT_ROW = {
+    "version": 3, "offsets_days": [7, 14, 21, 28, 35], "close_after_days": 7,
     "opens_at_local": "07:00:00", "timezone": "America/Toronto", "active": True,
+    "kind": "extension", "request_window_days": 30,
 }
 # A Saturday morning, interval 1 of a Thursday 2026-10-01 surgery, 07:30 Toronto time.
 NOW = datetime(2026, 10, 3, 11, 30, tzinfo=UTC)
@@ -178,7 +188,8 @@ class FakeSupabase:
             "messages": {"read_at": None, "interval_no": None, "category": None,
                          "reply_to_message_id": None},
             "episodes": {"link_generation": 1, "checkin_completed_at": None, "closed_at": None,
-                         "close_reason": None, "closed_by": None},
+                         "close_reason": None, "closed_by": None, "kind": "main",
+                         "extends_episode_id": None, "started_at": None},
             "patients": {"contact": None},
         }
         self.tables: dict[str, list[dict]] = {
@@ -193,7 +204,8 @@ class FakeSupabase:
             ],
             "procedures": [{"id": PROC_A, "clinic_id": CLINIC_A, "name": "Colectomy",
                             "category": "abdominal_bowel_resection", "active": True}],
-            "message_schedules": [dict(V1_ROW), dict(V2_ROW)],
+            "message_schedules": [dict(V1_ROW), dict(V2_ROW), dict(EXT_ROW)],
+            "extension_requests": [],
             "episodes": [],
             "messages": [],
             "check_ins": [],
@@ -278,10 +290,13 @@ class Links:
     def __init__(self, monkeypatch, now: datetime = NOW):
         self.episodes: dict[str, dict] = {}
         self.facts: dict[str, dict] = {}
+        self.requests: dict[str, dict] = {}
         self.now = now
         pin_clock(monkeypatch, now)
         monkeypatch.setattr(security.episodes, "get_episode", self._get)
         monkeypatch.setattr(security.episodes, "current_state", self._state)
+        monkeypatch.setattr(security.episodes, "resolve_tail", lambda _db, ep: ep)
+        monkeypatch.setattr(security.episodes, "ended_context", self._ended)
         if hasattr(security, "get_supabase"):
             monkeypatch.setattr(security, "get_supabase", lambda: None)
 
@@ -300,14 +315,25 @@ class Links:
         )
         return ep, state
 
+    def _ended(self, _db, ep, state, now_):
+        """No extension request by default; `requests[episode_id]` registers one, and the
+        extension schedule is EXT."""
+        request = self.requests.get(ep["id"])
+        return request, extension_status(state=state, request=request, extension=EXT, now=now_)
+
     def token(self, *, clinic=CLINIC_A, patient=PATIENT_A, checked_in=True, used=(),
-              reply=False, closed=False, generation=1) -> str:
+              reply=False, closed=False, generation=1, ended=False) -> str:
+        """`closed`: discharged. `ended`: the schedule ran out (closed_at = the end of V1's last
+        window for the surgery date below)."""
         episode = canned_episode(
             id=new_id(), clinic_id=clinic, patient_id=patient, link_generation=generation,
             checkin_completed_at="2026-10-02T12:00:00+00:00" if checked_in else None,
             closed_at="2026-10-02T13:00:00+00:00" if closed else None,
             close_reason="discharged" if closed else None, closed_by=USER if closed else None,
         )
+        if ended:
+            episode.update(closed_at="2026-11-30T12:00:00+00:00", close_reason="schedule_complete",
+                           closed_by=None)
         self.episodes[episode["id"]] = episode
         self.facts[episode["id"]] = {"used": used, "reply": reply}
         return token_for(episode)

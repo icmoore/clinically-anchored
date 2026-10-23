@@ -98,10 +98,20 @@ def get_queue(
     )
     unread = (
         supabase.table("messages")
-        .select("id, patient_id, category, created_at")
+        .select("id, patient_id, category, origin, created_at")
         .eq("clinic_id", clinic_id)
         .eq("sender", "patient")
         .is_("read_at", "null")
+        .execute()
+        .data
+    )
+    # An extension request is a thread entry, not a message: it is shown by its own chip.
+    unread = [m for m in unread if m["origin"] != "extension_request"]
+    pending = (
+        supabase.table("extension_requests")
+        .select("id, patient_id, requested_at")
+        .eq("clinic_id", clinic_id)
+        .eq("status", "pending")
         .execute()
         .data
     )
@@ -113,7 +123,11 @@ def get_queue(
     for row in unread:
         unread_by_patient[row["patient_id"]].append(row)
 
-    patient_ids = set(check_ins_by_patient) | set(unread_by_patient)
+    pending_by_patient: dict[str, list[dict]] = defaultdict(list)
+    for row in pending:
+        pending_by_patient[row["patient_id"]].append(row)
+
+    patient_ids = set(check_ins_by_patient) | set(unread_by_patient) | set(pending_by_patient)
     names = _patient_names(supabase, clinic_id, patient_ids)
     post_op_days = _post_op_days(supabase, clinic_id, patient_ids)
 
@@ -122,7 +136,12 @@ def get_queue(
         cis = check_ins_by_patient.get(pid, [])
         msgs = unread_by_patient.get(pid, [])
         latest = cis[0] if cis else None  # check_ins are newest-first
-        activity = [r["created_at"] for r in cis] + [r["created_at"] for r in msgs]
+        asks = pending_by_patient.get(pid, [])
+        activity = (
+            [r["created_at"] for r in cis]
+            + [r["created_at"] for r in msgs]
+            + [r["requested_at"] for r in asks]
+        )
         items.append(
             QueueItem(
                 patient_id=pid,
@@ -134,6 +153,7 @@ def get_queue(
                 latest_post_op_day=post_op_days.get(pid),
                 unread_categories=sorted({m["category"] for m in msgs if m["category"]}),
                 last_activity_at=max(activity, key=_ts),
+                extension_requested=bool(asks),
             )
         )
 

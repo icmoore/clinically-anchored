@@ -15,6 +15,12 @@ from clinically_anchored_api.core.thread_text import speaker
          "patient (reply)"),
         ({"sender": "patient"}, "patient"),  # a row from before Messaging v2
         ({"sender": "system"}, "system"),
+        # Follow-up extensions (migration 16): their own kinds, and their own window numbers.
+        ({"sender": "patient", "origin": "extension_request"}, "patient (extension request)"),
+        ({"sender": "clinician", "origin": "extension_decision"},
+         "clinician (extension decision)"),
+        ({"sender": "patient", "origin": "scheduled", "interval_no": 2, "category": "admin",
+          "extension_no": 1}, "patient (admin, extension window 2)"),
     ],
 )
 def test_speaker(message, shown):

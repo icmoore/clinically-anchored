@@ -127,7 +127,7 @@ def test_returns_a_plain_paragraph_with_no_citations(client, record):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["text"] == GOOD
-    assert (body["model_id"], body["prompt_version"]) == (MODEL, "care_provider_summary_v1")
+    assert (body["model_id"], body["prompt_version"]) == (MODEL, "care_provider_summary_v2")
     assert body["covers"] == {"messages": 2, "check_ins": 1, "touchpoints": 1}
     assert body["new_since"] == {"messages": 0, "check_ins": 0, "touchpoints": 0}
     assert body["truncated"] is False and body["episode_id"] == EPISODE_A
@@ -138,7 +138,7 @@ def test_returns_a_plain_paragraph_with_no_citations(client, record):
 def test_the_model_is_shown_the_episodes_record_and_nothing_else(client, record, model):
     client.post(URL, headers=AUTH)
     (call,) = model["calls"]
-    assert call["clinic_id"] == CLINIC_A and call["prompt_version"] == "care_provider_summary_v1"
+    assert call["clinic_id"] == CLINIC_A and call["prompt_version"] == "care_provider_summary_v2"
     seen = call["system"] + call["prompt"]
     # the procedure name is shown here (the AI patient summary leaves it out)
     assert "Procedure: Colectomy. Surgery date 2026-10-01; post-op day 2." in call["prompt"]
@@ -167,7 +167,7 @@ def test_it_is_audited_with_the_text_only_in_the_hashed_payload(client, record):
     assert event["clinic_id"] == CLINIC_A
     meta = event["metadata"]
     assert meta["ref_type"] == "care_provider_summary" and meta["ref_id"] == body["summary_id"]
-    assert (meta["model_id"], meta["prompt_version"]) == (MODEL, "care_provider_summary_v1")
+    assert (meta["model_id"], meta["prompt_version"]) == (MODEL, "care_provider_summary_v2")
     counts = (meta["covers_messages"], meta["covers_check_ins"], meta["covers_touchpoints"])
     assert counts == (2, 1, 1)
     assert meta["actor"]["id"] == USER and meta["patient_id"] == PATIENT_A

@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends
 
 from clinically_anchored_api.api.episodes import iso
+from clinically_anchored_api.api.extensions import patient_extension
 from clinically_anchored_api.core import categories
 from clinically_anchored_api.core.db import get_supabase
 from clinically_anchored_api.core.schedule import MissedReason, WindowState, WindowStatus
@@ -31,6 +32,16 @@ def patient_state(
     phone = _office_phone(supabase, link.clinic_id)
     state = link.state
     if state.closed:
+        # Ended by schedule and still inside the limited "ended" mode: say what they may do. Any
+        # other closed episode (or one whose time has passed) answers "closed" and the phone.
+        if link.extension.link_works:
+            return PatientStateOut(
+                phase=state.phase.value,
+                office_phone=phone,
+                ended_at=iso(state.closed_at),
+                timezone=_timezone(supabase, link.episode["schedule_version"]),
+                extension=patient_extension(supabase, link),
+            )
         return PatientStateOut(phase=state.phase.value, office_phone=phone)
     schedule_tz = _timezone(supabase, link.episode["schedule_version"])
     return PatientStateOut(
@@ -48,6 +59,7 @@ def patient_state(
         can_send_scheduled=state.can_send_scheduled,
         can_reply=state.can_reply,
         windows=patient_windows(state.windows),
+        extension=patient_extension(supabase, link),
     )
 
 

@@ -25,8 +25,17 @@ offsets: windows open on days 2, 5, 10, 17, 24, 31, 38, 45, 52 and the episode c
                            written and she has a reply open
   12  Tomas Reyes          anal advancement flap: checked in, waiting for window 1 to open
   13  Beatrice Lang        colon resection: the schedule ran out and the care period closed itself
+  15  Olivia Grant        cholecystectomy: the schedule ran out a week ago and she asked for more
+                           follow-up; the request is PENDING a decision
+  16  Samir Qureshi       right hemicolectomy: the request was ACCEPTED; follow-up extension
+                           window 2 of 6 is open
+  17  Margaret Doyle      hemorrhoid surgery: the request was DECLINED, with a message
   14  Gerald Fox           right hemicolectomy on the OLD schedule v1 (only with
                            --include-v1-patient): shows that an episode keeps its recorded version
+
+Patient 13 (the schedule ran out three days ago, no request) is the one who is ENDED AND ELIGIBLE
+to ask for a follow-up extension; 15-17 are the other follow-up states (migration 16, extension
+v1). Their dates are placeholders like the schedule's. Run migration 16 before seeding.
 
 Everything here is invented. No real patient data.
 
@@ -57,7 +66,7 @@ Usage, from apps/api with the same .env the api uses locally:
     uv run python -m clinically_anchored_api.seed_trial_patients --dry-run
     uv run python -m clinically_anchored_api.seed_trial_patients --email you@example.com
 
-Needs migrations 9 and 11 applied (after supabase/scripts/reset_trial_data.sh). Re-running is
+Needs migrations 9, 11 and 16 applied (after supabase/scripts/reset_trial_data.sh). Re-running is
 safe: the demo clinic, membership and procedures are reused, and a patient that already exists
 (matched by its synthetic contact address) is skipped, never duplicated.
 
@@ -72,12 +81,14 @@ is the newest active version, which the seed never changes.
 
 import argparse
 import sys
+import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from clinically_anchored_api.core import categories
 from clinically_anchored_api.core.episodes import default_schedule
+from clinically_anchored_api.core.extension import decision_entry_body, request_deadline
 from clinically_anchored_api.core.rules import evaluate_red_flags
 from clinically_anchored_api.core.schedule import (
     EpisodeState,
@@ -99,9 +110,11 @@ SOURCE_CLINIC_ID = "00000000-0000-0000-0000-0000000000c1"  # dev clinic (migrati
 # docstring); these are what the migrations insert and what a dry run assumes.
 SEED_SCHEDULE_VERSION = 2
 LEGACY_SCHEDULE_VERSION = 1
+EXTENSION_SCHEDULE_VERSION = 3  # "extension v1" (migration 16)
 DEFAULT_SCHEDULES = {
     1: Schedule(1, (2, 3, 5, 7, 14, 21, 28, 35, 42), 7, time(7, 0), "America/Toronto"),
     2: Schedule(2, (2, 5, 10, 17, 24, 31, 38, 45, 52), 7, time(7, 0), "America/Toronto"),
+    3: Schedule(3, (7, 14, 21, 28, 35), 7, time(7, 0), "America/Toronto", "extension", 30),
 }
 
 
@@ -150,6 +163,22 @@ class Expect:
 
 
 @dataclass
+class ExtensionPlan:
+    """A patient's request for more follow-up after the schedule ran out (migration 16), and what
+    the clinic did with it. `decision` None = still pending. When accepted, `messages` and
+    `expect` describe the extension episode, which starts at `decided_at`."""
+
+    requested_at: datetime
+    reason: str
+    decided_at: datetime | None = None
+    decision: str | None = None  # "accepted" | "declined"
+    decision_message: str | None = None
+    messages: list[Msg] = field(default_factory=list)
+    expect: Expect | None = None
+    schedule_version: int = EXTENSION_SCHEDULE_VERSION
+
+
+@dataclass
 class PatientPlan:
     label: str
     full_name: str
@@ -163,6 +192,11 @@ class PatientPlan:
     messages: list[Msg] = field(default_factory=list)
     touchpoints: list[ManualTouchpoint] = field(default_factory=list)
     closed: Closed | None = None
+    extension: ExtensionPlan | None = None
+    # The plan of an EXTENSION episode (made by `_extension_episode`): it starts at `started_at`
+    # and the patient had already checked in, at `inherited_check_in_at`, in the first episode.
+    started_at: datetime | None = None
+    inherited_check_in_at: datetime | None = None
 
 
 class Clock:
@@ -625,6 +659,88 @@ def build_plan(now: datetime, include_v1_patient: bool = False) -> list[PatientP
         closed=Closed(None, "schedule_complete"),
     )
 
+    # 15: cholecystectomy, day 66. The schedule ran out on day 59 (a week ago). She asked for more
+    # follow-up on day 61; nobody has decided yet.
+    s = Surgery(t, 66)
+    new(
+        "Trial Patient 15", "Olivia Grant", "Cholecystectomy", 66,
+        Expect(Phase.CLOSED, missed=(1, 3, 5, 6, 7, 8, 9)),
+        created="09:40",
+        check_in=CheckIn(
+            s.at(4, "10:30"), _answers(["pain"], pain=_pain(2)), reviewed_at=s.at(4, "11:30")
+        ),
+        messages=[
+            _p(s.at(6, "09:10"), "Sore around the incisions but improving.", "symptom_or_wound"),
+            _c(s.at(6, "13:00"), "Good to hear. Keep walking and let us know if that changes."),
+            _p(s.at(18, "18:40"), "Back to normal activity, a little tired by evening.",
+               "recovery_update"),
+        ],
+        closed=Closed(None, "schedule_complete"),
+        extension=ExtensionPlan(
+            requested_at=s.at(61, "20:15"),
+            reason="I still get a pulling pain on the right side when I lift my grandson. "
+            "Could I have a few more weeks of follow-up?",
+        ),
+    )
+
+    # 16: right hemicolectomy, day 73. Same, but the clinic ACCEPTED on day 61, so a follow-up
+    # extension started then: window 1 ran to day 68, and window 2 (days 68-75) is open now.
+    s = Surgery(t, 73)
+    accepted = s.at(61, "10:40")
+    new(
+        "Trial Patient 16", "Samir Qureshi", "Right hemicolectomy", 73,
+        Expect(Phase.CLOSED, missed=(2, 4, 5, 6, 7, 8, 9)),
+        created="08:50",
+        check_in=CheckIn(
+            s.at(3, "09:00"), _answers(["pain"], pain=_pain(3)), reviewed_at=s.at(3, "10:00")
+        ),
+        messages=[
+            _p(s.at(4, "08:20"), "Pain is manageable. Appetite is coming back.", "recovery_update"),
+            _c(s.at(4, "12:10"), "Glad to hear it. Small meals, and keep up the walking."),
+            _p(s.at(12, "19:05"), "Some loose stools, otherwise fine.", "symptom_or_wound"),
+            _c(s.at(12, "20:30"), "That can happen after bowel surgery. Fluids, and tell us if it "
+               "continues."),
+        ],
+        closed=Closed(None, "schedule_complete"),
+        extension=ExtensionPlan(
+            requested_at=s.at(60, "18:30"),
+            reason="My bowels still are not regular and I would like to keep checking in.",
+            decided_at=accepted,
+            decision="accepted",
+            decision_message="Happy to continue following you for a few more weeks.",
+            messages=[
+                _p(s.at(63, "09:00"), "Bowels a bit better this week.", "recovery_update"),
+                _c(s.at(63, "14:00"), "Good. Keep drinking plenty of fluids."),
+                _r(s.at(63, "14:25"), "Will do, thank you."),
+            ],
+            expect=Expect(Phase.OPEN, missed=()),
+        ),
+    )
+
+    # 17: hemorrhoid surgery, day 68. The clinic DECLINED (day 63) and wrote to her.
+    s = Surgery(t, 68)
+    new(
+        "Trial Patient 17", "Margaret Doyle", "Hemorrhoid surgery", 68,
+        Expect(Phase.CLOSED, missed=(1, 2, 3, 4, 6, 7, 8, 9)),
+        created="11:20",
+        check_in=CheckIn(
+            s.at(5, "08:45"), _answers(["pain"], pain=_pain(2)), reviewed_at=s.at(5, "09:30")
+        ),
+        messages=[
+            _p(s.at(26, "10:15"), "Healing well, no more bleeding.", "recovery_update"),
+            _c(s.at(26, "12:00"), "Wonderful news, thank you for letting us know."),
+        ],
+        closed=Closed(None, "schedule_complete"),
+        extension=ExtensionPlan(
+            requested_at=s.at(60, "11:00"),
+            reason="Just want to be sure everything is healing properly.",
+            decided_at=s.at(63, "15:20"),
+            decision="declined",
+            decision_message="Your recovery has gone well and we do not need to follow you "
+            "further here. Please call the office with any questions.",
+        ),
+    )
+
     if include_v1_patient:
         # 14: right hemicolectomy on the OLD schedule v1, day 11 (v1 windows: 1 [2,3) 2 [3,5)
         # 3 [5,7) 4 [7,14) ...). An episode keeps the version it recorded: this one is computed
@@ -652,7 +768,32 @@ def build_plan(now: datetime, include_v1_patient: bool = False) -> list[PatientP
 
     for plan in plans:
         _mark_reads(plan)
+        episode = extension_episode(plan)
+        if episode is not None:
+            _mark_reads(episode)
     return plans
+
+
+def extension_episode(plan: PatientPlan) -> PatientPlan | None:
+    """The plan of the follow-up extension episode an ACCEPTED request started, or None. It is
+    the same patient, procedure and surgery date; it starts at the acceptance and the patient
+    had already checked in."""
+    ext = plan.extension
+    if ext is None or ext.decision != "accepted":
+        return None
+    return PatientPlan(
+        label=f"{plan.label} (extension)",
+        full_name=plan.full_name,
+        contact=plan.contact,
+        procedure=plan.procedure,
+        surgery_date=plan.surgery_date,
+        schedule_version=ext.schedule_version,
+        created_at=ext.decided_at,
+        expect=ext.expect,
+        messages=ext.messages,
+        started_at=ext.decided_at,
+        inherited_check_in_at=plan.check_in.at if plan.check_in else None,
+    )
 
 
 # --- checking the plan against the engine ------------------------------------------------
@@ -661,7 +802,11 @@ def build_plan(now: datetime, include_v1_patient: bool = False) -> list[PatientP
 def interval_at(plan: PatientPlan, schedule: Schedule, at: datetime) -> int | None:
     """The message window that was open at `at`, if any."""
     return next(
-        (w.number for w in windows(plan.surgery_date, schedule) if w.opens_at <= at < w.closes_at),
+        (
+            w.number
+            for w in windows(plan.surgery_date, schedule, plan.started_at)
+            if w.opens_at <= at < w.closes_at
+        ),
         None,
     )
 
@@ -669,7 +814,11 @@ def interval_at(plan: PatientPlan, schedule: Schedule, at: datetime) -> int | No
 def _closed_at(plan: PatientPlan, schedule: Schedule) -> datetime | None:
     if plan.closed is None:
         return None
-    return plan.closed.at or episode_end(plan.surgery_date, schedule)
+    return plan.closed.at or episode_end(plan.surgery_date, schedule, plan.started_at)
+
+
+def _check_in_at(plan: PatientPlan) -> datetime | None:
+    return plan.check_in.at if plan.check_in else plan.inherited_check_in_at
 
 
 def simulate(
@@ -681,7 +830,7 @@ def simulate(
     used: set[int] = set()
     latest_clinic: Msg | None = None
     answered: set[int] = set()  # id() of clinic messages that already got their reply
-    check_in_at = plan.check_in.at if plan.check_in else None
+    check_in_at = _check_in_at(plan)
     for m in sorted(plan.messages, key=lambda m: m.at):
         if m.sender == "clinician":
             latest_clinic = m
@@ -714,6 +863,7 @@ def simulate(
         close_reason=plan.closed.reason if plan.closed else None,
         used_intervals=used,
         reply_available=reply_available,
+        started_at=plan.started_at,
     )
     return state, problems
 
@@ -767,6 +917,7 @@ def validate_plan(
                 plan.surgery_date, schedule
             ):
                 problems.append(f"{plan.label}: a natural close must be when the schedule ends")
+        problems += _validate_extension(plan, schedule, schedules, closed_at, now)
         want = plan.expect
         if (state.phase, state.missed, state.can_reply) != (
             want.phase, want.missed, want.reply,
@@ -777,6 +928,61 @@ def validate_plan(
                 f"missed {list(want.missed)}, reply open {want.reply}"
             )
     return problems
+
+
+def _validate_extension(
+    plan: PatientPlan,
+    schedule: Schedule,
+    schedules: dict[int, Schedule],
+    closed_at: datetime | None,
+    now: datetime,
+) -> list[str]:
+    ext = plan.extension
+    if ext is None:
+        return []
+    out: list[str] = []
+    ext_schedule = schedules.get(ext.schedule_version)
+    if ext_schedule is None or not ext_schedule.is_extension:
+        return [f"{plan.label}: schedule version {ext.schedule_version} is not an extension one"]
+    if plan.closed is None or plan.closed.reason != "schedule_complete" or closed_at is None:
+        return [f"{plan.label}: a follow-up request needs an episode that ended by schedule"]
+    deadline = request_deadline(closed_at, ext_schedule)
+    if not closed_at <= ext.requested_at < min(deadline, now):
+        out.append(f"{plan.label}: the request is not between the end of the schedule and its "
+                   "deadline, or is in the future")
+    if ext.decision not in (None, "accepted", "declined"):
+        out.append(f"{plan.label}: unknown decision {ext.decision!r}")
+    if ext.decision is None:
+        return out
+    if ext.decided_at is None or not ext.requested_at < ext.decided_at < now:
+        out.append(f"{plan.label}: the decision must come after the request, in the past")
+        return out
+    if ext.decision == "declined":
+        if ext.messages or ext.expect:
+            out.append(f"{plan.label}: a declined request has no extension to describe")
+        return out
+    episode = extension_episode(plan)
+    if ext.expect is None:
+        return [*out, f"{plan.label}: an accepted request needs the extension's expected state"]
+    if episode.messages and any(m.at <= ext.decided_at or m.at >= now for m in episode.messages):
+        out.append(f"{plan.label}: an extension message is outside the extension")
+    state, rule_problems = simulate(episode, ext_schedule, now)
+    out += rule_problems
+    want = ext.expect
+    if (state.phase, state.missed, state.can_reply) != (want.phase, want.missed, want.reply):
+        out.append(
+            f"{plan.label}: the extension is {state.phase.value}, missed {list(state.missed)}, "
+            f"reply open {state.can_reply}; the plan expects {want.phase.value}, "
+            f"missed {list(want.missed)}, reply open {want.reply}"
+        )
+    return out
+
+
+def _describe_extension(plan: PatientPlan) -> str:
+    ext = plan.extension
+    if ext is None:
+        return ""
+    return f"; follow-up request {ext.decision or 'pending'}"
 
 
 def describe(plans: list[PatientPlan]) -> str:
@@ -795,6 +1001,7 @@ def describe(plans: list[PatientPlan]) -> str:
             f"{len(plan.messages) - patient} clinic, {unread} awaiting reply), "
             f"check-in {'none' if plan.check_in is None else 'red flag' if flagged else 'clear'}"
             f"{', unreviewed' if unreviewed else ''}, {len(plan.touchpoints)} logged calls/visits"
+            f"{_describe_extension(plan)}"
         )
     return "\n".join(lines)
 
@@ -945,53 +1152,14 @@ def load_schedules(supabase, versions: set[int]) -> dict[int, Schedule]:
     return found
 
 
-def seed_patient(
-    supabase, *, clinic_id: str, user_id: str, plan: PatientPlan, schedule: Schedule
-) -> None:
-    exists = (
-        supabase.table("patients")
-        .select("id")
-        .eq("clinic_id", clinic_id)
-        .eq("contact", plan.contact)
-        .execute()
-        .data
-    )
-    if exists:
-        print(f"{plan.label}: already exists ({exists[0]['id']}), skipped")
-        return
-
-    procs = (
-        supabase.table("procedures")
-        .select("id")
-        .eq("clinic_id", clinic_id)
-        .eq("name", plan.procedure)
-        .eq("active", True)
-        .execute()
-        .data
-    )
-    if not procs:
-        raise SystemExit(f"{plan.label}: no active procedure named {plan.procedure!r}")
-    procedure_id = procs[0]["id"]
-
-    patient = _insert(
-        supabase,
-        "patients",
-        {
-            "clinic_id": clinic_id,
-            "full_name": plan.full_name,
-            "contact": plan.contact,
-            "created_at": _iso(plan.created_at),
-        },
-    )
-    patient_id = patient["id"]
-    _audit(
-        supabase,
-        clinic_id=clinic_id,
-        event_type="patient.created",
-        payload={"patient_id": patient_id, "full_name": plan.full_name, "contact": plan.contact},
-        metadata={"ref_type": "patient", "ref_id": patient_id},
-    )
-
+def _seed_episode(
+    supabase, *, clinic_id: str, user_id: str, patient_id: str, procedure_id: str,
+    plan: PatientPlan, schedule: Schedule, extra: dict | None = None,
+    payload_extra: dict | None = None,
+) -> dict:
+    """Write one episode and everything that happened in it, in time order. `extra` adds columns
+    (a follow-up extension's kind, extends_episode_id and started_at), `payload_extra` adds to the
+    `episode.created` event. Returns the episode row."""
     closed_at = _closed_at(plan, schedule)
     episode = _insert(
         supabase,
@@ -1002,12 +1170,13 @@ def seed_patient(
             "procedure_id": procedure_id,
             "surgery_date": plan.surgery_date.isoformat(),
             "schedule_version": plan.schedule_version,
-            "checkin_completed_at": _iso(plan.check_in.at) if plan.check_in else None,
+            "checkin_completed_at": _iso(_check_in_at(plan)) if _check_in_at(plan) else None,
             "closed_at": _iso(closed_at) if closed_at else None,
             "close_reason": plan.closed.reason if plan.closed else None,
             "closed_by": user_id if plan.closed and plan.closed.reason == "discharged" else None,
             "created_by": user_id,
             "created_at": _iso(plan.created_at),
+            **(extra or {}),
         },
     )
     episode_id = episode["id"]
@@ -1026,6 +1195,7 @@ def seed_patient(
             "surgery_date": plan.surgery_date.isoformat(),
             "schedule": schedule.snapshot(),
             "created_by": user_id,
+            **(payload_extra or {}),
         },
         metadata=episode_ref,
     )
@@ -1071,7 +1241,7 @@ def seed_patient(
             missed = episode_state(
                 surgery_date=plan.surgery_date, schedule=schedule, now=item.at,
                 checkin_completed_at=None, closed_at=None, close_reason=None,
-                used_intervals=set(), reply_available=False,
+                used_intervals=set(), reply_available=False, started_at=plan.started_at,
             ).missed
             _audit(
                 supabase,
@@ -1220,6 +1390,143 @@ def seed_patient(
                 metadata=episode_ref,
             )
 
+    return episode
+
+
+def _seed_extension(
+    supabase, *, clinic_id: str, user_id: str, patient_id: str, procedure_id: str,
+    plan: PatientPlan, episode: dict, schedules: dict[int, Schedule],
+) -> None:
+    """The follow-up request about the ended episode, its decision and, if accepted, the extension
+    episode: rows as the api writes them (migration 16), with the same audit events."""
+    ext = plan.extension
+    ext_schedule = schedules[ext.schedule_version]
+    request_id, request_msg_id, decision_msg_id = (str(uuid.uuid4()) for _ in range(3))
+    ref = {"patient_id": patient_id, "episode_id": episode["id"]}
+    _audit(
+        supabase, clinic_id=clinic_id, event_type="extension.requested",
+        payload={
+            "request_id": request_id, "episode_id": episode["id"], "patient_id": patient_id,
+            "message_id": request_msg_id, "schedule_version": ext.schedule_version,
+            "request_by": _iso(request_deadline(_closed_at(plan, schedules[plan.schedule_version]),
+                                                ext_schedule)),
+            "reason": ext.reason,
+        },
+        metadata={"ref_type": "extension_request", "ref_id": request_id,
+                  "schedule_version": ext.schedule_version, **ref},
+    )
+    _insert(
+        supabase, "messages",
+        {"id": request_msg_id, "clinic_id": clinic_id, "patient_id": patient_id,
+         "episode_id": episode["id"], "sender": "patient", "body": ext.reason,
+         "origin": "extension_request", "created_at": _iso(ext.requested_at)},
+    )
+    row = {
+        "id": request_id, "clinic_id": clinic_id, "patient_id": patient_id,
+        "episode_id": episode["id"], "schedule_version": ext.schedule_version,
+        "request_message_id": request_msg_id, "requested_at": _iso(ext.requested_at),
+        "status": "pending",
+    }
+    if ext.decision is None:
+        _insert(supabase, "extension_requests", row)
+        return
+
+    accepted = ext.decision == "accepted"
+    new_episode_id = None
+    _insert(
+        supabase, "messages",
+        {"id": decision_msg_id, "clinic_id": clinic_id, "patient_id": patient_id,
+         "episode_id": episode["id"], "sender": "clinician",
+         "body": decision_entry_body(ext.decision, ext.decision_message),
+         "origin": "extension_decision", "created_at": _iso(ext.decided_at)},
+    )
+    if accepted:
+        child_plan = extension_episode(plan)
+        child = _seed_episode(
+            supabase, clinic_id=clinic_id, user_id=user_id, patient_id=patient_id,
+            procedure_id=procedure_id, plan=child_plan, schedule=ext_schedule,
+            extra={"kind": "extension", "extends_episode_id": episode["id"],
+                   "started_at": _iso(ext.decided_at),
+                   "link_generation": episode["link_generation"]},
+            payload_extra={"extends_episode_id": episode["id"],
+                           "extension_request_id": request_id,
+                           "started_at": _iso(ext.decided_at)},
+        )
+        new_episode_id = child["id"]
+    _audit(
+        supabase, clinic_id=clinic_id, event_type=f"extension.{ext.decision}",
+        payload={
+            "request_id": request_id, "episode_id": episode["id"], "patient_id": patient_id,
+            "entry_id": decision_msg_id, "extension_episode_id": new_episode_id,
+            "schedule_version": ext.schedule_version if accepted else None,
+            "message": ext.decision_message, "decided_by": user_id,
+        },
+        metadata={"ref_type": "extension_request", "ref_id": request_id, **ref},
+    )
+    _insert(
+        supabase, "extension_requests",
+        {**row, "status": ext.decision, "decided_by": user_id, "decided_at": _iso(ext.decided_at),
+         "decision_message": ext.decision_message, "decision_entry_id": decision_msg_id,
+         "extension_episode_id": new_episode_id},
+    )
+
+
+def seed_patient(
+    supabase, *, clinic_id: str, user_id: str, plan: PatientPlan, schedules: dict[int, Schedule]
+) -> None:
+    exists = (
+        supabase.table("patients")
+        .select("id")
+        .eq("clinic_id", clinic_id)
+        .eq("contact", plan.contact)
+        .execute()
+        .data
+    )
+    if exists:
+        print(f"{plan.label}: already exists ({exists[0]['id']}), skipped")
+        return
+
+    procs = (
+        supabase.table("procedures")
+        .select("id")
+        .eq("clinic_id", clinic_id)
+        .eq("name", plan.procedure)
+        .eq("active", True)
+        .execute()
+        .data
+    )
+    if not procs:
+        raise SystemExit(f"{plan.label}: no active procedure named {plan.procedure!r}")
+    procedure_id = procs[0]["id"]
+
+    patient = _insert(
+        supabase,
+        "patients",
+        {
+            "clinic_id": clinic_id,
+            "full_name": plan.full_name,
+            "contact": plan.contact,
+            "created_at": _iso(plan.created_at),
+        },
+    )
+    patient_id = patient["id"]
+    _audit(
+        supabase,
+        clinic_id=clinic_id,
+        event_type="patient.created",
+        payload={"patient_id": patient_id, "full_name": plan.full_name, "contact": plan.contact},
+        metadata={"ref_type": "patient", "ref_id": patient_id},
+    )
+
+    episode = _seed_episode(
+        supabase, clinic_id=clinic_id, user_id=user_id, patient_id=patient_id,
+        procedure_id=procedure_id, plan=plan, schedule=schedules[plan.schedule_version],
+    )
+    if plan.extension is not None:
+        _seed_extension(
+            supabase, clinic_id=clinic_id, user_id=user_id, patient_id=patient_id,
+            procedure_id=procedure_id, plan=plan, episode=episode, schedules=schedules,
+        )
     print(f"{plan.label}: created {plan.full_name} ({patient_id})")
 
 
@@ -1270,7 +1577,9 @@ def main(argv: list[str] | None = None) -> int:
 
     now = datetime.now(UTC)
     plans = build_plan(now, args.include_v1_patient)
-    versions = {p.schedule_version for p in plans}
+    versions = {p.schedule_version for p in plans} | {
+        p.extension.schedule_version for p in plans if p.extension
+    }
     print(describe(plans))
 
     if args.dry_run:
@@ -1311,8 +1620,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     for plan in plans:
         seed_patient(
-            supabase, clinic_id=clinic_id, user_id=user_id, plan=plan,
-            schedule=schedules[plan.schedule_version],
+            supabase, clinic_id=clinic_id, user_id=user_id, plan=plan, schedules=schedules,
         )
     print("\nDone. Check with: uv run python -m clinically_anchored_api.core.reconcile "
           f"--clinic {clinic_id}")

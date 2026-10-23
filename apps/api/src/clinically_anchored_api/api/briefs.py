@@ -51,7 +51,7 @@ timing_log = logging.getLogger("uvicorn.error.briefs")
 
 router = APIRouter(tags=["patient-briefs"])
 
-_TEMPLATE = ("patient_brief", "v1")
+_TEMPLATE = ("patient_brief", "v2")
 # The most recent records the model is shown; older ones are left out and the response says so.
 MESSAGE_LIMIT = 50
 CONTACT_LIMIT = 30
@@ -89,23 +89,27 @@ def gather_record(supabase, clinic_id: str, patient_id: str) -> Record:
         raise HTTPException(status_code=422, detail="This patient has no care period yet.")
     state = episodes.state_for(supabase, episode, clock.now())
     tz = episodes.get_schedule(supabase, episode["schedule_version"]).tz
+    # A follow-up extension continues the care period: summarise the whole chain, from the first
+    # episode (its check-in, the nine windows, the extension request and decision, the extension).
+    links = episodes.chain(supabase, episode)
+    chain_ids = [e["id"] for e in links]
 
     check_ins = (
         supabase.table("check_ins")
         .select("id, answers, is_red_flag, post_op_day, created_at, reviewed_at")
         .eq("clinic_id", clinic_id)
         .eq("patient_id", patient_id)
-        .eq("episode_id", episode["id"])
+        .in_("episode_id", chain_ids)
         .order("created_at")
         .execute()
         .data
     )
     fetched = (
         supabase.table("messages")
-        .select("id, sender, body, origin, interval_no, category")
+        .select("id, episode_id, sender, body, origin, interval_no, category")
         .eq("clinic_id", clinic_id)
         .eq("patient_id", patient_id)
-        .eq("episode_id", episode["id"])
+        .in_("episode_id", chain_ids)
         .order("created_at", desc=True)
         .limit(MESSAGE_LIMIT + 1)
         .execute()
@@ -117,7 +121,8 @@ def gather_record(supabase, clinic_id: str, patient_id: str) -> Record:
             detail="This patient has no check-in and no messages yet, so there is nothing to "
             "summarise.",
         )
-    began = episodes.parse_ts(episode["created_at"])
+    fetched = episodes.tag_extension_windows(supabase, fetched)
+    began = episodes.parse_ts(links[0]["created_at"])
     contacts_all = [
         r
         for r in (

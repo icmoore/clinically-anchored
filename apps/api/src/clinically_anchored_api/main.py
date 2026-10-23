@@ -10,6 +10,7 @@ from clinically_anchored_api.api import (
     consents,
     drafts,
     episodes,
+    extensions,
     health,
     messages,
     patient,
@@ -41,6 +42,7 @@ app.include_router(audit.router)
 app.include_router(clinics.router)
 app.include_router(episodes.router)
 app.include_router(patient.router)
+app.include_router(extensions.router)
 app.include_router(procedures.router)
 app.include_router(check_ins.router)
 app.include_router(messages.router)
