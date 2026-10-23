@@ -41,6 +41,34 @@ export const PATIENT_TEXT = {
     surgeryIn: (n: number) => `Surgery in ${n} day${n === 1 ? "" : "s"}`,
   },
 
+  // Asking for more follow-up after the first one ends, and the extra follow-up itself. All of this is
+  // PLACEHOLDER wording, like the rest of the file. "Period", never "window".
+  extension: {
+    endedTitle: "Your follow-up has ended",
+    ended: "Your follow-up through this app has ended.",
+    ask: "If you would like more follow-up, you can ask your care team.",
+    askButton: "Request more follow-up",
+    reasonLabel: "Why would you like more follow-up?",
+    reasonHint: (max: number) => `A few words is enough. Up to ${max} characters.`,
+    send: "Send request",
+    sending: "Sending...",
+    couldntSend: "Couldn't send your request. Please try again.",
+    until: (day: string) => stop(`You can ask until ${day}`),
+    pendingTitle: "Your request",
+    pending: "Your request was sent. Your care team will review it.",
+    pendingNote:
+      "We don't send notifications. Come back to this page: the answer will show here.",
+    yourWords: "What you wrote",
+    declined: "Your care team has decided not to add more follow-up through this app.",
+    messageFromTeam: "Message from your care team",
+    callOrGo: "If you need help, call the office or go to the emergency department.",
+    accepted: "Your care team has agreed to more follow-up.",
+    acceptedMore: (n: number) =>
+      stop(`You have ${n} more message period${n === 1 ? "" : "s"}, about a week apart`),
+    extraHeading: "Your extra message periods",
+    extraPeriod: (n: number, total: number) => `Extra period ${n} of ${total}.`,
+  },
+
   timeline: {
     heading: "Your message periods",
     onePerPeriod: "You can write once in each period. Most people don't need to use them all.",

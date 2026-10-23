@@ -184,6 +184,26 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
     pending clinical review; "period" for patients, "window" for the clinic), so wording changes and
     translation touch one file. Times are written plainly (`plainTime`, no zone name) in the
     clinic's timezone, not the device's.
+  - **Follow-up extensions** (migration 16; **the feature is off until the `extension` schedule row is
+    switched on, and all numbers and wording are placeholders pending the surgeon**; rules in
+    docs/api). *Patient:* when the care period ended by schedule the api answers phase `closed` plus an
+    `extension` block, and `components/ended-screen.tsx` shows "Your follow-up through this app has
+    ended." with, by state: **eligible**: "Request more follow-up" (opens a reason box, up to the api's
+    `reason_max`, and "You can ask until <date>"); **pending**: "Your request was sent. Your care team
+    will review it." and that no notifications are sent, so the answer shows here; **declined**: the
+    clinician's message if any and "If you need help, call the office or go to the emergency
+    department." (no form); **accepted**: the normal screen, with a green card ("Your care team has
+    agreed to more follow-up", the clinician's message) and the timeline of the extra periods
+    (`PatientTimeline` with `extra`, any number of periods). A closed episode with no `extension`
+    block is the old "closed" screen. All words are in `lib/patient-strings.ts` (`extension`).
+    *Clinic:* the queue shows an **"Extension requested"** chip (also on the patient list); the
+    Physician Summary shows the request (`components/extension-request.tsx`: their reason and the date,
+    optional message, **Accept...** / **Decline...** each with a confirm step; a delegate sees the request
+    without buttons) and, after acceptance, the timeline in rows: the nine, then the six marked
+    "Extension" (dotted circles; the first reads "accepted" instead of days), with the status badge
+    "Extension window 2 of 6 · open". The request and the decision are set apart in the thread
+    (they are not messages: they never count as unread or as awaiting a reply, and "Draft a reply with
+    AI" ignores them); a window of an extension reads "extension window N".
   - **Your check-in** (`CheckInCard` in `patient-home.tsx`): at the top of the conversation, what the
     patient entered at their check-in (their answers, and "in your own words"), collapsed to a
     one-line reminder that opens to the full answers; shown only once they have checked in. It

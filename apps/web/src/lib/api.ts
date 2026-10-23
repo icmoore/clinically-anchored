@@ -94,13 +94,27 @@ export interface PatientState {
   can_send_scheduled: boolean;
   can_reply: boolean; // the care team's latest message has no reply yet
   windows?: PatientWindow[]; // every period in order; empty once closed, absent from an older api
+  ended_at?: string | null; // set while a closed episode is in its limited "ended" mode
+  extension?: PatientExtension | null; // follow-up extensions; absent from an older api
+}
+
+/** Where the patient stands on asking for more follow-up (api/extensions.py). `eligible`: they may
+ *  ask until `request_by`. `pending`: asked, not decided. `declined`: final. `accepted`: an
+ *  extension is running (`extension_no` says which). */
+export interface PatientExtension {
+  standing: "eligible" | "pending" | "declined" | "accepted";
+  request_by: string | null;
+  reason_max: number;
+  requested_at: string | null;
+  decision_message: string | null; // the clinician's own words, if they wrote any
+  extension_no: number;
 }
 
 export interface PatientMessage {
   id: string;
   sender: "clinician" | "patient" | "system";
   body: string;
-  origin: "scheduled" | "reply" | "clinician";
+  origin: "scheduled" | "reply" | "clinician" | "extension_request" | "extension_decision";
   interval_no: number | null;
   category: string | null;
   created_at: string;
@@ -114,6 +128,12 @@ export interface MyCheckIn {
   answers: CheckInAnswers;
 }
 export const getMyCheckIn = (token: string) => request<MyCheckIn | null>(`/check-ins/mine${q(token)}`);
+
+export const requestExtension = (token: string, reason: string) =>
+  request<PatientExtension>(`/extension-request${q(token)}`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
 
 export const getPatientState = (token: string) => request<PatientState>(`/episode${q(token)}`);
 export const getPatientThread = (token: string) => request<PatientMessage[]>(`/messages${q(token)}`);

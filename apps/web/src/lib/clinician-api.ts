@@ -23,6 +23,7 @@ export interface QueueItem {
   latest_post_op_day: number | null; // today's, from the surgery date (negative before it)
   unread_categories: string[]; // category keys of the unread scheduled messages
   last_activity_at: string;
+  extension_requested?: boolean; // a follow-up extension request is waiting for a decision
 }
 
 /** Where an episode stands now, computed by the api from the schedule and the clock. Times are
@@ -37,6 +38,7 @@ export interface WindowState {
   closes_at: string;
   status: WindowStatus;
   missed_reason: MissedReason | null;
+  extension_no?: number; // 0 / absent: the main care period; n: the n-th follow-up extension
 }
 export interface EpisodeState {
   phase: EpisodePhase;
@@ -55,6 +57,29 @@ export interface EpisodeState {
   can_reply: boolean;
   windows?: WindowState[]; // every window in order; absent only from an older api
 }
+/** A patient's request for more follow-up, after the care period ended by schedule. */
+export interface ExtensionRequest {
+  id: string;
+  episode_id: string; // the ended episode it is about
+  status: "pending" | "accepted" | "declined";
+  reason: string | null; // the patient's words
+  requested_at: string;
+  decided_at: string | null;
+  decided_by: string | null;
+  decision_message: string | null; // the clinician's words, if they wrote any
+  extension_episode_id: string | null;
+}
+/** Follow-up extensions around an episode. `number` 0 = the main care period, n = the n-th
+ *  extension; `earlier_windows` are the windows of the episodes this one continues. */
+export interface EpisodeExtension {
+  number: number;
+  extends_episode_id: string | null;
+  started_at: string | null;
+  earlier_windows: WindowState[];
+  request: ExtensionRequest | null; // the request about THIS episode
+  request_by: string | null; // last moment the patient may still ask
+  can_request: boolean;
+}
 /** One post-op period: the surgery date and procedure the clinic entered, and the schedule. */
 export interface Episode {
   id: string;
@@ -69,6 +94,7 @@ export interface Episode {
   close_reason: "discharged" | "schedule_complete" | null;
   created_at: string;
   state: EpisodeState;
+  extension?: EpisodeExtension; // absent from an older api
 }
 export interface Patient {
   id: string;
@@ -94,7 +120,10 @@ export interface Message {
   episode_id: string;
   sender: "clinician" | "patient" | "system";
   body: string;
-  origin: "scheduled" | "reply" | "clinician";
+  // extension_request / extension_decision are thread entries about a follow-up extension, not
+  // messages: they use no window and grant no reply.
+  origin: "scheduled" | "reply" | "clinician" | "extension_request" | "extension_decision";
+  extension_no?: number; // n > 0: it used a window of the n-th follow-up extension
   interval_no: number | null; // the message window a scheduled message used
   category: string | null; // a key; see lib/categories.ts for the label
   reply_to_message_id: string | null;
@@ -173,6 +202,11 @@ export const correctEpisode = (
 ) => authed<Episode>(`/clinics/${clinic}/episodes/${episode}`, { method: "PATCH", body: JSON.stringify(body) });
 export const dischargeEpisode = (clinic: string, episode: string) =>
   post<Episode>(`/clinics/${clinic}/episodes/${episode}/close`);
+// Follow-up extensions: owner/clinician only at the api. The message to the patient is optional.
+export const acceptExtension = (clinic: string, id: string, message: string | null) =>
+  post<ExtensionRequest>(`/clinics/${clinic}/extension-requests/${id}/accept`, { message });
+export const declineExtension = (clinic: string, id: string, message: string | null) =>
+  post<ExtensionRequest>(`/clinics/${clinic}/extension-requests/${id}/decline`, { message });
 export const issueLink = (clinic: string, episode: string) =>
   post<IssuedLink>(`/clinics/${clinic}/episodes/${episode}/link`);
 export const resetLink = (clinic: string, episode: string) =>
