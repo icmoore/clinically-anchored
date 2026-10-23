@@ -71,7 +71,7 @@ export function SummarySection({
       ) : (
         <>
           <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
-            <StatusBadge variant="ai">AI summary</StatusBadge>
+            <StatusBadge variant="ai">AI conversation summary</StatusBadge>
             <span className="text-muted">
               {timeAgo(summary.generated_at)} &middot; covers {summary.covers_messages}{" "}
               {summary.covers_messages === 1 ? "message" : "messages"}
