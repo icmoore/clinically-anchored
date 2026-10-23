@@ -89,10 +89,7 @@ export function PatientBriefSection({
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-sm font-semibold text-ink">AI patient summary</h3>
-        <StatusBadge variant="ai">AI summary</StatusBadge>
-      </div>
+      <StatusBadge variant="ai">AI Patient summary</StatusBadge>
 
       {brief === null ? (
         <p className="mt-2 text-sm text-muted">
