@@ -39,6 +39,7 @@ def patient_state(
                 phase=state.phase.value,
                 office_phone=phone,
                 ended_at=iso(state.closed_at),
+                timezone=_timezone(supabase, link.episode["schedule_version"]),
                 extension=patient_extension(supabase, link),
             )
         return PatientStateOut(phase=state.phase.value, office_phone=phone)

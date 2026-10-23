@@ -134,6 +134,7 @@ def events(world):
 def test_an_ended_episode_in_its_window_shows_the_request_form_data_and_nothing_else(world):
     state = world.client.get("/episode", params=world.token).json()
     assert state["phase"] == "closed" and state["ended_at"] == "2026-11-19T12:00:00+00:00"
+    assert state["timezone"] == "America/Toronto"  # the dates on the ended screen are written in it
     assert state["extension"] == {
         "standing": "eligible", "request_by": "2026-12-19T12:00:00+00:00", "reason_max": 500,
         "requested_at": None, "decision_message": None, "extension_no": 0,
