@@ -243,25 +243,17 @@ export function CareProviderSummarySection({
               {busy ? (summary ? "Refreshing..." : "Generating...") : summary ? "Refresh" : "Generate"}
             </button>
             {summary && (
-              <>
-                <button
-                  onClick={() => {
-                    setDraft(shown);
-                    setError(null);
-                    setConfirmRefresh(false);
-                  }}
-                  disabled={busy}
-                  className="rounded-md border border-primary bg-surface text-primary enabled:hover:bg-primary-tint px-4 py-2 text-sm font-medium disabled:opacity-60"
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={handleCopy}
-                  className="rounded-md border border-primary bg-surface text-primary enabled:hover:bg-primary-tint px-4 py-2 text-sm font-medium"
-                >
-                  Copy text
-                </button>
-              </>
+              <button
+                onClick={() => {
+                  setDraft(shown);
+                  setError(null);
+                  setConfirmRefresh(false);
+                }}
+                disabled={busy}
+                className="rounded-md border border-primary bg-surface text-primary enabled:hover:bg-primary-tint px-4 py-2 text-sm font-medium disabled:opacity-60"
+              >
+                Edit
+              </button>
             )}
           </>
         )}
