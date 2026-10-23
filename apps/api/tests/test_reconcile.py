@@ -305,3 +305,47 @@ def test_saved_summary_edits_are_checked_against_their_audit_event(db):
         ("care_provider_summary_edits", "e-orphan", "care_provider_summary.edited")
     }
     assert report.checked["care_provider_summary.edited"] == 2
+
+
+def test_extension_requests_and_decisions_are_checked_and_their_thread_entries_are_not(db):
+    t = "2026-10-01T10:00:00Z"
+    # The two thread entries of an extension have no message.sent event: extension.* covers them.
+    db.t["messages"].append(
+        {"id": "m1", "clinic_id": A, "created_at": t, "read_at": None, "sender": "patient",
+         "origin": "extension_request"}
+    )
+    db.t["messages"].append(
+        {"id": "m2", "clinic_id": A, "created_at": t, "read_at": None, "sender": "clinician",
+         "origin": "extension_decision"}
+    )
+    db.t["messages"].append(
+        {"id": "m3", "clinic_id": A, "created_at": t, "read_at": None, "sender": "patient",
+         "origin": "scheduled"}
+    )
+    db.t["extension_requests"] += [
+        {"id": "r1", "clinic_id": A, "requested_at": t, "decided_at": None, "status": "pending"},
+        {"id": "r2", "clinic_id": A, "requested_at": t, "decided_at": t, "status": "accepted"},
+        {"id": "r3", "clinic_id": A, "requested_at": t, "decided_at": t, "status": "declined"},
+    ]
+    report = rec.reconcile(db)
+    assert _gaps(report) == {
+        ("messages", "m3", "message.sent"),  # an ordinary message still needs its event
+        ("extension_requests", "r1", "extension.requested"),
+        ("extension_requests", "r2", "extension.requested"),
+        ("extension_requests", "r3", "extension.requested"),
+        ("extension_requests", "r2", "extension.accepted"),
+        ("extension_requests", "r3", "extension.declined"),
+    }
+    assert report.checked["extension.accepted"] == 1 and report.checked["extension.declined"] == 1
+    db.audit(A, "message.sent", "m3")
+    for rid in ("r1", "r2", "r3"):
+        db.audit(A, "extension.requested", rid)
+    db.audit(A, "extension.accepted", "r2")
+    db.audit(A, "extension.declined", "r3")
+    assert rec.reconcile(db).ok
+
+
+def test_an_extension_event_whose_save_lost_a_race_is_only_dangling(db):
+    db.audit(A, "extension.accepted", "r-lost")
+    report = rec.reconcile(db)
+    assert report.ok and [d.ref_id for d in report.dangling] == ["r-lost"]

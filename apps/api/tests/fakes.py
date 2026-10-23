@@ -204,7 +204,7 @@ class FakeSupabase:
             ],
             "procedures": [{"id": PROC_A, "clinic_id": CLINIC_A, "name": "Colectomy",
                             "category": "abdominal_bowel_resection", "active": True}],
-            "message_schedules": [dict(V1_ROW), dict(V2_ROW)],
+            "message_schedules": [dict(V1_ROW), dict(V2_ROW), dict(EXT_ROW)],
             "extension_requests": [],
             "episodes": [],
             "messages": [],

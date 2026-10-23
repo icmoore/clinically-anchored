@@ -142,6 +142,22 @@ means an edit cannot name another patient's or clinic's summary. Same rules: nev
 (trigger), RLS read for clinic members, writes revoked from `authenticated`/`anon`, listed in the reset and
 backup scripts.
 
+Migration `00000000000016_follow_up_extensions.sql` adds follow-up extensions. `message_schedules` gets
+`kind` (`main` | `extension`) and `request_window_days` (extension rows only; a check ties them together),
+and version 3, "extension v1", is the placeholder row: offsets `{7,14,21,28,35}` (windows 2-6; window 1
+opens at acceptance), `close_after_days` 7 (ends on day 42), 07:00 America/Toronto, 30 days to ask. The
+"newest active version" rule for new patients now ignores extension rows. `episodes` gets `kind`,
+`extends_episode_id` and `started_at` (an extension episode continues an ended one: a composite
+deferrable foreign key keeps it the same patient and clinic, and the deferral lets a backup load in any
+row order; one extension per episode; the guard freezes the three columns). `messages.origin` gains
+`extension_request` (patient; the reason, 1-500 characters) and `extension_decision` (clinician): thread
+entries with no interval, category or reply target. `extension_requests` holds one row per ended episode
+ever (`unique (episode_id)`): pending, then accepted or declined exactly once (guard trigger; never
+deleted; the row names the two thread entries and, if accepted, the new episode); RLS read for clinic
+members, writes revoked, listed in the reset and backup scripts. Writes go through `request_extension` and
+`decide_extension` (service role only), which lock the episode like the other state changes. No existing
+data changes and the migration does not need empty tables.
+
 `audit_log` is append-only at the database level: `UPDATE`/`DELETE` are revoked for
 `authenticated`/`anon` entirely, not just gated by a policy. Only the service role
 (i.e. only `apps/api`) can write to it. Note the service role itself still *can*

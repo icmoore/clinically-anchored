@@ -162,7 +162,7 @@ Built (on `main`):
   `key_id`; keys other than the current one come from `AUDIT_PUBLIC_KEYS`). Audited events:
   `check_in.submitted`/`.reviewed`, `message.sent`/`.read`, `patient.created`, `link.issued`,
   `episode.created`/`.corrected`/`.closed`/`.link_rotated`, `consent.granted`/`.revoked`,
-  `touchpoint.logged`. `message.sent` carries the episode, origin, interval and category key in
+  `touchpoint.logged`, `extension.requested`/`.accepted`/`.declined`. `message.sent` carries the episode, origin, interval and category key in
   its readable metadata (a menu choice, not content) and the text only in the hashed payload;
   `check_in.submitted` records the intervals that had already passed (`missed_intervals`).
   Known gap: the business row and its audit row are separate writes, so a failure
@@ -263,6 +263,58 @@ Built (on `main`):
   AI's. `GET .../latest` and the edit response carry `edited_text` / `edited_at` (null until edited) next
   to `text`, which stays what the AI wrote. Reconcile checks saved edits against
   `care_provider_summary.edited`.
+- **Follow-up extensions** (`api/extensions.py`, `core/extension.py`, migration 16). **All numbers and
+  all wording are PLACEHOLDERS pending the surgeon's confirmation**; the numbers are data (the
+  `extension` schedule row, version 3, "extension v1"), not code.
+  *Rules.* Only an episode that ended **by schedule** can ask: not a discharge, not while the term still
+  runs. The patient has `request_window_days` (30) after the end. Until then the link works in a limited
+  "ended" mode (`GET /episode` answers phase `closed` plus an `extension` block and `ended_at`; every other
+  patient route is still 410). The reason is required, 1-500 characters (`REASON_MAX`; also a table check).
+  One request per ended episode: a pending request blocks a second and **a decline is final** for that
+  care period. A pending request keeps the link in ended mode however long the clinic takes; a decision
+  stays readable until the later of "end + 30 days" and "decision + 30 days" (so a late decision is still
+  seen). After that the link says only "closed" and the office phone, as before.
+  *Accepting* creates a **new episode** (`kind = 'extension'`, `extends_episode_id`, `started_at` = the
+  acceptance instant) that continues the ended one: same patient, procedure and surgery date, the check-in
+  counts, same link generation. Closed episodes never change, so nothing is reopened. The patient's
+  original URL follows the chain (`episodes.resolve_tail`) to the newest episode; its generation is checked
+  against that episode, so resetting the link there revokes every older URL. Extension v1: window 1 opens
+  at the moment of acceptance; windows 2-6 open at 07:00 America/Toronto on days 7, 14, 21, 28, 35 after
+  the acceptance **date** (wall-clock, so a clock change moves nothing); the extension ends on day 42.
+  `offsets_days` of the row list windows 2-6 only. Everything else is the main period's rule: one message
+  per window, unused windows are gone, clinician messages any time and each grants one reply. Windows
+  number from 1 inside each extension; the clinic's timeline (`extension.earlier_windows`, plus
+  `extension_no` on each window) shows the nine and then the six. When an extension ends by schedule the
+  same rules apply to it (a new 30 days, a new request, a new approval). A discharge during an extension
+  ends it, as today.
+  *Thread and AI.* The reason and the decision are `messages` rows of their own origins
+  (`extension_request`, `extension_decision`), not ordinary messages: no window, no category, no reply
+  target, never unread (the queue ignores them and mark-read leaves them alone) and **neither grants a
+  reply** (`reply_available` only looks at clinician messages, so a decline can't invite one). The decision
+  entry's text is "Extension request accepted/declined." plus the clinician's own words; the patient is
+  shown the clinician's words from the request row. They are in the thread, so the Interaction Summary, the
+  AI patient summary and the care provider summary read them: `thread_text.speaker` labels them "patient
+  (extension request)" / "clinician (extension decision)" and a window of an extension "extension window N";
+  the patient summary and care provider summary now read the whole chain (all episodes from the first, the
+  check-in, both periods' messages, calls and visits since the first began). The prompts that read the
+  thread have new versions saying these entries are about follow-up, not symptoms: `summary_v5`,
+  `patient_brief_v2`, `care_provider_summary_v2`, `draft_reply_v5` (older versions kept; placeholder wording).
+  *Routes.* Patient: `POST /extension-request` `{reason}` (ended-mode dependency; 409 if already asked, 410
+  if not eligible or out of time, 422 for a bad reason). Clinician: `POST
+  /clinics/{id}/extension-requests/{rid}/accept` and `/decline`, body `{message?}` (optional, up to 5000
+  characters), **owner and clinician only** (403 for a delegate; 409 if already decided or, for accept, the
+  patient has a newer care period). The episode response carries `extension` (number, the request with
+  its reason, `request_by`, `earlier_windows`); the queue item carries `extension_requested`.
+  *Audit.* `extension.requested` / `extension.accepted` / `extension.declined`, ref_type
+  `extension_request`, ref_id the request id, written **before** the save under ids the api generated and
+  passed to the database function; the reason and the clinician's words are in the hashed payload only. A
+  failed audit saves nothing (500). If the function then loses a race, the log holds one event with no row:
+  reconcile lists it as informational "dangling". An acceptance also audits `episode.created` for the new
+  episode (after the save, like any episode). Reconcile checks the three events against
+  `extension_requests` and does not expect `message.sent` for the two thread entry kinds.
+  *Database.* The functions `request_extension` and `decide_extension` lock the episode and enforce who may
+  ask, once, within the window, and that nothing newer has replaced the episode; real-Postgres tests
+  are in `tests/db/test_follow_up_extensions.py`.
 - AI message drafts (`api/drafts.py`, migration 6, data-catalogue D8): `POST
   /clinics/{id}/patients/{pid}/drafts` asks the model for a reply to the patient's latest message
   and stores it `pending` -- it sends nothing. It is refused with **409 before any model call**

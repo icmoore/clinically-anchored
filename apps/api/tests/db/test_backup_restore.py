@@ -18,6 +18,7 @@ from tests.db.conftest import (
     build_world,
     check_in,
     clinician_msg,
+    decide_extension,
     end_by_schedule,
     make_episode,
     new_patient,
@@ -118,6 +119,13 @@ def populate(conn):
         ended = make_episode(conn, w, patient=new_patient(conn, w))
         end_by_schedule(conn, w, ended)
         ask_extension(conn, w, ended)
+        # ... and an accepted one, so an extension episode (it points at its predecessor, an
+        # episode row that may sit after it in the dump) goes through the backup too.
+        accepted = make_episode(conn, w, patient=new_patient(conn, w, "Pat Ext"))
+        end_by_schedule(conn, w, accepted)
+        decide_extension(
+            conn, w, ask_extension(conn, w, accepted)["request"]["id"], "accepted", "Welcome back."
+        )
     prev = None
     for n in range(3):
         row = conn.execute(
