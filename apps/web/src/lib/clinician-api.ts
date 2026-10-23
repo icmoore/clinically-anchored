@@ -153,7 +153,7 @@ async function authed<T>(path: string, init?: RequestInit): Promise<T> {
 const post = <T>(path: string, body?: unknown) =>
   authed<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
 
-export const getMe = () => authed<Me>("/me");
+export const getMe = (signal?: AbortSignal) => authed<Me>("/me", { signal });
 export const getQueue = (clinic: string) => authed<QueueItem[]>(`/clinics/${clinic}/queue`);
 export const listPatients = (clinic: string) => authed<Patient[]>(`/clinics/${clinic}/patients`);
 export const createPatient = (
@@ -210,7 +210,7 @@ export const getLatestSummary = (clinic: string, patient: string) =>
   authed<Summary | null>(`/clinics/${clinic}/patients/${patient}/summaries/latest`);
 
 // AI patient summary ("brief"): three labelled bullets, each citing the messages (M), check-ins (C)
-// and calls/visits (T) it came from. Like the conversation summary, generateBrief calls the model and
+// and calls/visits (T) it came from. Like the interaction summary, generateBrief calls the model and
 // the api saves what it generates; getLatestBrief reads the newest saved one back for free (null if
 // none), with counts of what has arrived since.
 export type BriefSourceKind = "message" | "check_in" | "touchpoint";

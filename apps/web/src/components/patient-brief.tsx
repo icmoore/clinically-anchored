@@ -15,7 +15,7 @@ import { StatusBadge } from "./status-badge";
 
 /** The AI patient summary: three labelled bullets about where this patient stands, written by the
  *  model from the check-in, the messages and the calls/visits. Nothing here is computed from the data: it is clearly set apart from
- *  the facts above it, with the same AI badge as the conversation summary.
+ *  the facts above it, with the same AI badge as the interaction summary.
  *
  *  Only a clinician's button press asks the model ("Generate", then "Refresh"). Opening the patient
  *  shows the newest saved one, read back without the model. Patient content is not kept in browser

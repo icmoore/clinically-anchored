@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 import { AppHeader } from "@/components/app-header";
+import { ClinicianProblem } from "@/components/clinician-problem";
 import { ComposeBox } from "@/components/compose-box";
 import { ContactLogSection } from "@/components/contact-log";
 import { PatientLinksSection } from "@/components/patient-links";
@@ -42,7 +43,7 @@ export default function PatientPage() {
   const clinician = useClinician();
   const params = useParams<{ id: string }>();
   if (clinician.status === "loading") return <p className="p-6 text-muted">Loading...</p>;
-  if (clinician.status === "error") return <p className="p-6 text-flag-text">{clinician.message}</p>;
+  if (clinician.status === "error") return <ClinicianProblem problem={clinician} />;
   return (
     <>
       <AppHeader clinician={clinician} />
