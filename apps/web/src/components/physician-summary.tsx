@@ -68,7 +68,7 @@ export function PhysicianSummarySection({
         onChanged={onChanged}
       />
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <p className="text-sm text-muted">{detail}</p>
         {tone === "quiet" ? (
           <span className="rounded-full border border-border bg-surface-subtle px-2 py-0.5 text-xs font-medium text-muted">
