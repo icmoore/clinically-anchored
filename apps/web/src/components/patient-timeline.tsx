@@ -27,17 +27,20 @@ export function PatientTimeline({
   windows,
   timeZone,
   nextOpensAt,
+  extra = false,
 }: {
   windows: PatientWindow[];
   timeZone: string | null;
   nextOpensAt: string | null;
+  /** These are the periods of extra follow-up the care team agreed to, not the first nine. */
+  extra?: boolean;
 }) {
   const [picked, setPicked] = useState<number | null>(null);
   if (windows.length === 0) return null;
 
   const describe = (w: PatientWindow) =>
     [
-      T.period(w.number, windows.length),
+      extra ? PATIENT_TEXT.extension.extraPeriod(w.number, windows.length) : T.period(w.number, windows.length),
       T.state[w.status],
       T.opens(plainTime(w.opens_at, timeZone)),
       T.closes(plainTime(w.closes_at, timeZone)),
@@ -46,8 +49,13 @@ export function PatientTimeline({
 
   return (
     <div className="mt-3">
-      <p className="text-xs font-medium text-muted">{T.heading}</p>
-      <ol className="mt-2 grid grid-cols-9 gap-1">
+      <p className="text-xs font-medium text-muted">
+        {extra ? PATIENT_TEXT.extension.extraHeading : T.heading}
+      </p>
+      <ol
+        className="mt-2 grid gap-1"
+        style={{ gridTemplateColumns: `repeat(${windows.length}, minmax(0, 1fr))` }}
+      >
         {windows.map((w) => {
           const m = MARK[w.status];
           return (

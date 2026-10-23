@@ -27,6 +27,7 @@ import {
   markRead,
 } from "@/lib/clinician-api";
 import { categoryLabel } from "@/lib/categories";
+import { isExtensionEntry } from "@/lib/contact-stats";
 import { clock } from "@/lib/format";
 import { useClinician } from "@/lib/use-clinician";
 import { usePolling } from "@/lib/use-polling";
@@ -100,7 +101,8 @@ function PatientView({
     ]);
     // Viewing the thread counts as reading the patient's new messages.
     for (const m of thread) {
-      if (m.sender === "patient" && !m.read_at && !marked.current.has(m.id)) {
+      // An extension request is answered by deciding it; it is never "unread".
+      if (m.sender === "patient" && !isExtensionEntry(m) && !m.read_at && !marked.current.has(m.id)) {
         marked.current.add(m.id);
         markRead(clinicId, m.id).catch(() => marked.current.delete(m.id));
       }
@@ -224,7 +226,10 @@ function Thread({
         ) : thread.length === 0 ? (
           <p className="text-muted">No messages yet.</p>
         ) : (
-          thread.map((m) => (
+          thread.map((m) =>
+            isExtensionEntry(m) ? (
+              <ExtensionEntry key={m.id} m={m} />
+            ) : (
             <div
               key={m.id}
               id={`message-${m.id}`}
@@ -244,7 +249,8 @@ function Thread({
                 {messageKind(m) ? ` \u00b7 ${messageKind(m)}` : ""} &middot; {clock(m.created_at)}
               </p>
             </div>
-          ))
+            ),
+          )
         )}
       </div>
       <div className="border-t border-border p-3">
@@ -269,6 +275,21 @@ function messageKind(m: Message): string | null {
   if (m.sender !== "patient") return null;
   if (m.origin === "reply") return "Reply";
   const topic = m.category ? categoryLabel(m.category) : null;
-  const window = m.interval_no !== null ? `window ${m.interval_no}` : null;
+  const window =
+    m.interval_no !== null ? `${(m.extension_no ?? 0) > 0 ? "extension window" : "window"} ${m.interval_no}` : null;
   return [topic, window].filter(Boolean).join(", ") || null;
+}
+
+/** The patient's request for more follow-up, or the clinic's answer to it, set apart from the
+ *  messages: it is an event in the care period, not something either side wrote in a window. */
+function ExtensionEntry({ m }: { m: Message }) {
+  const request = m.origin === "extension_request";
+  return (
+    <div id={`message-${m.id}`} className="mx-auto max-w-[90%] rounded-lg border border-watch-border bg-watch-bg px-3 py-2 text-sm text-watch-text">
+      <p className="text-xs font-medium">
+        {request ? "Patient asked for more follow-up" : "Extension answered"} &middot; {clock(m.created_at)}
+      </p>
+      <p className="mt-0.5 whitespace-pre-wrap">{m.body}</p>
+    </div>
+  );
 }

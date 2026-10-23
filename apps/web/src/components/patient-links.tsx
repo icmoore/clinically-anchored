@@ -31,13 +31,25 @@ export function PatientLinksSection({
           {episode.state.close_reason === "discharged"
             ? "This patient was discharged."
             : "The care period has ended."}{" "}
-          The patient&apos;s link no longer works.
+          {linkStillShows(episode)
+            ? "Their link still opens for a limited time, but only to show the end of the care period and the request for more follow-up (or the answer to it)."
+            : "The patient\u2019s link no longer works."}
         </p>
       ) : (
         <LinkControls clinicId={clinicId} episodeId={episode.id} />
       )}
     </Section>
   );
+}
+
+/** The ended screen (an episode that ran out and can still be asked about) keeps the old link open
+ *  to that one thing. The api decides the dates; this only words it. */
+function linkStillShows(episode: Episode): boolean {
+  if (episode.state.close_reason !== "schedule_complete") return false;
+  const ext = episode.extension;
+  if (!ext) return false;
+  const status = ext.request?.status;
+  return status === "pending" || status === "declined" || ext.can_request;
 }
 
 function LinkControls({ clinicId, episodeId }: { clinicId: string; episodeId: string }) {

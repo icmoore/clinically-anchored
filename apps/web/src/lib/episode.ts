@@ -46,6 +46,10 @@ export type Tone = "flag" | "watch" | "clear" | "info" | "quiet";
 export function episodeSummary(e: Episode): { label: string; detail: string; tone: Tone } {
   const s = e.state;
   const at = (iso: string | null) => (iso ? inZone(iso, e.timezone) : "");
+  // A follow-up extension numbers its windows from 1 again and says so in the label.
+  const ext = e.extension;
+  const window = ext && ext.number > 0 ? "Extension window" : "Window";
+  const request = ext?.request ?? null;
   switch (s.phase) {
     case "locked_checkin":
       return {
@@ -61,21 +65,40 @@ export function episodeSummary(e: Episode): { label: string; detail: string; ton
       };
     case "open":
       return {
-        label: `Window ${s.interval_no} of ${s.intervals_total} \u00b7 open`,
+        label: `${window} ${s.interval_no} of ${s.intervals_total} \u00b7 open`,
         detail: `No message yet in this window; it closes ${at(s.interval_closes_at)}.`,
         tone: "clear",
       };
     case "used":
       return {
-        label: `Window ${s.interval_no} of ${s.intervals_total} \u00b7 message received`,
+        label: `${window} ${s.interval_no} of ${s.intervals_total} \u00b7 message received`,
         detail: s.next_opens_at
           ? `The patient has written in this window. The next opens ${at(s.next_opens_at)}.`
-          : `That was the last window. The care period ends ${at(s.episode_closes_at)}.`,
+          : `That was the last window. The ${ext && ext.number > 0 ? "extension" : "care period"} ends ${at(s.episode_closes_at)}.`,
         tone: "info",
       };
-    case "closed":
-      return s.close_reason === "discharged"
-        ? { label: "Discharged", detail: `Discharged ${at(s.closed_at)}. The patient's link no longer works.`, tone: "quiet" }
-        : { label: "Care period ended", detail: `The schedule ended ${at(s.closed_at)}. The patient's link no longer works.`, tone: "quiet" };
+    case "closed": {
+      if (s.close_reason === "discharged")
+        return { label: "Discharged", detail: `Discharged ${at(s.closed_at)}. The patient's link no longer works.`, tone: "quiet" };
+      const what = ext && ext.number > 0 ? "extension" : "care period";
+      if (request?.status === "pending")
+        return {
+          label: "Extension requested",
+          detail: `The patient asked for more follow-up on ${at(request.requested_at)}. Their link shows only that request until you decide.`,
+          tone: "watch",
+        };
+      const answered =
+        request?.status === "declined" ? ` Declined an extension request on ${at(request.decided_at)}.` : "";
+      const offer =
+        !request && ext?.can_request && ext.request_by
+          ? ` The patient can ask for more follow-up until ${at(ext.request_by)}.`
+          : "";
+      const link = request || offer ? "" : " The patient's link no longer works.";
+      return {
+        label: ext && ext.number > 0 ? "Extension ended" : "Care period ended",
+        detail: `The ${what === "extension" ? "extension" : "schedule"} ended ${at(s.closed_at)}.${answered}${offer}${link}`,
+        tone: "quiet",
+      };
+    }
   }
 }

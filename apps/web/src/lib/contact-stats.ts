@@ -37,9 +37,17 @@ function median(values: number[]): number | null {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-// The conversation as the card (and the draft button) sees it: oldest first, no system notes.
+/** The two thread entries of a follow-up extension (the request and the decision) are about the
+ *  care period, not messages: nothing waits for a reply to them, and they are not counted. */
+export const isExtensionEntry = (m: Message) =>
+  m.origin === "extension_request" || m.origin === "extension_decision";
+
+// The conversation as the card (and the draft button) sees it: oldest first, no system notes, and
+// no extension entries.
 const conversation = (thread: Message[]) =>
-  thread.filter((m) => m.sender !== "system").sort((a, b) => ms(a.created_at) - ms(b.created_at));
+  thread
+    .filter((m) => m.sender !== "system" && !isExtensionEntry(m))
+    .sort((a, b) => ms(a.created_at) - ms(b.created_at));
 
 /** Patient messages with no clinician message after them: the unbroken run of patient
  *  messages at the end of the thread. Above zero means the latest message is the patient's
