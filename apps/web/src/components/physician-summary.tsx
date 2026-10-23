@@ -53,7 +53,9 @@ export function PhysicianSummarySection({
   return (
     <Section title="Physician Summary">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-ink">
+        {/* A neutral badge, not a StatusBadge: the procedure is not a status, and the status colors
+            keep their meaning. rounded-2xl rather than rounded-full so it wraps cleanly on a phone. */}
+        <p className="rounded-2xl border border-border-strong bg-surface-subtle px-3 py-1 text-base font-semibold text-ink">
           {[episode.procedure_name, `surgery ${plainDate(episode.surgery_date)}`, !closed && dayLabel(s.post_op_day)]
             .filter(Boolean)
             .join(" · ")}
