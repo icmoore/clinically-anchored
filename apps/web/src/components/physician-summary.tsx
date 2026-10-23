@@ -136,6 +136,13 @@ const WHY: Record<NonNullable<WindowState["missed_reason"]>, string> = {
   no_message: "no message sent",
 };
 
+/** Whole days a window stays open: from when it opens to when the next one opens (the last one, to
+ *  the end of the care period). Worked out from the schedule's own times, never typed in. */
+function daysOpen(w: WindowState): number {
+  return Math.round((new Date(w.closes_at).getTime() - new Date(w.opens_at).getTime()) / 86_400_000);
+}
+const daysLabel = (n: number) => `${n} day${n === 1 ? "" : "s"}`;
+
 function WindowTimeline({ windows, timeZone }: { windows: WindowState[]; timeZone: string }) {
   return (
     <div className="mt-4">
@@ -143,14 +150,18 @@ function WindowTimeline({ windows, timeZone }: { windows: WindowState[]; timeZon
         {windows.map((w) => {
           const m = MARKER[w.status];
           const why = w.missed_reason ? `, ${WHY[w.missed_reason]}` : "";
-          const hover = `Window ${w.number}: ${m.word}${why}. Opens ${inZone(w.opens_at, timeZone)}.`;
+          const days = daysLabel(daysOpen(w));
+          const hover = `Window ${w.number}: ${m.word}${why}. Opens ${inZone(w.opens_at, timeZone)}; open for ${days}.`;
           return (
             <li key={w.number} title={hover} aria-label={hover} className="flex flex-col items-center gap-1">
-              <span className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs font-medium ${m.box}`}>
-                <span aria-hidden="true">{w.status === "open" || w.status === "locked" ? w.number : m.glyph}</span>
-              </span>
-              <span aria-hidden="true" className="text-[10px] leading-none text-muted">
+              <span aria-hidden="true" className="text-xs font-medium leading-none text-ink">
                 {w.number}
+              </span>
+              <span className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs font-medium ${m.box}`}>
+                <span aria-hidden="true">{m.glyph}</span>
+              </span>
+              <span aria-hidden="true" className="text-[10px] leading-none text-ink">
+                {days}
               </span>
               <span aria-hidden="true" className="text-[10px] leading-none text-muted">
                 {zoneDate(w.opens_at, timeZone)}
@@ -160,11 +171,10 @@ function WindowTimeline({ windows, timeZone }: { windows: WindowState[]; timeZon
         })}
       </ol>
       <p className="mt-2 text-[11px] text-muted">
-        {"✓"} message received &middot; {"✕"} missed &middot; numbered circle: open now &middot;{" "}
-        {"○"} upcoming
+        {"✓"} message received &middot; {"✕"} missed &middot; {"●"} open now &middot; {"○"} upcoming
         {windows.some((w) => w.status === "locked") &&
-          " · dashed numbered circle: open by the clock, waiting for the check-in"}
-        . Dates are when each window opens.
+          " · dashed ●: open by the clock, waiting for the check-in"}
+        . Under each circle: how long that window stays open, then the date it opens.
       </p>
     </div>
   );
