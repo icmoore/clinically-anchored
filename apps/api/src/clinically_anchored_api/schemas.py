@@ -137,6 +137,9 @@ class MessageOut(BaseModel):
     reply_to_message_id: str | None
     read_at: str | None
     created_at: str
+    # n > 0: the message used a window of the n-th follow-up extension (its windows number from 1
+    # again). Only the clinician's thread list fills it in.
+    extension_no: int = 0
 
 
 class WindowStateOut(BaseModel):

@@ -551,3 +551,16 @@ def test_a_request_already_made_survives_the_feature_being_switched_off(world):
     next(r for r in world.fake.tables["message_schedules"] if r["version"] == 3)["active"] = False
     state = world.client.get("/episode", params=world.token).json()
     assert state["extension"]["standing"] == "pending"  # it keeps the version it was made under
+
+
+def test_the_thread_says_which_messages_used_an_extensions_windows(monkeypatch):
+    w = accepted_world(monkeypatch)
+    main = w.fake.add_message(episode=EPISODE_A, interval_no=3)
+    ext = w.fake.add_message(episode=CHILD, interval_no=1)
+    thread = {
+        m["id"]: m
+        for m in w.client.get(
+            f"/clinics/{A}/patients/{PATIENT_A}/messages", headers=AUTH
+        ).json()
+    }
+    assert thread[main["id"]]["extension_no"] == 0 and thread[ext["id"]]["extension_no"] == 1

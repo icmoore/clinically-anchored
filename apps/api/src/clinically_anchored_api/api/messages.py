@@ -106,7 +106,7 @@ def list_thread(
         .order("created_at")
         .execute()
     )
-    return [MessageOut(**row) for row in result.data]
+    return [MessageOut(**row) for row in episodes.tag_extension_windows(supabase, result.data)]
 
 
 @router.post(
