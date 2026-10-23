@@ -40,6 +40,7 @@ export function CareProviderSummarySection({
   const [summary, setSummary] = useState<CareProviderSummary | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState<"yes" | "failed" | null>(null);
 
   // What the "new since" counts are made of. When it changes the saved summary is read again (for
   // the counts only; this never calls the model).
@@ -70,10 +71,24 @@ export function CareProviderSummarySection({
     setError(null);
     try {
       setSummary(await generateCareProviderSummary(clinicId, patientId));
+      setCopied(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't write this summary.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  // The paragraph as written, for an email or a message. A new summary clears the "Copied" note.
+  async function handleCopy() {
+    if (!summary) return;
+    try {
+      await navigator.clipboard.writeText(summary.text);
+      setCopied("yes");
+      window.setTimeout(() => setCopied((cur) => (cur === "yes" ? null : cur)), 2500);
+    } catch {
+      // No clipboard access (a blocked permission, an insecure page): the text can still be selected.
+      setCopied("failed");
     }
   }
 
@@ -118,13 +133,27 @@ export function CareProviderSummarySection({
           {summary && " The summary above is the previous one."}
         </p>
       )}
-      <button
-        onClick={handleGenerate}
-        disabled={busy || !loaded || nothingYet}
-        className="mt-3 rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-      >
-        {busy ? (summary ? "Refreshing..." : "Generating...") : summary ? "Refresh" : "Generate"}
-      </button>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          onClick={handleGenerate}
+          disabled={busy || !loaded || nothingYet}
+          className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+        >
+          {busy ? (summary ? "Refreshing..." : "Generating...") : summary ? "Refresh" : "Generate"}
+        </button>
+        {summary && (
+          <button
+            onClick={handleCopy}
+            className="rounded-md border border-primary bg-surface text-primary enabled:hover:bg-primary-tint px-4 py-2 text-sm font-medium"
+          >
+            Copy text
+          </button>
+        )}
+        <span role="status" aria-live="polite" className="text-sm text-muted">
+          {copied === "yes" && "Copied."}
+          {copied === "failed" && "Couldn't copy. Select the text above and copy it."}
+        </span>
+      </div>
       {summary && (
         <>
           <p className="mt-3 text-xs text-muted">

@@ -98,7 +98,9 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   source links (it is meant to be copied as written, so its footer says to check it against the
   records first). Same behaviour as the AI patient summary: instructions before the first one,
   "Generate" / "Refresh" are the only things that call the model, the newest saved one is shown on
-  open, the "Last updated" and "Written by AI" lines sit under the button.
+  open, the "Last updated" and "Written by AI" lines sit under the button. A **Copy text** button beside
+  Refresh puts the paragraph on the clipboard ("Copied." for a moment; if the browser refuses, a note
+  says to select the text instead).
   Then **Interaction Summary** (below), read and reply to the message thread (one compose box, below; each patient message shows its
   category and window, or "Reply"; once the care period has ended the box is replaced by a note,
   because the patient's link no longer works and a message could never be seen; every message
