@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  BriefSource,
   CheckInDetail,
   Episode,
   Message,
@@ -10,6 +9,7 @@ import {
 } from "@/lib/clinician-api";
 import { dayLabel, episodeSummary, plainDate, zoneDate } from "@/lib/episode";
 import { inZone } from "@/lib/format";
+import { CheckInsBlock } from "./check-ins";
 import { CorrectForm, DISCHARGE_ROLES, Discharge } from "./episode-actions";
 import { PatientBriefSection } from "./patient-brief";
 import { Section } from "./section";
@@ -28,7 +28,7 @@ export function PhysicianSummarySection({
   checkIns,
   thread,
   touchpoints,
-  onJump,
+  highlighted,
   onChanged,
 }: {
   clinicId: string;
@@ -38,7 +38,7 @@ export function PhysicianSummarySection({
   checkIns: CheckInDetail[] | null;
   thread: Message[] | null;
   touchpoints: Touchpoint[] | null;
-  onJump: (source: BriefSource) => void;
+  highlighted: string | null; // the page element id to flash (a cited check-in)
   onChanged: () => void;
 }) {
   if (episode === null) return null;
@@ -46,13 +46,13 @@ export function PhysicianSummarySection({
   const s = episode.state;
   const closed = s.phase === "closed";
   const windows = s.windows ?? [];
-  const flagged = checkIns === null ? null : checkIns.filter((c) => c.is_red_flag && inEpisode(c, episode));
-  const day = (iso: string) => zoneDate(iso, episode.timezone);
 
   return (
     <Section title="Physician Summary">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-ink">
+        {/* A neutral badge, not a StatusBadge: the procedure is not a status, and the status colors
+            keep their meaning. rounded-2xl rather than rounded-full so it wraps cleanly on a phone. */}
+        <p className="rounded-2xl border border-border-strong bg-surface-subtle px-3 py-1 text-base font-semibold text-ink">
           {[episode.procedure_name, `surgery ${plainDate(episode.surgery_date)}`, !closed && dayLabel(s.post_op_day)]
             .filter(Boolean)
             .join(" · ")}
@@ -65,24 +65,24 @@ export function PhysicianSummarySection({
           <StatusBadge variant={tone}>{label}</StatusBadge>
         )}
       </div>
-      <p className="mt-1 text-sm text-muted">{detail}</p>
+
+      <CheckInsBlock
+        clinicId={clinicId}
+        episode={episode}
+        checkIns={checkIns}
+        highlighted={highlighted}
+        onChanged={onChanged}
+      />
+
+      <p className="mt-3 text-sm text-muted">{detail}</p>
 
       {windows.length > 0 && <WindowTimeline windows={windows} timeZone={episode.timezone} />}
 
-      <ul className="mt-3 space-y-0.5 text-xs text-muted">
-        <li>{latestCheckIn(episode, checkIns)}</li>
-        {flagged !== null && flagged.length === 0 && <li>No red flags.</li>}
-        {flagged?.map((c) => (
-          <li key={c.id} className="text-flag-text">
-            Red flag: check-in {day(c.created_at)} &middot;{" "}
-            {c.reviewed_at ? `reviewed ${day(c.reviewed_at)}` : "not reviewed yet"}
-          </li>
-        ))}
-        {!closed && <li>The care period ends {zoneDate(s.episode_closes_at, episode.timezone)}.</li>}
-        {!closed && s.reply_available && (
-          <li>The patient can send one reply to your latest message (it doesn&apos;t use a window).</li>
-        )}
-      </ul>
+      {!closed && s.reply_available && (
+        <p className="mt-3 text-xs text-muted">
+          The patient can send one reply to your latest message (it doesn&apos;t use a window).
+        </p>
+      )}
 
       {s.phase === "locked_checkin" && <CorrectForm clinicId={clinicId} episode={episode} onChanged={onChanged} />}
 
@@ -94,7 +94,6 @@ export function PhysicianSummarySection({
           thread={thread}
           checkIns={checkIns}
           touchpoints={touchpoints}
-          onJump={onJump}
         />
       </div>
 
@@ -108,30 +107,6 @@ export function PhysicianSummarySection({
       </p>
     </Section>
   );
-}
-
-/** Is this check-in the one for this care period? There is one per care period; the api names it.
- *  (An older api does not: then it is the one whose time the care period recorded.) */
-function inEpisode(c: CheckInDetail, episode: Episode): boolean {
-  if (c.episode_id) return c.episode_id === episode.id;
-  return (
-    episode.checkin_completed_at !== null &&
-    new Date(c.created_at).getTime() === new Date(episode.checkin_completed_at).getTime()
-  );
-}
-
-/** Completed date, whether it was flagged, whether it has been reviewed. */
-function latestCheckIn(episode: Episode, checkIns: CheckInDetail[] | null): string {
-  if (!episode.checkin_completed_at) return "Check-in: not done yet.";
-  const day = (iso: string) => zoneDate(iso, episode.timezone);
-  const done = `Latest check-in: completed ${day(episode.checkin_completed_at)}`;
-  const c = (checkIns ?? []).find((x) => inEpisode(x, episode));
-  if (!c) return `${done}.`;
-  return [
-    done,
-    c.is_red_flag ? "red flag" : "no red flag",
-    c.reviewed_at ? `reviewed ${day(c.reviewed_at)}` : "not reviewed yet",
-  ].join(" · ");
 }
 
 // Glyphs as well as colours, so a window's state is never shown by colour alone.
@@ -150,12 +125,6 @@ const WHY: Record<NonNullable<WindowState["missed_reason"]>, string> = {
 };
 
 function WindowTimeline({ windows, timeZone }: { windows: WindowState[]; timeZone: string }) {
-  const by = (reason: keyof typeof WHY) =>
-    windows.filter((w) => w.status === "missed" && w.missed_reason === reason).map((w) => w.number);
-  const beforeCheckIn = by("closed_before_check_in");
-  const noMessage = by("no_message");
-  const plural = (n: number[]) => (n.length === 1 ? `window ${n[0]}` : `windows ${n.join(", ")}`);
-
   return (
     <div className="mt-4">
       <ol className="grid grid-cols-9 gap-1" aria-label="Message windows">
@@ -185,17 +154,6 @@ function WindowTimeline({ windows, timeZone }: { windows: WindowState[]; timeZon
           " · dashed numbered circle: open by the clock, waiting for the check-in"}
         . Dates are when each window opens.
       </p>
-      {(beforeCheckIn.length > 0 || noMessage.length > 0) && (
-        <ul className="mt-1 space-y-0.5 text-xs text-muted">
-          {beforeCheckIn.length > 0 && (
-            <li>
-              Missed, closed before the check-in: {plural(beforeCheckIn)}.
-            </li>
-          )}
-          {noMessage.length > 0 && <li>Missed, no message sent: {plural(noMessage)}.</li>}
-          <li>A window that is not used is not carried over.</li>
-        </ul>
-      )}
     </div>
   );
 }

@@ -20,13 +20,6 @@ const DECIDER_ROLES = ["owner", "clinician"];
 
 const NOTHING_TO_REPLY_TO = "Nothing to reply to yet";
 
-const OUTCOME: Record<Draft["status"], string> = {
-  pending: "Waiting",
-  approved: "Sent as written",
-  edited: "Edited, then sent",
-  rejected: "Rejected, nothing sent",
-};
-
 type Closed =
   | { kind: "sent" } // approved or edited: the reply went out
   | { kind: "rejected" } // nothing was sent
@@ -181,24 +174,6 @@ export function ComposeBox({
           : "Any message you send lets the patient send one reply."}
       </p>
     </form>
-  );
-}
-
-/** Drafts that were decided, newest first, with what the AI wrote and what went out. */
-export function EarlierDrafts({ drafts }: { drafts: Draft[] | null }) {
-  const decided = (drafts ?? []).filter((d) => d.status !== "pending").slice(0, 10);
-  if (decided.length === 0) return null;
-  return (
-    <details className="mt-3 rounded-lg border border-border bg-surface">
-      <summary className="cursor-pointer px-4 py-3 text-sm text-muted">
-        Earlier drafts ({decided.length})
-      </summary>
-      <ul className="space-y-3 border-t border-border p-4">
-        {decided.map((d) => (
-          <DecidedDraft key={d.id} draft={d} />
-        ))}
-      </ul>
-    </details>
   );
 }
 
@@ -358,33 +333,5 @@ function PendingDraft({
         )}
       </div>
     </div>
-  );
-}
-
-function DecidedDraft({ draft }: { draft: Draft }) {
-  const edited = draft.status === "edited";
-  return (
-    <li className="text-sm">
-      <p className="flex flex-wrap items-center gap-2 text-xs text-muted">
-        {draft.status === "rejected" ? (
-          <span className="rounded-full border border-border bg-surface-subtle px-2 py-0.5 font-medium text-muted">
-            {OUTCOME[draft.status]}
-          </span>
-        ) : (
-          <StatusBadge variant="clear">{OUTCOME[draft.status]}</StatusBadge>
-        )}
-        {draft.decided_at ? clock(draft.decided_at) : clock(draft.created_at)}
-      </p>
-      <p className="mt-1 whitespace-pre-wrap text-muted">
-        <span className="text-muted">AI wrote: </span>
-        {draft.draft_text}
-      </p>
-      {edited && draft.final_text && (
-        <p className="mt-1 whitespace-pre-wrap text-ink">
-          <span className="text-muted">Sent instead: </span>
-          {draft.final_text}
-        </p>
-      )}
-    </li>
   );
 }
