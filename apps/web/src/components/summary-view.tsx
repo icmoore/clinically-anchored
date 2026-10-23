@@ -122,7 +122,7 @@ export function SummarySection({
         disabled={busy || thread === null || thread.length === 0}
         className="mt-3 rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
       >
-        {busy ? "Summarising..." : summary ? "Refresh summary" : "Summarise this conversation"}
+        {busy ? "Summarising..." : summary ? "Refresh summary" : "Summarise"}
       </button>
       {thread !== null && thread.length === 0 && (
         <p className="mt-2 text-xs text-muted">There are no messages to summarise yet.</p>
