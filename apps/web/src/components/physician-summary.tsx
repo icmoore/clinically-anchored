@@ -81,12 +81,11 @@ export function PhysicianSummarySection({
 
       {windows.length > 0 && <WindowTimeline windows={windows} timeZone={episode.timezone} />}
 
-      <ul className="mt-3 space-y-0.5 text-xs text-muted">
-        {!closed && <li>The care period ends {zoneDate(s.episode_closes_at, episode.timezone)}.</li>}
-        {!closed && s.reply_available && (
-          <li>The patient can send one reply to your latest message (it doesn&apos;t use a window).</li>
-        )}
-      </ul>
+      {!closed && s.reply_available && (
+        <p className="mt-3 text-xs text-muted">
+          The patient can send one reply to your latest message (it doesn&apos;t use a window).
+        </p>
+      )}
 
       {s.phase === "locked_checkin" && <CorrectForm clinicId={clinicId} episode={episode} onChanged={onChanged} />}
 
@@ -130,12 +129,6 @@ const WHY: Record<NonNullable<WindowState["missed_reason"]>, string> = {
 };
 
 function WindowTimeline({ windows, timeZone }: { windows: WindowState[]; timeZone: string }) {
-  const by = (reason: keyof typeof WHY) =>
-    windows.filter((w) => w.status === "missed" && w.missed_reason === reason).map((w) => w.number);
-  const beforeCheckIn = by("closed_before_check_in");
-  const noMessage = by("no_message");
-  const plural = (n: number[]) => (n.length === 1 ? `window ${n[0]}` : `windows ${n.join(", ")}`);
-
   return (
     <div className="mt-4">
       <ol className="grid grid-cols-9 gap-1" aria-label="Message windows">
@@ -165,17 +158,6 @@ function WindowTimeline({ windows, timeZone }: { windows: WindowState[]; timeZon
           " · dashed numbered circle: open by the clock, waiting for the check-in"}
         . Dates are when each window opens.
       </p>
-      {(beforeCheckIn.length > 0 || noMessage.length > 0) && (
-        <ul className="mt-1 space-y-0.5 text-xs text-muted">
-          {beforeCheckIn.length > 0 && (
-            <li>
-              Missed, closed before the check-in: {plural(beforeCheckIn)}.
-            </li>
-          )}
-          {noMessage.length > 0 && <li>Missed, no message sent: {plural(noMessage)}.</li>}
-          <li>A window that is not used is not carried over.</li>
-        </ul>
-      )}
     </div>
   );
 }
