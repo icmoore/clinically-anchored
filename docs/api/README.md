@@ -265,7 +265,9 @@ Built (on `main`):
   `care_provider_summary.edited`.
 - **Follow-up extensions** (`api/extensions.py`, `core/extension.py`, migration 16). **All numbers and
   all wording are PLACEHOLDERS pending the surgeon's confirmation**; the numbers are data (the
-  `extension` schedule row, version 3, "extension v1"), not code.
+  `extension` schedule row, version 3, "extension v1"), not code. **The feature ships OFF**: the row is
+  inserted `active = false`; `update message_schedules set active = true where version = 3` switches it on,
+  `false` switches it off (requests already made keep the version they were made under).
   *Rules.* Only an episode that ended **by schedule** can ask: not a discharge, not while the term still
   runs. The patient has `request_window_days` (30) after the end. Until then the link works in a limited
   "ended" mode (`GET /episode` answers phase `closed` plus an `extension` block and `ended_at`; every other

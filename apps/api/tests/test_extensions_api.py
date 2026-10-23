@@ -535,3 +535,18 @@ def test_the_thread_lists_the_new_entry_kinds(world):
     thread = world.client.get(f"/clinics/{A}/patients/{PATIENT_A}/messages", headers=AUTH).json()
     assert [m["origin"] for m in thread] == ["extension_request", "extension_decision"]
     assert [m["sender"] for m in thread] == ["patient", "clinician"]
+
+
+def test_with_the_feature_switched_off_the_link_is_the_plain_closed_screen(world):
+    next(r for r in world.fake.tables["message_schedules"] if r["version"] == 3)["active"] = False
+    state = world.client.get("/episode", params=world.token).json()
+    assert state["phase"] == "closed" and state["extension"] is None
+    r = world.client.post("/extension-request", params=world.token, json={"reason": REASON})
+    assert r.status_code == 410 and world.fake.rpc_calls == []
+
+
+def test_a_request_already_made_survives_the_feature_being_switched_off(world):
+    world.add_request()
+    next(r for r in world.fake.tables["message_schedules"] if r["version"] == 3)["active"] = False
+    state = world.client.get("/episode", params=world.token).json()
+    assert state["extension"]["standing"] == "pending"  # it keeps the version it was made under

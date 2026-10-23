@@ -24,7 +24,8 @@
 --     never count as an unread message.
 --   * extension_requests: one row per ended episode (ever): pending, then accepted or declined, once.
 --
--- No existing data changes and no data needs to be empty. The api's writes go through the two
+-- Follow-up extensions are OFF after this migration (see the extension row); no existing data changes
+-- and no data needs to be empty. The api's writes go through the two
 -- functions at the bottom, which lock the episode like the other state changes do.
 
 -- ---------------------------------------------------------------------------
@@ -73,10 +74,15 @@ begin
 end;
 $$;
 
--- Extension v1. PLACEHOLDER: the surgeon has not confirmed these numbers.
+-- Extension v1. PLACEHOLDER: the surgeon has not confirmed these numbers. It is inserted INACTIVE:
+-- the feature is off until someone runs `update message_schedules set active = true where version = 3`
+-- (and off again with `active = false`; requests already made keep the version they were made under).
+-- That also makes the rollout safe in either order: code that predates this migration picks the
+-- highest ACTIVE schedule for new patients, and an active extension row would be picked.
 insert into message_schedules
-  (version, offsets_days, close_after_days, opens_at_local, timezone, kind, request_window_days, note)
-values (3, array[7, 14, 21, 28, 35], 7, time '07:00', 'America/Toronto', 'extension', 30,
+  (version, offsets_days, close_after_days, opens_at_local, timezone, kind, request_window_days,
+   active, note)
+values (3, array[7, 14, 21, 28, 35], 7, time '07:00', 'America/Toronto', 'extension', 30, false,
         'Extension v1 (placeholder, pending the surgeon): ask within 30 days after the care period '
         'ends; window 1 opens at acceptance, windows 2-6 at 07:00 on days 7, 14, 21, 28, 35 after the '
         'acceptance date; ends on day 42.');

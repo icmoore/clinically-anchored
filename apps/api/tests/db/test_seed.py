@@ -48,6 +48,7 @@ def env(db, monkeypatch):
     monkeypatch.setattr(settings, "audit_signing_key", base64.b64encode(key).decode())
     monkeypatch.setattr(settings, "audit_key_id", "test-1")
     monkeypatch.setattr(clock, "now", lambda: NOW)
+    conn.execute("update message_schedules set active = true where version = 3")  # switch it on
     user = conn.execute("insert into auth.users (email) values ('doc@example.com') returning id")
     user_id = str(user.fetchone()["id"])
 

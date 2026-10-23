@@ -21,6 +21,7 @@ from clinically_anchored_api.core.audit import AuditWriteError, record_event
 from clinically_anchored_api.core.auth import ClinicMember, require_clinic_member
 from clinically_anchored_api.core.config import get_settings
 from clinically_anchored_api.core.db import get_supabase
+from clinically_anchored_api.core.extension import extension_status
 from clinically_anchored_api.core.schedule import EpisodeState, Schedule, episode_end
 from clinically_anchored_api.core.security import create_episode_token
 from clinically_anchored_api.schemas import (
@@ -115,6 +116,17 @@ def _extension_outs(
         .in_("episode_id", [r["id"] for r in rows]).execute().data
     }
     shaped = request_outs(supabase, list(requests.values()))
+    request_schedules = (
+        episodes.schedules_for(supabase, {r["schedule_version"] for r in requests.values()})
+        if requests else {}
+    )
+    default: list = []  # the newest active extension schedule, looked up once and only if needed
+
+    def default_extension():
+        if not default:
+            default.append(episodes.default_extension_schedule(supabase))
+        return default[0]
+
     for row in rows:
         state = states[row["id"]]
         number, earlier = 0, []
@@ -128,7 +140,12 @@ def _extension_outs(
         request = requests.get(row["id"])
         by, can = None, False
         if state.closed:
-            _req, status = episodes.ended_context(supabase, row, state, now)
+            schedule = (
+                request_schedules[request["schedule_version"]] if request else default_extension()
+            )
+            status = extension_status(
+                state=state, request=request, extension=schedule, now=now
+            )
             by, can = iso(status.request_by), status.can_request
         out[row["id"]] = (
             EpisodeExtensionOut(

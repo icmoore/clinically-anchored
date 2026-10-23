@@ -58,6 +58,7 @@ def ended(conn, w, patient=None):
 def test_extension_v1_is_data_not_code(db):
     row = db.conn.execute("select * from message_schedules where version = 3").fetchone()
     assert row["kind"] == "extension" and row["request_window_days"] == 30
+    assert row["active"] is False  # shipped dark: switched on by hand
     assert row["offsets_days"] == [7, 14, 21, 28, 35]  # windows 2-6; window 1 is the acceptance
     assert row["close_after_days"] == 7  # ends on day 42
     assert (str(row["opens_at_local"]), row["timezone"]) == ("07:00:00", "America/Toronto")
@@ -80,11 +81,15 @@ def test_the_kinds_cannot_be_mixed(db):
         )
 
 
-def test_new_patients_never_get_the_extension_schedule(db):
-    default = episodes.default_schedule(PgSupabase(db.conn))
-    assert default.version == 2 and default.kind == "main"
-    ext = episodes.default_extension_schedule(PgSupabase(db.conn))
-    assert ext.version == 3 and ext.is_extension and ext.request_window_days == 30
+def test_new_patients_never_get_the_extension_schedule_and_it_is_off_until_activated(db):
+    pg = PgSupabase(db.conn)
+    for active in (False, True):
+        db.conn.execute("update message_schedules set active = %s where version = 3", (active,))
+        default = episodes.default_schedule(pg)
+        assert default.version == 2 and default.kind == "main"
+    assert episodes.default_extension_schedule(pg).request_window_days == 30
+    db.conn.execute("update message_schedules set active = false where version = 3")
+    assert episodes.default_extension_schedule(pg) is None  # the feature is off
 
 
 def test_an_extension_version_in_use_cannot_change_what_it_computes(db):
@@ -498,6 +503,7 @@ def test_clinic_members_read_their_clinics_requests_and_nobody_writes_them(db):
 def env(db, monkeypatch):
     conn = db.conn
     w = build_world(conn)
+    conn.execute("update message_schedules set active = true where version = 3")  # switch it on
     conn.execute("update clinics set office_phone = '905-555-0100' where id = %s", (w.clinic_a,))
     pg = PgSupabase(conn)
     install(monkeypatch, pg, audit=False)  # real audit writes

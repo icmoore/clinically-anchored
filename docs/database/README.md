@@ -144,7 +144,7 @@ backup scripts.
 
 Migration `00000000000016_follow_up_extensions.sql` adds follow-up extensions. `message_schedules` gets
 `kind` (`main` | `extension`) and `request_window_days` (extension rows only; a check ties them together),
-and version 3, "extension v1", is the placeholder row: offsets `{7,14,21,28,35}` (windows 2-6; window 1
+and version 3, "extension v1", is the placeholder row (inserted `active = false`: the feature is off until it is set true): offsets `{7,14,21,28,35}` (windows 2-6; window 1
 opens at acceptance), `close_after_days` 7 (ends on day 42), 07:00 America/Toronto, 30 days to ask. The
 "newest active version" rule for new patients now ignores extension rows. `episodes` gets `kind`,
 `extends_episode_id` and `started_at` (an extension episode continues an ended one: a composite
