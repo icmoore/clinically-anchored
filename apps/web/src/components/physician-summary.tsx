@@ -50,7 +50,7 @@ export function PhysicianSummarySection({
 
   return (
     <Section title="Physician Summary">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex flex-wrap">
         {/* A neutral badge, not a StatusBadge: the procedure is not a status, and the status colors
             keep their meaning. rounded-2xl rather than rounded-full so it wraps cleanly on a phone. */}
         <p className="rounded-2xl border border-border-strong bg-surface-subtle px-3 py-1 text-base font-semibold text-ink">
@@ -58,13 +58,6 @@ export function PhysicianSummarySection({
             .filter(Boolean)
             .join(" · ")}
         </p>
-        {tone === "quiet" ? (
-          <span className="rounded-full border border-border bg-surface-subtle px-2 py-0.5 text-xs font-medium text-muted">
-            {label}
-          </span>
-        ) : (
-          <StatusBadge variant={tone}>{label}</StatusBadge>
-        )}
       </div>
 
       <CheckInsBlock
@@ -75,7 +68,16 @@ export function PhysicianSummarySection({
         onChanged={onChanged}
       />
 
-      <p className="mt-3 text-sm text-muted">{detail}</p>
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <p className="text-sm text-muted">{detail}</p>
+        {tone === "quiet" ? (
+          <span className="rounded-full border border-border bg-surface-subtle px-2 py-0.5 text-xs font-medium text-muted">
+            {label}
+          </span>
+        ) : (
+          <StatusBadge variant={tone}>{label}</StatusBadge>
+        )}
+      </div>
 
       {windows.length > 0 && <WindowTimeline windows={windows} timeZone={episode.timezone} surgeryDate={episode.surgery_date} />}
 
