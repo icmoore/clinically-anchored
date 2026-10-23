@@ -85,8 +85,8 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   care period with its date and whether it has been reviewed, or "No red flags" -- those lines are
   visible open or closed; with no check-in yet the block says so instead. Then the status sentence, a
   row of the nine message windows: the window number above each circle, the circle for its
-  state (✓ ✕ ● ○), then how many days that window stays open (until the next one opens; worked out
-  from the schedule) and its opening date (a missed window's reason is
+  state (✓ ✕ ● ○), then the days since the previous window opened (window 1: since the day of
+  surgery; counted in calendar days from the schedule, 2, 3, 5, 7, ...) and its opening date (a missed window's reason is
   in its hover text), whether a reply is open, "fix surgery date or procedure" until the patient has
   checked in, and **discharge** with a confirmation, owner/clinician only, no undo; the two actions
   are in `components/episode-actions.tsx`; schedule version in small print. Below a line in the same
