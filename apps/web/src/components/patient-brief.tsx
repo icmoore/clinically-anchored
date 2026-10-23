@@ -116,14 +116,6 @@ export function PatientBriefSection({
               out.
             </p>
           )}
-          <p className="mt-3 text-xs text-muted">
-            Last updated {inZone(brief.generated_at, timeZone)}
-            {fresh.length > 0 && ` · ${fresh.join(", ")} since`}
-          </p>
-          <p className="mt-1 text-[11px] text-muted">
-            Written by AI ({brief.model_id}, {brief.prompt_version}). Check anything important
-            against the records.
-          </p>
         </>
       )}
 
@@ -140,6 +132,18 @@ export function PatientBriefSection({
       >
         {busy ? (brief ? "Refreshing..." : "Generating...") : brief ? "Refresh" : "Generate"}
       </button>
+      {brief && (
+        <>
+          <p className="mt-3 text-xs text-muted">
+            Last updated {inZone(brief.generated_at, timeZone)}
+            {fresh.length > 0 && ` · ${fresh.join(", ")} since`}
+          </p>
+          <p className="mt-1 text-[11px] text-muted">
+            Written by AI ({brief.model_id}, {brief.prompt_version}). Check anything important
+            against the records.
+          </p>
+        </>
+      )}
       {nothingYet && (
         <p className="mt-2 text-xs text-muted">
           There is no check-in and no messages yet, so there is nothing to summarise.
