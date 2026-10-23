@@ -34,6 +34,11 @@ key, which bypasses row-level security by design. That means this service is wha
 responsible for authorization logic that RLS can't express (e.g. validating a
 patient's link token), not the database.
 
+The one shared database client (`core/db.py`) talks **HTTP/1.1**, not the HTTP/2 that postgrest-py
+defaults to: the endpoints run on a thread pool, and many threads over one HTTP/2 connection
+broke under load (`KeyError` in `http2._response_closed`, `ConnectionTerminated`, `Broken pipe`,
+and 500s on whatever was in flight). Tested in `tests/test_db_client.py`.
+
 ## Current state
 
 Built (on `main`):
