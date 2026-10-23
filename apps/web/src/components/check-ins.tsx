@@ -18,12 +18,10 @@ function inEpisode(c: CheckInDetail, episode: Episode): boolean {
   );
 }
 
-const needsReview = (c: CheckInDetail) => c.is_red_flag && c.reviewed_at === null;
-
 /** The check-in part of the Physician Summary: when it was done and whether it was flagged and
  *  reviewed, the red flags (always shown), then the check-in cards folded away behind a control.
- *  The cards open by themselves on load when a red flag in this care period has not been
- *  reviewed; after that only the clinician (or a citation chip) opens or closes them.
+ *  The cards are closed on load, even with an unreviewed red flag (its line above is always
+ *  visible); only the clinician, or a citation chip, opens them.
  *
  *  Check-ins that are not this care period's (an earlier one, or none) are not listed with its
  *  facts: they are kept at the bottom of the cards, so they stay reachable and citable. */
@@ -41,18 +39,11 @@ export function CheckInsBlock({
   onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [decided, setDecided] = useState(false);
 
   const here = checkIns === null ? null : checkIns.filter((c) => inEpisode(c, episode));
   const elsewhere = checkIns === null ? [] : checkIns.filter((c) => !inEpisode(c, episode));
   const flagged = here === null ? null : here.filter((c) => c.is_red_flag);
   const day = (iso: string) => zoneDate(iso, episode.timezone);
-
-  // Only the first load decides whether to open; a later refresh never moves it.
-  if (!decided && here !== null) {
-    setDecided(true);
-    if (here.some(needsReview)) setOpen(true);
-  }
 
   const shown = (here?.length ?? 0) + elsewhere.length;
 

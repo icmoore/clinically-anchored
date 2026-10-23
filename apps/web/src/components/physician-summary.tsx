@@ -66,7 +66,6 @@ export function PhysicianSummarySection({
           <StatusBadge variant={tone}>{label}</StatusBadge>
         )}
       </div>
-      <p className="mt-1 text-sm text-muted">{detail}</p>
 
       <CheckInsBlock
         clinicId={clinicId}
@@ -75,6 +74,8 @@ export function PhysicianSummarySection({
         highlighted={highlighted}
         onChanged={onChanged}
       />
+
+      <p className="mt-3 text-sm text-muted">{detail}</p>
 
       {windows.length > 0 && <WindowTimeline windows={windows} timeZone={episode.timezone} />}
 
