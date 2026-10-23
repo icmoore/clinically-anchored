@@ -77,7 +77,7 @@ export function PhysicianSummarySection({
 
       <p className="mt-3 text-sm text-muted">{detail}</p>
 
-      {windows.length > 0 && <WindowTimeline windows={windows} timeZone={episode.timezone} />}
+      {windows.length > 0 && <WindowTimeline windows={windows} timeZone={episode.timezone} surgeryDate={episode.surgery_date} />}
 
       {!closed && s.reply_available && (
         <p className="mt-3 text-xs text-muted">
@@ -136,22 +136,43 @@ const WHY: Record<NonNullable<WindowState["missed_reason"]>, string> = {
   no_message: "no message sent",
 };
 
-/** Whole days a window stays open: from when it opens to when the next one opens (the last one, to
- *  the end of the care period). Worked out from the schedule's own times, never typed in. */
-function daysOpen(w: WindowState): number {
-  return Math.round((new Date(w.closes_at).getTime() - new Date(w.opens_at).getTime()) / 86_400_000);
+/** The calendar day (YYYY-MM-DD) an instant falls on in the clinic's time zone. */
+function localDay(iso: string, timeZone: string): string {
+  return new Date(iso).toLocaleDateString("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+const dayNumber = (day: string) => Date.parse(`${day}T00:00:00Z`) / 86_400_000;
+
+/** Whole days from the previous window's opening day to this one's; for window 1, from the day of
+ *  surgery. Counted in calendar days in the clinic's zone, so a daylight-saving change never makes
+ *  it 6 or 8. Worked out from the schedule's own times, never typed in. */
+function daysSincePrevious(windows: WindowState[], i: number, surgeryDate: string, timeZone: string): number {
+  const before = i === 0 ? surgeryDate : localDay(windows[i - 1].opens_at, timeZone);
+  return dayNumber(localDay(windows[i].opens_at, timeZone)) - dayNumber(before);
 }
 const daysLabel = (n: number) => `${n} day${n === 1 ? "" : "s"}`;
 
-function WindowTimeline({ windows, timeZone }: { windows: WindowState[]; timeZone: string }) {
+function WindowTimeline({
+  windows,
+  timeZone,
+  surgeryDate,
+}: {
+  windows: WindowState[];
+  timeZone: string;
+  surgeryDate: string;
+}) {
   return (
     <div className="mt-4">
       <ol className="grid grid-cols-9 gap-1" aria-label="Message windows">
-        {windows.map((w) => {
+        {windows.map((w, i) => {
           const m = MARKER[w.status];
           const why = w.missed_reason ? `, ${WHY[w.missed_reason]}` : "";
-          const days = daysLabel(daysOpen(w));
-          const hover = `Window ${w.number}: ${m.word}${why}. Opens ${inZone(w.opens_at, timeZone)}; open for ${days}.`;
+          const days = daysLabel(daysSincePrevious(windows, i, surgeryDate, timeZone));
+          const hover = `Window ${w.number}: ${m.word}${why}. Opens ${inZone(w.opens_at, timeZone)}, ${days} after ${i === 0 ? "surgery" : "the previous window"}.`;
           return (
             <li key={w.number} title={hover} aria-label={hover} className="flex flex-col items-center gap-1">
               <span aria-hidden="true" className="text-xs font-medium leading-none text-ink">
@@ -174,7 +195,7 @@ function WindowTimeline({ windows, timeZone }: { windows: WindowState[]; timeZon
         {"✓"} message received &middot; {"✕"} missed &middot; {"●"} open now &middot; {"○"} upcoming
         {windows.some((w) => w.status === "locked") &&
           " · dashed ●: open by the clock, waiting for the check-in"}
-        . Under each circle: how long that window stays open, then the date it opens.
+        . Under each circle: days since the previous window opened (window 1: since surgery), then the date it opens.
       </p>
     </div>
   );
