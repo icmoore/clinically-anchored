@@ -1,0 +1,200 @@
+"use client";
+
+import { useState } from "react";
+import { CheckInDetail, Episode, reviewCheckIn } from "@/lib/clinician-api";
+import { dayLabel, zoneDate } from "@/lib/episode";
+import { clock, timeAgo } from "@/lib/format";
+import { buildSummary } from "@/lib/symptoms";
+import { Disclosure } from "./disclosure";
+import { StatusBadge } from "./status-badge";
+
+/** Is this check-in the one for this care period? There is one per care period; the api names it.
+ *  (An older api does not: then it is the one whose time the care period recorded.) */
+function inEpisode(c: CheckInDetail, episode: Episode): boolean {
+  if (c.episode_id) return c.episode_id === episode.id;
+  return (
+    episode.checkin_completed_at !== null &&
+    new Date(c.created_at).getTime() === new Date(episode.checkin_completed_at).getTime()
+  );
+}
+
+const needsReview = (c: CheckInDetail) => c.is_red_flag && c.reviewed_at === null;
+
+/** The check-in part of the Physician Summary: when it was done and whether it was flagged and
+ *  reviewed, the red flags (always shown), then the check-in cards folded away behind a control.
+ *  The cards open by themselves on load when a red flag in this care period has not been
+ *  reviewed; after that only the clinician (or a citation chip) opens or closes them.
+ *
+ *  Check-ins that are not this care period's (an earlier one, or none) are not listed with its
+ *  facts: they are kept at the bottom of the cards, so they stay reachable and citable. */
+export function CheckInsBlock({
+  clinicId,
+  episode,
+  checkIns,
+  highlighted,
+  onChanged,
+}: {
+  clinicId: string;
+  episode: Episode;
+  checkIns: CheckInDetail[] | null;
+  highlighted: string | null; // the page element id to flash (a cited check-in)
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [decided, setDecided] = useState(false);
+
+  const here = checkIns === null ? null : checkIns.filter((c) => inEpisode(c, episode));
+  const elsewhere = checkIns === null ? [] : checkIns.filter((c) => !inEpisode(c, episode));
+  const flagged = here === null ? null : here.filter((c) => c.is_red_flag);
+  const day = (iso: string) => zoneDate(iso, episode.timezone);
+
+  // Only the first load decides whether to open; a later refresh never moves it.
+  if (!decided && here !== null) {
+    setDecided(true);
+    if (here.some(needsReview)) setOpen(true);
+  }
+
+  const shown = (here?.length ?? 0) + elsewhere.length;
+
+  return (
+    <div className="mt-3">
+      <ul className="space-y-0.5 text-xs text-muted">
+        <li>{latestCheckIn(episode, here)}</li>
+        {flagged !== null && flagged.length === 0 && <li>No red flags.</li>}
+        {flagged?.map((c) => (
+          <li key={c.id} className="text-flag-text">
+            Red flag: check-in {day(c.created_at)} &middot;{" "}
+            {c.reviewed_at ? `reviewed ${day(c.reviewed_at)}` : "not reviewed yet"}
+          </li>
+        ))}
+      </ul>
+
+      {here !== null && here.length === 0 && (
+        <p className="mt-3 rounded-lg border border-dashed border-border-strong p-4 text-sm text-muted">
+          No check-in yet. Send this patient their link above: it opens the check-in first.
+        </p>
+      )}
+
+      {shown > 0 && (
+        <Disclosure
+          summary={open ? "Hide check-ins" : `Show check-ins (${shown})`}
+          open={open}
+          onOpenChange={setOpen}
+        >
+          <ul className="space-y-2">
+            {here?.map((c) => (
+              <CheckInCard
+                key={c.id}
+                checkIn={c}
+                clinicId={clinicId}
+                highlighted={highlighted === `checkin-${c.id}`}
+                onChanged={onChanged}
+              />
+            ))}
+          </ul>
+          {elsewhere.length > 0 && (
+            <>
+              <p className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-muted">
+                Not in this care period ({elsewhere.length})
+              </p>
+              <ul className="space-y-2">
+                {elsewhere.map((c) => (
+                  <CheckInCard
+                    key={c.id}
+                    checkIn={c}
+                    clinicId={clinicId}
+                    highlighted={highlighted === `checkin-${c.id}`}
+                    onChanged={onChanged}
+                  />
+                ))}
+              </ul>
+            </>
+          )}
+        </Disclosure>
+      )}
+    </div>
+  );
+}
+
+/** Completed date, whether it was flagged, whether it has been reviewed. */
+function latestCheckIn(episode: Episode, here: CheckInDetail[] | null): string {
+  if (!episode.checkin_completed_at) return "Check-in: not done yet.";
+  const day = (iso: string) => zoneDate(iso, episode.timezone);
+  const done = `Latest check-in: completed ${day(episode.checkin_completed_at)}`;
+  const c = (here ?? [])[0];
+  if (!c) return `${done}.`;
+  return [
+    done,
+    c.is_red_flag ? "red flag" : "no red flag",
+    c.reviewed_at ? `reviewed ${day(c.reviewed_at)}` : "not reviewed yet",
+  ].join(" · ");
+}
+
+function CheckInCard({
+  checkIn,
+  clinicId,
+  highlighted,
+  onChanged,
+}: {
+  checkIn: CheckInDetail;
+  clinicId: string;
+  highlighted: boolean;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  // Patient/procedure/day are already shown by this card -- the summary
+  // here is just the symptom detail, built from the same definitions the
+  // check-in form itself used (apps/web's lib/symptoms.ts), so it can't
+  // drift out of sync with what the patient was actually asked.
+  const summary = buildSummary({ answers: checkIn.answers });
+  const reviewed = checkIn.reviewed_at !== null;
+
+  async function review() {
+    setBusy(true);
+    try {
+      await reviewCheckIn(clinicId, checkIn.id);
+      onChanged();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <li
+      id={`checkin-${checkIn.id}`}
+      className={`rounded-lg border p-4 transition-shadow ${
+        checkIn.is_red_flag && !reviewed ? "border-flag-border bg-flag-bg" : "border-border bg-surface"
+      } ${highlighted ? "ring-2 ring-primary" : ""}`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-muted">
+          {clock(checkIn.created_at)}
+          <span className="text-muted"> &middot; {timeAgo(checkIn.created_at)}</span>
+        </p>
+        <div className="flex gap-2 text-xs">
+          {checkIn.is_red_flag && (
+            <StatusBadge variant="flag">Red flag</StatusBadge>
+          )}
+          {reviewed && (
+            <StatusBadge variant="clear">Reviewed</StatusBadge>
+          )}
+        </div>
+      </div>
+      <p className="mt-1 text-sm text-muted">
+        {[checkIn.procedure_name, checkIn.post_op_day !== null && dayLabel(checkIn.post_op_day)]
+          .filter(Boolean)
+          .join(" · ") || "No procedure or day given"}
+      </p>
+      <p className="mt-2 whitespace-pre-wrap text-sm text-ink">{summary}</p>
+      {!reviewed && (
+        <button
+          onClick={review}
+          disabled={busy}
+          className="mt-3 rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+        >
+          {busy ? "Saving..." : "Mark reviewed"}
+        </button>
+      )}
+    </li>
+  );
+}

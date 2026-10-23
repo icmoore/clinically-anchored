@@ -4,11 +4,10 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 import { AppHeader } from "@/components/app-header";
-import { ComposeBox, EarlierDrafts } from "@/components/compose-box";
+import { ComposeBox } from "@/components/compose-box";
 import { ContactLogSection } from "@/components/contact-log";
 import { PatientLinksSection } from "@/components/patient-links";
 import { PhysicianSummarySection } from "@/components/physician-summary";
-import { StatusBadge } from "@/components/status-badge";
 import { SummarySection } from "@/components/summary-view";
 import {
   BriefSource,
@@ -25,12 +24,9 @@ import {
   listThread,
   listTouchpoints,
   markRead,
-  reviewCheckIn,
 } from "@/lib/clinician-api";
 import { categoryLabel } from "@/lib/categories";
-import { dayLabel } from "@/lib/episode";
-import { clock, timeAgo } from "@/lib/format";
-import { buildSummary } from "@/lib/symptoms";
+import { clock } from "@/lib/format";
 import { useClinician } from "@/lib/use-clinician";
 import { usePolling } from "@/lib/use-polling";
 
@@ -72,8 +68,8 @@ function PatientView({
   const [highlighted, setHighlighted] = useState<string | null>(null);
 
   // Scroll a cited record into view and flash it: a message in the thread, a check-in card, or a
-  // contact-history entry (that list is folded away, so it is opened first). Used by the summary
-  // citations and by the AI patient summary's source chips.
+  // contact-history entry (the check-ins and the contact history are folded away, so the fold is
+  // opened first). Used by the summary citations and by the AI patient summary's source chips.
   const jumpTo = useCallback((source: BriefSource) => {
     const domId = `${ANCHOR[source.kind]}-${source.id}`;
     const el = document.getElementById(domId);
@@ -158,6 +154,7 @@ function PatientView({
         checkIns={checkIns}
         thread={thread}
         touchpoints={touchpoints}
+        highlighted={highlighted}
         onJump={jumpTo}
         onChanged={load}
       />
@@ -168,31 +165,6 @@ function PatientView({
         thread={thread}
         onJump={jumpToMessage}
       />
-
-      <section>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted">
-          Check-ins
-        </h2>
-        {checkIns === null ? (
-          <p className="text-muted">Loading...</p>
-        ) : checkIns.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-border-strong p-4 text-muted">
-            No check-in yet. Send this patient their link above: it opens the check-in first.
-          </p>
-        ) : (
-          <ul className="space-y-2">
-            {checkIns.map((c) => (
-              <CheckInCard
-                key={c.id}
-                checkIn={c}
-                clinicId={clinicId}
-                highlighted={highlighted === `checkin-${c.id}`}
-                onChanged={load}
-              />
-            ))}
-          </ul>
-        )}
-      </section>
 
       <section>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted">
@@ -209,7 +181,6 @@ function PatientView({
           highlighted={highlighted}
           onChanged={load}
         />
-        <EarlierDrafts drafts={drafts} />
       </section>
 
       <ContactLogSection
@@ -221,75 +192,6 @@ function PatientView({
         onChanged={load}
       />
     </main>
-  );
-}
-
-function CheckInCard({
-  checkIn,
-  clinicId,
-  highlighted,
-  onChanged,
-}: {
-  checkIn: CheckInDetail;
-  clinicId: string;
-  highlighted: boolean;
-  onChanged: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  // Patient/procedure/day are already shown by this card -- the summary
-  // here is just the symptom detail, built from the same definitions the
-  // check-in form itself used (apps/web's lib/symptoms.ts), so it can't
-  // drift out of sync with what the patient was actually asked.
-  const summary = buildSummary({ answers: checkIn.answers });
-  const reviewed = checkIn.reviewed_at !== null;
-
-  async function review() {
-    setBusy(true);
-    try {
-      await reviewCheckIn(clinicId, checkIn.id);
-      onChanged();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <li
-      id={`checkin-${checkIn.id}`}
-      className={`rounded-lg border p-4 transition-shadow ${
-        checkIn.is_red_flag && !reviewed ? "border-flag-border bg-flag-bg" : "border-border bg-surface"
-      } ${highlighted ? "ring-2 ring-primary" : ""}`}
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-muted">
-          {clock(checkIn.created_at)}
-          <span className="text-muted"> &middot; {timeAgo(checkIn.created_at)}</span>
-        </p>
-        <div className="flex gap-2 text-xs">
-          {checkIn.is_red_flag && (
-            <StatusBadge variant="flag">Red flag</StatusBadge>
-          )}
-          {reviewed && (
-            <StatusBadge variant="clear">Reviewed</StatusBadge>
-          )}
-        </div>
-      </div>
-      <p className="mt-1 text-sm text-muted">
-        {[checkIn.procedure_name, checkIn.post_op_day !== null && dayLabel(checkIn.post_op_day)]
-          .filter(Boolean)
-          .join(" · ") || "No procedure or day given"}
-      </p>
-      <p className="mt-2 whitespace-pre-wrap text-sm text-ink">{summary}</p>
-      {!reviewed && (
-        <button
-          onClick={review}
-          disabled={busy}
-          className="mt-3 rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-        >
-          {busy ? "Saving..." : "Mark reviewed"}
-        </button>
-      )}
-    </li>
   );
 }
 

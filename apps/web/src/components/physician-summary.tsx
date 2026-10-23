@@ -10,6 +10,7 @@ import {
 } from "@/lib/clinician-api";
 import { dayLabel, episodeSummary, plainDate, zoneDate } from "@/lib/episode";
 import { inZone } from "@/lib/format";
+import { CheckInsBlock } from "./check-ins";
 import { CorrectForm, DISCHARGE_ROLES, Discharge } from "./episode-actions";
 import { PatientBriefSection } from "./patient-brief";
 import { Section } from "./section";
@@ -28,6 +29,7 @@ export function PhysicianSummarySection({
   checkIns,
   thread,
   touchpoints,
+  highlighted,
   onJump,
   onChanged,
 }: {
@@ -38,6 +40,7 @@ export function PhysicianSummarySection({
   checkIns: CheckInDetail[] | null;
   thread: Message[] | null;
   touchpoints: Touchpoint[] | null;
+  highlighted: string | null; // the page element id to flash (a cited check-in)
   onJump: (source: BriefSource) => void;
   onChanged: () => void;
 }) {
@@ -46,8 +49,6 @@ export function PhysicianSummarySection({
   const s = episode.state;
   const closed = s.phase === "closed";
   const windows = s.windows ?? [];
-  const flagged = checkIns === null ? null : checkIns.filter((c) => c.is_red_flag && inEpisode(c, episode));
-  const day = (iso: string) => zoneDate(iso, episode.timezone);
 
   return (
     <Section title="Physician Summary">
@@ -67,17 +68,17 @@ export function PhysicianSummarySection({
       </div>
       <p className="mt-1 text-sm text-muted">{detail}</p>
 
+      <CheckInsBlock
+        clinicId={clinicId}
+        episode={episode}
+        checkIns={checkIns}
+        highlighted={highlighted}
+        onChanged={onChanged}
+      />
+
       {windows.length > 0 && <WindowTimeline windows={windows} timeZone={episode.timezone} />}
 
       <ul className="mt-3 space-y-0.5 text-xs text-muted">
-        <li>{latestCheckIn(episode, checkIns)}</li>
-        {flagged !== null && flagged.length === 0 && <li>No red flags.</li>}
-        {flagged?.map((c) => (
-          <li key={c.id} className="text-flag-text">
-            Red flag: check-in {day(c.created_at)} &middot;{" "}
-            {c.reviewed_at ? `reviewed ${day(c.reviewed_at)}` : "not reviewed yet"}
-          </li>
-        ))}
         {!closed && <li>The care period ends {zoneDate(s.episode_closes_at, episode.timezone)}.</li>}
         {!closed && s.reply_available && (
           <li>The patient can send one reply to your latest message (it doesn&apos;t use a window).</li>
@@ -108,30 +109,6 @@ export function PhysicianSummarySection({
       </p>
     </Section>
   );
-}
-
-/** Is this check-in the one for this care period? There is one per care period; the api names it.
- *  (An older api does not: then it is the one whose time the care period recorded.) */
-function inEpisode(c: CheckInDetail, episode: Episode): boolean {
-  if (c.episode_id) return c.episode_id === episode.id;
-  return (
-    episode.checkin_completed_at !== null &&
-    new Date(c.created_at).getTime() === new Date(episode.checkin_completed_at).getTime()
-  );
-}
-
-/** Completed date, whether it was flagged, whether it has been reviewed. */
-function latestCheckIn(episode: Episode, checkIns: CheckInDetail[] | null): string {
-  if (!episode.checkin_completed_at) return "Check-in: not done yet.";
-  const day = (iso: string) => zoneDate(iso, episode.timezone);
-  const done = `Latest check-in: completed ${day(episode.checkin_completed_at)}`;
-  const c = (checkIns ?? []).find((x) => inEpisode(x, episode));
-  if (!c) return `${done}.`;
-  return [
-    done,
-    c.is_red_flag ? "red flag" : "no red flag",
-    c.reviewed_at ? `reviewed ${day(c.reviewed_at)}` : "not reviewed yet",
-  ].join(" · ");
 }
 
 // Glyphs as well as colours, so a window's state is never shown by colour alone.
