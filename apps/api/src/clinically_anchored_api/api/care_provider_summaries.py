@@ -13,6 +13,11 @@ episode's message thread and the calls/visits logged since the episode began (ap
 `gather_record`, the same read the AI patient summary uses). It is NOT shown the Conversation
 Summary, the AI patient summary or any earlier AI output.
 
+A physician may edit the text before passing it on (`POST .../{summary_id}/edit`). The AI's row is
+never changed: the edit is a new row in `care_provider_summary_edits` (migration 15) naming its
+summary, audited as `care_provider_summary.edited` before it is saved, and the newest edit is what
+is shown and copied. Only the newest summary of a patient can be edited.
+
 A checked summary is audited as `care_provider_summary.generated` (model id, prompt version and
 counts in readable metadata; the text only in the hashed payload). If the audit write fails nothing
 is shown. Only after it succeeds is the summary saved (migration 14, `care_provider_summaries`, one
@@ -41,7 +46,11 @@ from clinically_anchored_api.core.auth import ClinicMember, require_clinic_membe
 from clinically_anchored_api.core.db import get_supabase
 from clinically_anchored_api.core.provider_summary import SummaryFormatError, validate_summary
 from clinically_anchored_api.core.thread_text import speaker
-from clinically_anchored_api.schemas import BriefCountsOut, CareProviderSummaryOut
+from clinically_anchored_api.schemas import (
+    BriefCountsOut,
+    CareProviderSummaryEdit,
+    CareProviderSummaryOut,
+)
 
 logger = logging.getLogger(__name__)
 # Timings go through uvicorn's logger so they actually print. Durations and counts only --
@@ -72,7 +81,7 @@ def _episode_text(supabase, episode: dict, state) -> str:
     )
 
 
-def _out(row: dict, new_since: BriefCountsOut) -> CareProviderSummaryOut:
+def _out(row: dict, new_since: BriefCountsOut, edit: dict | None = None) -> CareProviderSummaryOut:
     return CareProviderSummaryOut(
         summary_id=str(row["id"]),
         patient_id=str(row["patient_id"]),
@@ -84,7 +93,39 @@ def _out(row: dict, new_since: BriefCountsOut) -> CareProviderSummaryOut:
         covers=BriefCountsOut(**row["covers"]),
         truncated=row["truncated"],
         new_since=new_since,
+        edited_text=edit["edited_text"] if edit else None,
+        edited_at=str(edit["edited_at"]) if edit else None,
     )
+
+
+def _newest_edit(supabase, summary_id: str) -> dict | None:
+    rows = (
+        supabase.table("care_provider_summary_edits")
+        .select("id, summary_id, edited_text, edited_at")
+        .eq("summary_id", summary_id)
+        .order("edited_at", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    )
+    return rows[0] if rows else None
+
+
+def _newest_summary(supabase, clinic_id: str, patient_id: str) -> dict | None:
+    rows = (
+        supabase.table("care_provider_summaries")
+        .select(
+            "id, clinic_id, patient_id, episode_id, summary_text, covers, truncated, model_id, "
+            "prompt_version, generated_at"
+        )
+        .eq("clinic_id", clinic_id)
+        .eq("patient_id", patient_id)
+        .order("generated_at", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    )
+    return rows[0] if rows else None
 
 
 def _save(supabase, row: dict) -> None:
@@ -106,22 +147,10 @@ def latest_summary(
     and counts what has come in since; it never calls the model and writes nothing."""
     supabase = get_supabase()
     _require_patient_in_clinic(supabase, clinic_id, patient_id)
-    rows = (
-        supabase.table("care_provider_summaries")
-        .select(
-            "id, clinic_id, patient_id, episode_id, summary_text, covers, truncated, model_id, "
-            "prompt_version, generated_at"
-        )
-        .eq("clinic_id", clinic_id)
-        .eq("patient_id", patient_id)
-        .order("generated_at", desc=True)
-        .limit(1)
-        .execute()
-        .data
-    )
-    if not rows:
+    row = _newest_summary(supabase, clinic_id, patient_id)
+    if row is None:
         return None
-    return _out(rows[0], _counts_since(supabase, rows[0]))
+    return _out(row, _counts_since(supabase, row), _newest_edit(supabase, row["id"]))
 
 
 @router.post(
@@ -256,3 +285,95 @@ def generate_summary(
         result.retry_attempts,
     )
     return _out(row, BriefCountsOut())
+
+
+@router.post(
+    "/clinics/{clinic_id}/patients/{patient_id}/care-provider-summary/{summary_id}/edit",
+    response_model=CareProviderSummaryOut,
+)
+def edit_summary(
+    clinic_id: str,
+    patient_id: str,
+    summary_id: str,
+    body: CareProviderSummaryEdit,
+    member: ClinicMember = Depends(require_clinic_member),
+) -> CareProviderSummaryOut:
+    """Save the physician's edited text. The AI's text is kept as it was; the edit is a new row
+    that names it. The text is the physician's own, so it is not shape-checked like the AI's, only
+    kept non-blank and within the length limit."""
+    supabase = get_supabase()
+    _require_patient_in_clinic(supabase, clinic_id, patient_id)
+    row = _newest_summary(supabase, clinic_id, patient_id)
+    if row is None or str(row["id"]) != summary_id:
+        # Either this id is not one of this patient's summaries, or a newer one exists.
+        known = (
+            supabase.table("care_provider_summaries")
+            .select("id")
+            .eq("clinic_id", clinic_id)
+            .eq("patient_id", patient_id)
+            .eq("id", summary_id)
+            .execute()
+            .data
+        )
+        if not known:
+            raise HTTPException(status_code=404, detail="Summary not found.")
+        raise HTTPException(
+            status_code=409,
+            detail="A newer summary exists for this patient. Reload the page to see it.",
+        )
+
+    text = body.text.strip()
+    previous = _newest_edit(supabase, summary_id)
+    shown = previous["edited_text"] if previous else row["summary_text"]
+    if text == shown.strip():
+        raise HTTPException(
+            status_code=422, detail="Nothing has changed, so there is nothing to save."
+        )
+
+    edit_id = str(uuid.uuid4())
+    edited_at = clock.now().isoformat()
+    try:
+        record_event(
+            supabase,
+            clinic_id=clinic_id,
+            event_type="care_provider_summary.edited",
+            payload={
+                "edit_id": edit_id,
+                "summary_id": summary_id,
+                "patient_id": patient_id,
+                "episode_id": row["episode_id"],
+                "text": text,
+            },
+            metadata={
+                "ref_type": "care_provider_summary_edit",
+                "ref_id": edit_id,
+                "summary_id": summary_id,
+                "patient_id": patient_id,
+                "episode_id": row["episode_id"],
+                "actor": {"type": "member", "id": member.user_id, "role": member.role},
+            },
+        )
+    except AuditWriteError as exc:
+        logger.error("care provider summary edit %s: audit write failed: %s", edit_id, exc)
+        raise HTTPException(
+            status_code=500, detail="The edit could not be recorded, so it was not saved."
+        ) from exc
+
+    edit = {
+        "id": edit_id,
+        "clinic_id": clinic_id,
+        "patient_id": patient_id,
+        "summary_id": summary_id,
+        "edited_text": text,
+        "edited_by": member.user_id,
+        "edited_at": edited_at,
+    }
+    try:
+        supabase.table("care_provider_summary_edits").insert(edit).execute()
+    except Exception as exc:
+        # Unlike a generated summary, the edit IS the point of this call: do not pretend it saved.
+        logger.exception("care provider summary edit %s audited but not saved", edit_id)
+        raise HTTPException(
+            status_code=500, detail="The edit could not be saved. Try again."
+        ) from exc
+    return _out(row, _counts_since(supabase, row), edit)

@@ -133,6 +133,15 @@ clinic members, writes revoked from `authenticated`/`anon`, TRUNCATE by the rese
 the backup script, now lists it). A table of its own because a brief's bullets and verified sources
 don't fit a paragraph with none.
 
+Migration `00000000000015_care_provider_summary_edits.sql` adds `care_provider_summary_edits`: the
+physician's edits of a care provider summary. The summary row (migration 14) stays exactly what the AI
+wrote; each saved edit is a new row (`summary_id`, `edited_text`, `edited_by`, `edited_at`) and the newest
+one for a summary is the one shown, so an edit of an edit keeps the earlier ones. A composite foreign key
+`(summary_id, clinic_id, patient_id)` (it adds a unique constraint on `care_provider_summaries` for that)
+means an edit cannot name another patient's or clinic's summary. Same rules: never updated or deleted
+(trigger), RLS read for clinic members, writes revoked from `authenticated`/`anon`, listed in the reset and
+backup scripts.
+
 `audit_log` is append-only at the database level: `UPDATE`/`DELETE` are revoked for
 `authenticated`/`anon` entirely, not just gated by a policy. Only the service role
 (i.e. only `apps/api`) can write to it. Note the service role itself still *can*

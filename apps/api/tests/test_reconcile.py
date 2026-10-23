@@ -50,7 +50,7 @@ class _Db:
         self.t = {n: [] for n in (
             "patients", "episodes", "check_ins", "messages", "consents", "message_drafts",
             "touchpoints", "thread_summaries", "patient_briefs", "care_provider_summaries",
-            "audit_log",
+            "care_provider_summary_edits", "audit_log",
         )}
 
     def table(self, name):
@@ -291,3 +291,17 @@ def test_saved_care_provider_summaries_are_checked_against_their_audit_event(db)
         ("care_provider_summaries", "p-orphan", "care_provider_summary.generated")
     }
     assert report.checked["care_provider_summary.generated"] == 2
+
+
+def test_saved_summary_edits_are_checked_against_their_audit_event(db):
+    t = "2026-10-01T10:00:00Z"
+    db.t["care_provider_summary_edits"] += [
+        {"id": "e-ok", "clinic_id": A, "edited_at": t},
+        {"id": "e-orphan", "clinic_id": A, "edited_at": t},
+    ]
+    db.audit(A, "care_provider_summary.edited", "e-ok")
+    report = rec.reconcile(db)
+    assert _gaps(report) == {
+        ("care_provider_summary_edits", "e-orphan", "care_provider_summary.edited")
+    }
+    assert report.checked["care_provider_summary.edited"] == 2

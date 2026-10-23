@@ -308,6 +308,116 @@ def test_new_since_counts_what_arrived_after_it_was_generated(client, record):
     assert latest["covers"] == {"messages": 2, "check_ins": 1, "touchpoints": 1}  # unchanged
 
 
+# --- the physician's edit -----------------------------------------------------------------------
+
+EDITED = "The patient is recovering after a colectomy; pain was 8 out of 10 at check-in."
+
+
+def edit_url(summary_id: str, clinic: str = CLINIC_A, patient: str = PATIENT_A) -> str:
+    return f"/clinics/{clinic}/patients/{patient}/care-provider-summary/{summary_id}/edit"
+
+
+def save_edit(client, summary_id: str, text: str = EDITED, **where):
+    return client.post(edit_url(summary_id, **where), headers=AUTH, json={"text": text})
+
+
+def test_an_edit_is_saved_beside_the_ai_text_and_shown_from_then_on(client, record, model):
+    shown = client.post(URL, headers=AUTH).json()
+    model["calls"].clear()
+    r = save_edit(client, shown["summary_id"], f"  {EDITED}\n")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["text"] == GOOD  # what the AI wrote is not changed
+    assert body["edited_text"] == EDITED and body["edited_at"].startswith("2026-10-03T11:30:00")
+    (saved_edit,) = record.tables["care_provider_summary_edits"]
+    assert saved_edit["summary_id"] == shown["summary_id"] and saved_edit["edited_by"] == USER
+    assert saved_edit["edited_text"] == EDITED and saved_edit["clinic_id"] == CLINIC_A
+    assert record.tables["care_provider_summaries"][0]["summary_text"] == GOOD
+    assert model["calls"] == []  # editing never calls the model
+    latest = client.get(f"{URL}/latest", headers=AUTH).json()
+    assert latest["text"] == GOOD and latest["edited_text"] == EDITED
+
+
+def test_an_edit_is_audited_with_the_text_only_in_the_hashed_payload(client, record):
+    shown = client.post(URL, headers=AUTH).json()
+    record.audits.clear()
+    save_edit(client, shown["summary_id"])
+    (event,) = record.audits
+    assert event["event_type"] == "care_provider_summary.edited"
+    meta = event["metadata"]
+    assert meta["ref_type"] == "care_provider_summary_edit"
+    (saved,) = record.tables["care_provider_summary_edits"]
+    assert meta["ref_id"] == saved["id"] and meta["summary_id"] == shown["summary_id"]
+    assert meta["actor"]["id"] == USER and "colectomy" not in str(meta)
+    assert event["payload"]["text"] == EDITED
+    assert event["payload"]["summary_id"] == shown["summary_id"]
+
+
+def test_the_newest_edit_wins_and_every_edit_is_kept(client, record, monkeypatch):
+    shown = client.post(URL, headers=AUTH).json()
+    save_edit(client, shown["summary_id"], "First edit.")
+    pin_clock(monkeypatch, datetime(2026, 10, 3, 14, 0, tzinfo=UTC))
+    save_edit(client, shown["summary_id"], "Second edit.")
+    assert len(record.tables["care_provider_summary_edits"]) == 2
+    assert client.get(f"{URL}/latest", headers=AUTH).json()["edited_text"] == "Second edit."
+
+
+def test_saving_the_text_that_is_already_shown_is_a_422(client, record):
+    shown = client.post(URL, headers=AUTH).json()
+    r = save_edit(client, shown["summary_id"], f" {GOOD} ")
+    assert r.status_code == 422 and "Nothing has changed" in r.json()["detail"]
+    save_edit(client, shown["summary_id"])
+    assert save_edit(client, shown["summary_id"]).status_code == 422  # same as the newest edit
+    assert len(record.tables["care_provider_summary_edits"]) == 1
+
+
+@pytest.mark.parametrize("body", [{"text": ""}, {"text": "   "}, {"text": "x" * 3001}, {}])
+def test_a_blank_or_too_long_edit_is_refused(client, record, body):
+    shown = client.post(URL, headers=AUTH).json()
+    r = client.post(edit_url(shown["summary_id"]), headers=AUTH, json=body)
+    assert r.status_code == 422
+    assert not record.tables.get("care_provider_summary_edits")
+
+
+def test_only_the_newest_summary_can_be_edited(client, record, monkeypatch):
+    first = client.post(URL, headers=AUTH).json()
+    pin_clock(monkeypatch, datetime(2026, 10, 3, 14, 0, tzinfo=UTC))
+    second = client.post(URL, headers=AUTH).json()
+    r = save_edit(client, first["summary_id"])
+    assert r.status_code == 409 and "newer summary" in r.json()["detail"]
+    assert save_edit(client, second["summary_id"]).status_code == 200
+
+
+def test_an_unknown_summary_or_another_patients_is_a_404(client, record):
+    sid = client.post(URL, headers=AUTH).json()["summary_id"]
+    assert save_edit(client, new_id()).status_code == 404
+    assert save_edit(client, sid, clinic=CLINIC_B, patient=PATIENT_B).status_code == 403
+    assert save_edit(client, sid, patient=PATIENT_B).status_code == 404
+    anonymous = client.post(edit_url(sid), json={"text": EDITED})
+    assert anonymous.status_code in (401, 403)
+    assert not record.tables.get("care_provider_summary_edits")
+
+
+def test_if_the_audit_write_fails_the_edit_is_not_saved(client, record, monkeypatch):
+    sid = client.post(URL, headers=AUTH).json()["summary_id"]
+
+    def boom(*_a, **_k):
+        raise AuditWriteError("down")
+
+    monkeypatch.setattr(module, "record_event", boom)
+    r = save_edit(client, sid)
+    assert r.status_code == 500 and "not saved" in r.json()["detail"]
+    assert not record.tables.get("care_provider_summary_edits")
+
+
+def test_if_saving_the_edit_fails_the_caller_is_told(client, record):
+    sid = client.post(URL, headers=AUTH).json()["summary_id"]
+    record.fail_insert["care_provider_summary_edits"] = RuntimeError("db down")
+    r = save_edit(client, sid)
+    assert r.status_code == 500 and "could not be saved" in r.json()["detail"]
+    assert not record.tables.get("care_provider_summary_edits")
+
+
 # --- the shape check on its own ---------------------------------------------------------------
 
 

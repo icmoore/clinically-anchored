@@ -260,9 +260,24 @@ export interface CareProviderSummary {
   covers: BriefCounts; // what the model was shown
   truncated: boolean;
   new_since: BriefCounts; // added after it was generated
+  // The physician's newest edit of `text`, if any. It is what is shown and copied; `text` stays
+  // exactly what the AI wrote.
+  edited_text: string | null;
+  edited_at: string | null;
 }
 export const generateCareProviderSummary = (clinic: string, patient: string) =>
   post<CareProviderSummary>(`/clinics/${clinic}/patients/${patient}/care-provider-summary`);
+// Saves the edit as a new record beside the AI's text (the api never overwrites the AI's text).
+export const editCareProviderSummary = (
+  clinic: string,
+  patient: string,
+  summaryId: string,
+  text: string,
+) =>
+  post<CareProviderSummary>(
+    `/clinics/${clinic}/patients/${patient}/care-provider-summary/${summaryId}/edit`,
+    { text },
+  );
 export const getLatestCareProviderSummary = (clinic: string, patient: string) =>
   authed<CareProviderSummary | null>(
     `/clinics/${clinic}/patients/${patient}/care-provider-summary/latest`,

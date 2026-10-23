@@ -27,7 +27,7 @@ RESTORE_SH = SCRIPTS / "restore_trial_data.sh"
 RESET_SH = SCRIPTS / "reset_trial_data.sh"
 RESET_SQL = SCRIPTS / "reset_trial_data.sql"
 TABLES = ["message_drafts", "thread_summaries", "patient_briefs", "care_provider_summaries",
-          "touchpoints", "consents", "messages", "check_ins",
+          "care_provider_summary_edits", "touchpoints", "consents", "messages", "check_ins",
           "episodes", "patients", "audit_log"]
 
 needs_tools = pytest.mark.skipif(
@@ -95,13 +95,20 @@ def populate(conn):
             (w.clinic_a, w.patient_a, episode, w.user_a),
         )
     if conn.execute("select to_regclass('care_provider_summaries') as t").fetchone()["t"]:  # 14
-        conn.execute(
+        summary_id = conn.execute(
             "insert into care_provider_summaries (id, clinic_id, patient_id, episode_id, "
             "summary_text, covers, truncated, model_id, prompt_version, generated_by, "
             "generated_at) values (gen_random_uuid(), %s, %s, %s, 'text', '{\"messages\": 1}', "
-            "false, 'm', 'care_provider_summary_v1', %s, now())",
+            "false, 'm', 'care_provider_summary_v1', %s, now()) returning id",
             (w.clinic_a, w.patient_a, episode, w.user_a),
-        )
+        ).fetchone()["id"]
+        if conn.execute("select to_regclass('care_provider_summary_edits') as t").fetchone()["t"]:
+            conn.execute(  # migration 15
+                "insert into care_provider_summary_edits (id, clinic_id, patient_id, summary_id, "
+                "edited_text, edited_by, edited_at) values (gen_random_uuid(), %s, %s, %s, "
+                "'edited text', %s, now())",
+                (w.clinic_a, w.patient_a, summary_id, w.user_a),
+            )
     prev = None
     for n in range(3):
         row = conn.execute(
