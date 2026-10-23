@@ -18,9 +18,9 @@ function inEpisode(c: CheckInDetail, episode: Episode): boolean {
   );
 }
 
-/** The check-in part of the Physician Summary: when it was done and whether it was flagged and
- *  reviewed, the red flags (always shown), then the check-in cards folded away behind a control.
- *  The cards are closed on load, even with an unreviewed red flag (its line above is always
+/** The check-in part of the Physician Summary: the check-in cards folded away behind a control,
+ *  then when the check-in was done, whether it was flagged and reviewed, and the red flags (always
+ *  shown, open or closed). The cards are closed on load, even with an unreviewed red flag (its line above is always
  *  visible); only the clinician, or a citation chip, opens them.
  *
  *  Check-ins that are not this care period's (an earlier one, or none) are not listed with its
@@ -49,19 +49,8 @@ export function CheckInsBlock({
 
   return (
     <div className="mt-3">
-      <ul className="space-y-0.5 text-xs text-muted">
-        <li>{latestCheckIn(episode, here)}</li>
-        {flagged !== null && flagged.length === 0 && <li>No red flags.</li>}
-        {flagged?.map((c) => (
-          <li key={c.id} className="text-flag-text">
-            Red flag: check-in {day(c.created_at)} &middot;{" "}
-            {c.reviewed_at ? `reviewed ${day(c.reviewed_at)}` : "not reviewed yet"}
-          </li>
-        ))}
-      </ul>
-
       {here !== null && here.length === 0 && (
-        <p className="mt-3 rounded-lg border border-dashed border-border-strong p-4 text-sm text-muted">
+        <p className="rounded-lg border border-dashed border-border-strong p-4 text-sm text-muted">
           No check-in yet. Send this patient their link above: it opens the check-in first.
         </p>
       )}
@@ -70,6 +59,7 @@ export function CheckInsBlock({
         <Disclosure
           summary={open ? "Hide check-ins" : `Show check-ins (${shown})`}
           open={open}
+          className=""
           onOpenChange={setOpen}
         >
           <ul className="space-y-2">
@@ -103,6 +93,17 @@ export function CheckInsBlock({
           )}
         </Disclosure>
       )}
+
+      <ul className="mt-3 space-y-0.5 text-xs text-muted">
+        <li>{latestCheckIn(episode, here)}</li>
+        {flagged !== null && flagged.length === 0 && <li>No red flags.</li>}
+        {flagged?.map((c) => (
+          <li key={c.id} className="text-flag-text">
+            Red flag: check-in {day(c.created_at)} &middot;{" "}
+            {c.reviewed_at ? `reviewed ${day(c.reviewed_at)}` : "not reviewed yet"}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
