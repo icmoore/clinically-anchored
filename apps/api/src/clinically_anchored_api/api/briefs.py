@@ -23,6 +23,7 @@ import json
 import logging
 import time
 import uuid
+from dataclasses import dataclass
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -64,6 +65,84 @@ _PHASES = {
     "used": "the patient has written in the open window",
     "closed": "the care period has ended",
 }
+
+
+@dataclass(frozen=True)
+class Record:
+    """What a summary of this patient's current care period is written from."""
+
+    episode: dict
+    state: EpisodeState
+    tz: object
+    check_ins: list[dict]  # oldest first
+    thread: list[dict]  # oldest first, at most MESSAGE_LIMIT
+    contacts: list[dict]  # calls, visits and emails since the care period began, oldest first
+    truncated: bool  # older messages or contacts were left out
+
+
+def gather_record(supabase, clinic_id: str, patient_id: str) -> Record:
+    """Read what the model may be shown for this patient, scoped to this clinic and patient.
+    Raises HTTPException 422 when there is no care period, or nothing yet to summarise. Shared by
+    every AI summary of the patient's record."""
+    episode = episodes.latest_episode(supabase, clinic_id, patient_id)
+    if episode is None:
+        raise HTTPException(status_code=422, detail="This patient has no care period yet.")
+    state = episodes.state_for(supabase, episode, clock.now())
+    tz = episodes.get_schedule(supabase, episode["schedule_version"]).tz
+
+    check_ins = (
+        supabase.table("check_ins")
+        .select("id, answers, is_red_flag, post_op_day, created_at, reviewed_at")
+        .eq("clinic_id", clinic_id)
+        .eq("patient_id", patient_id)
+        .eq("episode_id", episode["id"])
+        .order("created_at")
+        .execute()
+        .data
+    )
+    fetched = (
+        supabase.table("messages")
+        .select("id, sender, body, origin, interval_no, category")
+        .eq("clinic_id", clinic_id)
+        .eq("patient_id", patient_id)
+        .eq("episode_id", episode["id"])
+        .order("created_at", desc=True)
+        .limit(MESSAGE_LIMIT + 1)
+        .execute()
+        .data
+    )
+    if not check_ins and not fetched:
+        raise HTTPException(
+            status_code=422,
+            detail="This patient has no check-in and no messages yet, so there is nothing to "
+            "summarise.",
+        )
+    began = episodes.parse_ts(episode["created_at"])
+    contacts_all = [
+        r
+        for r in (
+            supabase.table("touchpoints")
+            .select(TOUCHPOINT_COLUMNS)
+            .eq("clinic_id", clinic_id)
+            .eq("patient_id", patient_id)
+            .in_("kind", list(CONTACT_KINDS))
+            .order("occurred_at", desc=True)
+            .limit(200)
+            .execute()
+            .data
+        )
+        if episodes.parse_ts(r["occurred_at"]) >= began
+    ]
+    truncated = len(fetched) > MESSAGE_LIMIT or len(contacts_all) > CONTACT_LIMIT
+    return Record(
+        episode=episode,
+        state=state,
+        tz=tz,
+        check_ins=check_ins,
+        thread=list(reversed(fetched[:MESSAGE_LIMIT])),  # oldest first
+        contacts=list(reversed(contacts_all[:CONTACT_LIMIT])),
+        truncated=truncated,
+    )
 
 
 def _one_line(text: str) -> str:
@@ -220,58 +299,11 @@ def generate_brief(
     supabase = get_supabase()
     _require_patient_in_clinic(supabase, clinic_id, patient_id)
 
-    episode = episodes.latest_episode(supabase, clinic_id, patient_id)
-    if episode is None:
-        raise HTTPException(status_code=422, detail="This patient has no care period yet.")
-    state = episodes.state_for(supabase, episode, clock.now())
-    tz = episodes.get_schedule(supabase, episode["schedule_version"]).tz
-
-    check_ins = (
-        supabase.table("check_ins")
-        .select("id, answers, is_red_flag, post_op_day, created_at, reviewed_at")
-        .eq("clinic_id", clinic_id)
-        .eq("patient_id", patient_id)
-        .eq("episode_id", episode["id"])
-        .order("created_at")
-        .execute()
-        .data
+    record = gather_record(supabase, clinic_id, patient_id)
+    episode, state, tz = record.episode, record.state, record.tz
+    check_ins, thread, contacts, truncated = (
+        record.check_ins, record.thread, record.contacts, record.truncated
     )
-    fetched = (
-        supabase.table("messages")
-        .select("id, sender, body, origin, interval_no, category")
-        .eq("clinic_id", clinic_id)
-        .eq("patient_id", patient_id)
-        .eq("episode_id", episode["id"])
-        .order("created_at", desc=True)
-        .limit(MESSAGE_LIMIT + 1)
-        .execute()
-        .data
-    )
-    if not check_ins and not fetched:
-        raise HTTPException(
-            status_code=422,
-            detail="This patient has no check-in and no messages yet, so there is nothing to "
-            "summarise.",
-        )
-    began = episodes.parse_ts(episode["created_at"])
-    contacts_all = [
-        r
-        for r in (
-            supabase.table("touchpoints")
-            .select(TOUCHPOINT_COLUMNS)
-            .eq("clinic_id", clinic_id)
-            .eq("patient_id", patient_id)
-            .in_("kind", list(CONTACT_KINDS))
-            .order("occurred_at", desc=True)
-            .limit(200)
-            .execute()
-            .data
-        )
-        if episodes.parse_ts(r["occurred_at"]) >= began
-    ]
-    truncated = len(fetched) > MESSAGE_LIMIT or len(contacts_all) > CONTACT_LIMIT
-    thread = list(reversed(fetched[:MESSAGE_LIMIT]))  # oldest first
-    contacts = list(reversed(contacts_all[:CONTACT_LIMIT]))
     fetched_at = time.perf_counter()
 
     aliases = make_aliases(

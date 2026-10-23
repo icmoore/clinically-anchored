@@ -385,6 +385,9 @@ def test_the_only_route_that_summarises_is_the_explicit_post():
         "/clinics/{clinic_id}/patients/{patient_id}/summaries": ["post"],
         # Reading back what was saved: a GET that never calls the model (tested below).
         "/clinics/{clinic_id}/patients/{patient_id}/summaries/latest": ["get"],
+        # The care provider summary has the same two routes (tests/test_care_provider_summaries.py).
+        "/clinics/{clinic_id}/patients/{patient_id}/care-provider-summary": ["post"],
+        "/clinics/{clinic_id}/patients/{patient_id}/care-provider-summary/latest": ["get"],
     }
 
 

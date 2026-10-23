@@ -75,26 +75,35 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
 - `/dashboard/patients/[id]`, top to bottom: **Patient links** (`components/patient-links.tsx`:
   copy or reset the one link; once the care period has ended it says the link no longer works and
   hides the buttons; no care period yet says so), **Physician Summary**
-  (`components/physician-summary.tsx`: computed from the schedule and the record, never by AI, so it
-  has no AI badge: procedure, surgery date, "Post-op day N", status badge, a row of the nine
-  message windows with each one's state and opening date, why any missed window was missed ("closed
-  before the check-in" or "no message sent"), the latest check-in (completed date, flagged,
-  reviewed), the care period's end, whether a reply is open, schedule version in small print, "fix
-  surgery date or procedure" until the patient has checked in, and **discharge** with a
-  confirmation, owner/clinician only, no undo; the two actions are in `components/episode-actions.tsx`;
-  every flagged check-in of this care period is listed with its date and whether it has been
-  reviewed, or "No red flags."). Below a line in the same box, set apart from the computed facts, is
-  the **AI patient summary** (`components/patient-brief.tsx`, AI badge): three labelled bullets (The
-  picture now, Trends, Loose ends) with source chips that jump to the message, the check-in card or
-  the contact-history entry (the folded list opens). "Generate" / "Refresh" are the only things that
-  call the model; opening the patient shows the newest saved one, "Last updated ..." in the clinic's
-  time zone, and "· N new messages, check-ins, contacts since" when something has arrived; with no
-  check-in and no messages the button is off and says why),
-  then **Conversation Summary** (below), review check-ins, read and reply to the message thread (one compose box, below; each patient message shows its
+  (`components/physician-summary.tsx`: computed from the schedule and the record, never by AI, so the
+  facts have no AI badge). From the top: the procedure, surgery date and "Post-op day N" in a neutral
+  badge with the care period's status badge beside it; then the **check-ins** (`components/check-ins.tsx`):
+  a "Show check-ins (N)" / "Hide check-ins" fold (the shared `components/disclosure.tsx`, a native
+  `<details>`) that is **closed on load, always**, holding the check-in cards (answers, red-flag reasons,
+  Mark reviewed; check-ins that are not this care period's follow under "Not in this care period"), and
+  below it the latest check-in (completed date, flagged, reviewed) and every flagged check-in of this
+  care period with its date and whether it has been reviewed, or "No red flags" -- those lines are
+  visible open or closed; with no check-in yet the block says so instead. Then the status sentence, a
+  row of the nine message windows with each one's state and opening date (a missed window's reason is
+  in its hover text), whether a reply is open, "fix surgery date or procedure" until the patient has
+  checked in, and **discharge** with a confirmation, owner/clinician only, no undo; the two actions
+  are in `components/episode-actions.tsx`; schedule version in small print. Below a line in the same
+  box, set apart from the computed facts, is the **AI patient summary** (`components/patient-brief.tsx`,
+  AI badge): three labelled bullets (The picture now, Trends, Loose ends). "Generate" / "Refresh" are
+  the only things that call the model; opening the patient shows the newest saved one; under the
+  button, "Last updated ..." in the clinic's time zone and "· N new messages, check-ins, contacts
+  since" when something has arrived; with no check-in and no messages the button is off and says why.
+  Below another line is the **Care provider summary** (`components/care-provider-summary.tsx`, AI
+  badge): one short paragraph the physician can pass on to the patient's other care provider, with no
+  source links (it is meant to be copied as written, so its footer says to check it against the
+  records first). Same behaviour as the AI patient summary: instructions before the first one,
+  "Generate" / "Refresh" are the only things that call the model, the newest saved one is shown on
+  open, the "Last updated" and "Written by AI" lines sit under the button.
+  Then **Interaction Summary** (below), read and reply to the message thread (one compose box, below; each patient message shows its
   category and window, or "Reply"; once the care period has ended the box is replaced by a note,
   because the patient's link no longer works and a message could never be seen; every message
   you send lets the patient send one reply, and the box says so), plus an AI summary:
-  - **Conversation Summary** (`components/summary-view.tsx`): opening a patient shows the newest saved summary
+  - **Interaction Summary** (`components/summary-view.tsx`, badge "AI conversation summary"): opening a patient shows the newest saved summary
     (read back without calling the model; "Refresh summary" asks again). "Summarise this conversation"
     calls the api on demand (never automatic). Each line shows chips for the messages it cites; clicking a
     chip scrolls to and highlights that message in the thread. The api has already verified
@@ -119,8 +128,8 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
     api's message ("The AI had nothing to draft for this message...") is shown instead. Reloading the page while a
     draft is pending for the latest patient message reopens it in the draft view. Only owners and
     clinicians can decide (delegates can request a draft and see it with a note and a Back button;
-    the api enforces it with a 403). Decided drafts are listed under "Earlier drafts" with what the
-    AI wrote and, for edits, what was sent instead. Drafts load separately from the rest of the
+    the api enforces it with a 403). Decided drafts are no longer listed on the page (they are kept
+    in the database and the audit log). Drafts load separately from the rest of the
     page, so if that call fails the thread, check-ins and plain Send still work.
   - **Contact** (`components/contact-log.tsx`, figures in `lib/contact-stats.ts`): the overview
     spec's Contact card. Counted, never inferred: messages (patient / you), clinic visits, calls
