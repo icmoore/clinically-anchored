@@ -14,10 +14,13 @@ import pytest
 
 from tests.db.conftest import (
     SCRIPTS,
+    ask_extension,
     build_world,
     check_in,
     clinician_msg,
+    end_by_schedule,
     make_episode,
+    new_patient,
     patient_msg,
 )
 
@@ -27,7 +30,8 @@ RESTORE_SH = SCRIPTS / "restore_trial_data.sh"
 RESET_SH = SCRIPTS / "reset_trial_data.sh"
 RESET_SQL = SCRIPTS / "reset_trial_data.sql"
 TABLES = ["message_drafts", "thread_summaries", "patient_briefs", "care_provider_summaries",
-          "care_provider_summary_edits", "touchpoints", "consents", "messages", "check_ins",
+          "care_provider_summary_edits", "touchpoints", "consents", "extension_requests", "messages",
+          "check_ins",
           "episodes", "patients", "audit_log"]
 
 needs_tools = pytest.mark.skipif(
@@ -109,6 +113,11 @@ def populate(conn):
                 "'edited text', %s, now())",
                 (w.clinic_a, w.patient_a, summary_id, w.user_a),
             )
+    # An ended episode with a pending request, so the new table (and its rows) are in the backup.
+    if conn.execute("select to_regclass('extension_requests') as t").fetchone()["t"]:  # 16
+        ended = make_episode(conn, w, patient=new_patient(conn, w))
+        end_by_schedule(conn, w, ended)
+        ask_extension(conn, w, ended)
     prev = None
     for n in range(3):
         row = conn.execute(

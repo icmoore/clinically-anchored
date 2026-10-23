@@ -25,8 +25,10 @@ from clinically_anchored_api.core.schedule import EpisodeState, Schedule, episod
 from clinically_anchored_api.core.security import create_episode_token
 from clinically_anchored_api.schemas import (
     EpisodeCorrect,
+    EpisodeExtensionOut,
     EpisodeOut,
     EpisodeStateOut,
+    ExtensionRequestOut,
     LinkOut,
     NewEpisode,
     WindowStateOut,
@@ -47,7 +49,7 @@ def iso(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
 
 
-def state_out(state: EpisodeState) -> EpisodeStateOut:
+def state_out(state: EpisodeState, extension_no: int = 0) -> EpisodeStateOut:
     return EpisodeStateOut(
         phase=state.phase.value,
         post_op_day=state.post_op_day,
@@ -70,10 +72,77 @@ def state_out(state: EpisodeState) -> EpisodeStateOut:
                 closes_at=w.closes_at.isoformat(),
                 status=w.status.value,
                 missed_reason=w.missed_reason.value if w.missed_reason else None,
+                extension_no=extension_no,
             )
             for w in state.windows
         ],
     )
+
+
+def request_outs(supabase, rows: list[dict]) -> dict[str, ExtensionRequestOut]:
+    """ExtensionRequestOut per request id, with the patient's reason read from its thread entry."""
+    if not rows:
+        return {}
+    reasons = {
+        m["id"]: m["body"]
+        for m in supabase.table("messages").select("id, body")
+        .in_("id", [r["request_message_id"] for r in rows]).execute().data
+    }
+    return {
+        r["id"]: ExtensionRequestOut(
+            id=r["id"],
+            episode_id=r["episode_id"],
+            status=r["status"],
+            reason=reasons.get(r["request_message_id"]),
+            requested_at=str(r["requested_at"]),
+            decided_at=str(r["decided_at"]) if r["decided_at"] else None,
+            decided_by=r["decided_by"],
+            decision_message=r["decision_message"],
+            extension_episode_id=r["extension_episode_id"],
+        )
+        for r in rows
+    }
+
+
+def _extension_outs(
+    supabase, rows: list[dict], states: dict, now: datetime
+) -> dict[str, tuple[EpisodeExtensionOut, int]]:
+    """Per episode: its follow-up block and its extension number (0 = the main period)."""
+    out: dict[str, tuple[EpisodeExtensionOut, int]] = {}
+    requests = {
+        r["episode_id"]: r
+        for r in supabase.table("extension_requests").select(episodes.REQUEST_COLUMNS)
+        .in_("episode_id", [r["id"] for r in rows]).execute().data
+    }
+    shaped = request_outs(supabase, list(requests.values()))
+    for row in rows:
+        state = states[row["id"]]
+        number, earlier = 0, []
+        if row.get("kind") == "extension":
+            links = episodes.chain(supabase, row)
+            number = len(links) - 1
+            before = [e for e in links if e["id"] != row["id"]][: number]
+            before_states = episodes.states_for(supabase, before, now)
+            for k, e in enumerate(before):
+                earlier += state_out(before_states[e["id"]], extension_no=k).windows
+        request = requests.get(row["id"])
+        by, can = None, False
+        if state.closed:
+            _req, status = episodes.ended_context(supabase, row, state, now)
+            by, can = iso(status.request_by), status.can_request
+        out[row["id"]] = (
+            EpisodeExtensionOut(
+                number=number,
+                extends_episode_id=row.get("extends_episode_id"),
+                started_at=str(row["started_at"]) if row.get("started_at") else None,
+                earlier_windows=earlier,
+                request=shaped[request["id"]] if request else None,
+                request_by=by,
+                can_request=can,
+            ),
+            number,
+        )
+    return out
 
 
 def episode_outs(
@@ -90,6 +159,7 @@ def episode_outs(
         for p in supabase.table("procedures").select("id, name")
         .in_("id", sorted({r["procedure_id"] for r in rows})).execute().data
     }
+    extension = _extension_outs(supabase, rows, states, now)
     return {
         r["id"]: EpisodeOut(
             id=r["id"],
@@ -103,7 +173,8 @@ def episode_outs(
             closed_at=r["closed_at"],
             close_reason=r["close_reason"],
             created_at=r["created_at"],
-            state=state_out(states[r["id"]]),
+            state=state_out(states[r["id"]], extension[r["id"]][1]),
+            extension=extension[r["id"]][0],
         )
         for r in rows
     }

@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException
 
 from clinically_anchored_api.api.messages import _require_patient_in_clinic
-from clinically_anchored_api.core import ai
+from clinically_anchored_api.core import ai, episodes
 from clinically_anchored_api.core.audit import AuditWriteError, record_event
 from clinically_anchored_api.core.auth import ClinicMember, require_clinic_member
 from clinically_anchored_api.core.citations import CitationError, verify_summary
@@ -39,7 +39,7 @@ timing_log = logging.getLogger("uvicorn.error.summaries")
 
 router = APIRouter(tags=["summaries"])
 
-_TEMPLATE = ("summary", "v4")
+_TEMPLATE = ("summary", "v5")
 # The most recent messages the model is shown; older ones are left out and the
 # response says so (`truncated`).
 THREAD_LIMIT = 50
@@ -111,7 +111,7 @@ def generate_summary(
 
     fetched = (
         supabase.table("messages")
-        .select("id, sender, body, origin, interval_no, category")
+        .select("id, episode_id, sender, body, origin, interval_no, category")
         .eq("clinic_id", clinic_id)
         .eq("patient_id", patient_id)
         .order("created_at", desc=True)
@@ -122,7 +122,7 @@ def generate_summary(
     if not fetched:
         raise HTTPException(status_code=422, detail="This patient has no messages to summarise.")
     truncated = len(fetched) > THREAD_LIMIT
-    thread = list(reversed(fetched[:THREAD_LIMIT]))  # oldest first
+    thread = episodes.tag_extension_windows(supabase, list(reversed(fetched[:THREAD_LIMIT])))
     fetched_at = time.perf_counter()
 
     # The model sees short labels (M1, M2, ...), not 36-character ids: it has far less to

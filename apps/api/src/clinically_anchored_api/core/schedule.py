@@ -20,6 +20,12 @@ The rules (docs/api/README.md has the surgeon's wording):
   * Each interval also gets a status for the clinic's timeline (`windows` on the state) and,
     when it was missed, why: it closed before the check-in was done (nothing could have been
     sent), or the patient was able to write and did not.
+An EXTENSION schedule (kind "extension", migration 16) is the same engine with one difference: it is
+anchored on the instant a clinician accepted a request (`started_at`), not on the surgery date.
+Window 1 opens at that instant; `offsets_days` lists windows 2.. as days after the acceptance DATE
+(in the schedule's timezone), each at `opens_at_local`; the extension ends `close_after_days`
+after the last one. Everything else (one message per window, missed windows, a closed episode)
+works as for the main period.
 Whether a doctor's message has a reply waiting is the caller's fact (`reply_available`);
 this module only combines it with the phase.
 """
@@ -62,6 +68,8 @@ class Schedule:
     close_after_days: int
     opens_at_local: time
     timezone: str
+    kind: str = "main"  # "main" | "extension"
+    request_window_days: int | None = None  # extension only: days after the end to ask for it
 
     def __post_init__(self):
         o = self.offsets_days
@@ -71,7 +79,17 @@ class Schedule:
             raise ValueError("close_after_days must be at least 1")
         if self.opens_at_local < EARLIEST_OPENING:
             raise ValueError("opens_at_local must be 04:00 or later")
+        if self.kind not in ("main", "extension"):
+            raise ValueError(f"unknown schedule kind {self.kind!r}")
+        if (self.kind == "extension") != (self.request_window_days is not None):
+            raise ValueError("request_window_days belongs to extension schedules, and only them")
+        if self.request_window_days is not None and self.request_window_days < 1:
+            raise ValueError("request_window_days must be at least 1")
         self.tz  # raises ValueError for an unknown zone
+
+    @property
+    def is_extension(self) -> bool:
+        return self.kind == "extension"
 
     @property
     def tz(self) -> ZoneInfo:
@@ -89,6 +107,8 @@ class Schedule:
             close_after_days=row["close_after_days"],
             opens_at_local=opens if isinstance(opens, time) else time.fromisoformat(opens),
             timezone=row["timezone"],
+            kind=row.get("kind") or "main",
+            request_window_days=row.get("request_window_days"),
         )
 
     def snapshot(self) -> dict:
@@ -99,6 +119,8 @@ class Schedule:
             "close_after_days": self.close_after_days,
             "opens_at_local": self.opens_at_local.isoformat(),
             "timezone": self.timezone,
+            "kind": self.kind,
+            "request_window_days": self.request_window_days,
         }
 
 
@@ -113,19 +135,35 @@ def _local_instant(schedule: Schedule, day: date) -> datetime:
     return datetime.combine(day, schedule.opens_at_local, tzinfo=schedule.tz).astimezone(UTC)
 
 
-def windows(surgery_date: date, schedule: Schedule) -> tuple[Window, ...]:
-    opens = [
-        _local_instant(schedule, surgery_date + timedelta(days=o)) for o in schedule.offsets_days
-    ]
-    end = episode_end(surgery_date, schedule)
+def _anchor(surgery_date: date, schedule: Schedule, started_at: datetime | None) -> date:
+    """The date the schedule's day offsets count from: the surgery date, or for an extension the
+    local date of the acceptance."""
+    if not schedule.is_extension:
+        return surgery_date
+    if started_at is None:
+        raise ValueError("an extension schedule needs started_at")
+    return started_at.astimezone(schedule.tz).date()
+
+
+def windows(
+    surgery_date: date, schedule: Schedule, started_at: datetime | None = None
+) -> tuple[Window, ...]:
+    anchor = _anchor(surgery_date, schedule, started_at)
+    opens = [_local_instant(schedule, anchor + timedelta(days=o)) for o in schedule.offsets_days]
+    if schedule.is_extension:
+        opens.insert(0, started_at.astimezone(UTC))  # window 1 opens at the acceptance
+    end = episode_end(surgery_date, schedule, started_at)
     closes = [*opens[1:], end]
     return tuple(Window(n, o, c) for n, (o, c) in enumerate(zip(opens, closes, strict=True), 1))
 
 
-def episode_end(surgery_date: date, schedule: Schedule) -> datetime:
+def episode_end(
+    surgery_date: date, schedule: Schedule, started_at: datetime | None = None
+) -> datetime:
     """The instant the last interval ends and the episode closes by itself."""
     last = schedule.offsets_days[-1] + schedule.close_after_days
-    return _local_instant(schedule, surgery_date + timedelta(days=last))
+    anchor = _anchor(surgery_date, schedule, started_at)
+    return _local_instant(schedule, anchor + timedelta(days=last))
 
 
 @dataclass(frozen=True)
@@ -154,6 +192,7 @@ class EpisodeState:
     reply_available: bool
     # Every interval with its status, in order (the nine markers on the clinic's timeline).
     windows: tuple[WindowState, ...] = ()
+    kind: str = "main"  # "extension" for an accepted follow-up extension
 
     @property
     def closed(self) -> bool:
@@ -178,12 +217,13 @@ def episode_state(
     close_reason: str | None,
     used_intervals: Collection[int],
     reply_available: bool,
+    started_at: datetime | None = None,
 ) -> EpisodeState:
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
     now = now.astimezone(UTC)
 
-    wins = windows(surgery_date, schedule)
+    wins = windows(surgery_date, schedule, started_at)
     end = wins[-1].closes_at
 
     if closed_at is not None:
@@ -248,4 +288,5 @@ def episode_state(
         missed=missed,
         reply_available=reply_available,
         windows=tuple(window_state(w) for w in wins),
+        kind=schedule.kind,
     )

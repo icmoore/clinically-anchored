@@ -21,6 +21,10 @@ What it reports:
     the log is append-only but business rows can legitimately vanish (e.g. a
     patient delete cascades), so this does not affect the exit status.
 
+The extension events (`extension.requested/accepted/declined`) are written BEFORE their rows, so a
+save that then lost a race leaves an event with no row: that shows up as a dangling event, not
+a gap.
+
 Not covered: `link.issued` and `episode.link_rotated` have no business row of their own
 (links are stateless signed tokens, and the URL is only returned after the audit write
 succeeds), so they cannot leave an orphan. Rows that predate an event type existing (patients
@@ -47,6 +51,7 @@ class Check:
     event_type: str
     when: str  # timestamp column that dates the action; null = action never happened
     only: tuple[tuple[str, str], ...] = ()  # (column, value) pairs a row must also match
+    exclude: tuple[tuple[str, str], ...] = ()  # rows matching any of these pairs are not checked
 
 
 CHECKS = [
@@ -55,7 +60,11 @@ CHECKS = [
     Check("episodes", "episode", "episode.closed", "closed_at"),
     Check("check_ins", "check_in", "check_in.submitted", "created_at"),
     Check("check_ins", "check_in", "check_in.reviewed", "reviewed_at"),
-    Check("messages", "message", "message.sent", "created_at"),
+    # The two extension thread entries (migration 16) are audited as extension.* events instead.
+    Check(
+        "messages", "message", "message.sent", "created_at",
+        exclude=(("origin", "extension_request"), ("origin", "extension_decision")),
+    ),
     Check("messages", "message", "message.read", "read_at"),
     Check("consents", "consent", "consent.granted", "granted_at"),
     Check("consents", "consent", "consent.revoked", "revoked_at"),
@@ -69,6 +78,15 @@ CHECKS = [
     Check(
         "care_provider_summary_edits", "care_provider_summary_edit",
         "care_provider_summary.edited", "edited_at",
+    ),
+    Check("extension_requests", "extension_request", "extension.requested", "requested_at"),
+    Check(
+        "extension_requests", "extension_request", "extension.accepted", "decided_at",
+        (("status", "accepted"),),
+    ),
+    Check(
+        "extension_requests", "extension_request", "extension.declined", "decided_at",
+        (("status", "declined"),),
     ),
     Check("message_drafts", "draft", "draft.generated", "created_at"),
     Check("message_drafts", "draft", "draft.approved", "decided_at", (("status", "approved"),)),
@@ -148,7 +166,10 @@ def reconcile(supabase, *, clinic_id: str | None = None, since: datetime | None 
 
             # Ids, timestamps and status only: no message text, names or answers.
             same_table = [c for c in CHECKS if c.table == check.table]
-            wanted = {c.when for c in same_table} | {col for c in same_table for col, _ in c.only}
+            wanted = (
+                {c.when for c in same_table}
+                | {col for c in same_table for col, _ in c.only + c.exclude}
+            )
             cols = ", ".join(["id", "clinic_id", *sorted(wanted)])
 
             def table_query(table=check.table, cols=cols):
@@ -161,7 +182,11 @@ def reconcile(supabase, *, clinic_id: str | None = None, since: datetime | None 
 
         examined = 0
         for row in rows_by_table[check.table]:
-            if row.get(check.when) is None or any(row.get(c) != v for c, v in check.only):
+            if (
+                row.get(check.when) is None
+                or any(row.get(c) != v for c, v in check.only)
+                or any(row.get(c) == v for c, v in check.exclude)
+            ):
                 continue
             examined += 1
             key = (row["clinic_id"], check.event_type, row["id"])

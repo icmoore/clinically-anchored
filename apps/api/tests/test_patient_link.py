@@ -115,6 +115,7 @@ def test_a_discharged_episode_refuses_everything_but_the_state_route(client, fak
         "categories": [], "post_op_day": None, "interval_no": None, "intervals_total": None,
         "interval_closes_at": None, "next_opens_at": None, "episode_closes_at": None,
         "timezone": None, "can_send_scheduled": False, "can_reply": False, "windows": [],
+        "ended_at": None, "extension": None,
     }
 
 
@@ -205,7 +206,7 @@ def test_nothing_clinic_only_is_in_the_patients_state(client, fake):
     assert set(body) == {
         "phase", "office_phone", "check_in_done", "categories", "post_op_day", "interval_no",
         "intervals_total", "interval_closes_at", "next_opens_at", "episode_closes_at", "timezone",
-        "can_send_scheduled", "can_reply", "windows",
+        "can_send_scheduled", "can_reply", "windows", "ended_at", "extension",
     }
 
 

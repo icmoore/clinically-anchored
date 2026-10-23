@@ -19,6 +19,7 @@ from fastapi import HTTPException
 
 from clinically_anchored_api.core import clock
 from clinically_anchored_api.core.audit import AuditWriteError, record_event
+from clinically_anchored_api.core.extension import ExtensionStatus, extension_status
 from clinically_anchored_api.core.schedule import EpisodeState, Schedule, episode_state
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 COLUMNS = (
     "id, clinic_id, patient_id, procedure_id, surgery_date, schedule_version, "
     "checkin_completed_at, link_generation, closed_at, close_reason, closed_by, "
-    "created_by, created_at"
+    "created_by, created_at, kind, extends_episode_id, started_at"
 )
 SYSTEM_ACTOR = {"type": "system"}
 _CHUNK = 50  # episodes per batched query (keeps clear of the 1000-row response cap)
@@ -86,6 +87,7 @@ def default_schedule(supabase) -> Schedule:
         supabase.table("message_schedules")
         .select("*")
         .eq("active", True)
+        .eq("kind", "main")
         .order("version", desc=True)
         .limit(1)
         .execute()
@@ -94,6 +96,22 @@ def default_schedule(supabase) -> Schedule:
     if not rows:
         raise LookupError("no active message schedule exists")
     return Schedule.from_row(rows[0])
+
+
+def default_extension_schedule(supabase) -> Schedule | None:
+    """The extension schedule a NEW request is made under: the newest active one (migration 16),
+    or None when follow-up extensions are switched off."""
+    rows = (
+        supabase.table("message_schedules")
+        .select("*")
+        .eq("active", True)
+        .eq("kind", "extension")
+        .order("version", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    )
+    return Schedule.from_row(rows[0]) if rows else None
 
 
 def schedules_for(supabase, versions: set[int]) -> dict[int, Schedule]:
@@ -152,6 +170,7 @@ def states_for(
             close_reason=e["close_reason"],
             used_intervals=facts[e["id"]][0],
             reply_available=facts[e["id"]][1],
+            started_at=parse_ts(e.get("started_at")),
         )
         for e in episodes
     }
@@ -159,6 +178,90 @@ def states_for(
 
 def state_for(supabase, episode: dict, now: datetime) -> EpisodeState:
     return states_for(supabase, [episode], now)[episode["id"]]
+
+
+# --- extensions: chains of episodes and the request an ended episode may have ----------------
+
+
+def extended_by(supabase, episode_id: str) -> dict | None:
+    """The extension episode that continues this one, if a request was accepted."""
+    rows = (
+        supabase.table("episodes").select(COLUMNS).eq("extends_episode_id", episode_id)
+        .execute().data
+    )
+    return rows[0] if rows else None
+
+
+def resolve_tail(supabase, episode: dict) -> dict:
+    """Follow accepted extensions to the newest episode of the chain. A patient's original link
+    names the first episode; this is the one it opens."""
+    seen = {episode["id"]}
+    while (nxt := extended_by(supabase, episode["id"])) is not None and nxt["id"] not in seen:
+        episode = nxt
+        seen.add(episode["id"])
+    return episode
+
+
+def chain(supabase, episode: dict) -> list[dict]:
+    """Every episode of the chain this one belongs to, first to newest (just this one if it was
+    never extended and extends nothing)."""
+    root = episode
+    seen = {root["id"]}
+    while root.get("extends_episode_id") and root["extends_episode_id"] not in seen:
+        parent = get_episode(supabase, root["extends_episode_id"])
+        if parent is None:
+            break
+        root = parent
+        seen.add(root["id"])
+    out = [root]
+    while (nxt := extended_by(supabase, out[-1]["id"])) is not None and nxt["id"] not in seen:
+        out.append(nxt)
+        seen.add(nxt["id"])
+    return out
+
+
+def tag_extension_windows(supabase, messages: list[dict]) -> list[dict]:
+    """Mark each message that belongs to a follow-up extension with `extension_no` (1, 2, ...),
+    so a prompt can tell "extension window 3" from the main period's window 3. Needs `episode_id`
+    on each message; adds one query only when an extension exists among them."""
+    ids = sorted({m["episode_id"] for m in messages if m.get("episode_id")})
+    if not ids:
+        return messages
+    rows = (
+        supabase.table("episodes").select(COLUMNS).in_("id", ids).eq("kind", "extension")
+        .execute().data
+    )
+    numbers = {r["id"]: len(chain(supabase, r)) - 1 for r in rows}
+    return [{**m, "extension_no": numbers[m["episode_id"]]} if m.get("episode_id") in numbers
+            else m for m in messages]
+
+
+REQUEST_COLUMNS = (
+    "id, clinic_id, patient_id, episode_id, schedule_version, request_message_id, requested_at, "
+    "status, decided_by, decided_at, decision_message, decision_entry_id, extension_episode_id"
+)
+
+
+def request_for(supabase, episode_id: str) -> dict | None:
+    """The extension request made about this (ended) episode, if any: there is at most one."""
+    rows = (
+        supabase.table("extension_requests").select(REQUEST_COLUMNS)
+        .eq("episode_id", episode_id).execute().data
+    )
+    return rows[0] if rows else None
+
+
+def ended_context(
+    supabase, episode: dict, state: EpisodeState, now: datetime
+) -> tuple[dict | None, ExtensionStatus]:
+    """For an episode that may have ended by schedule: its request (if any) and where it stands
+    on follow-up. A closed episode only; an open one is NOT_APPLICABLE."""
+    request = request_for(supabase, episode["id"]) if state.closed else None
+    if request is not None:
+        extension = get_schedule(supabase, request["schedule_version"])
+    else:
+        extension = default_extension_schedule(supabase) if state.closed else None
+    return request, extension_status(state=state, request=request, extension=extension, now=now)
 
 
 # --- closing --------------------------------------------------------------------------------

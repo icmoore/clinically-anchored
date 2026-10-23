@@ -40,6 +40,10 @@ class _Query:
         self._eq.append((col, val))
         return self
 
+    def in_(self, col, vals):
+        self._in = [*getattr(self, "_in", []), (col, list(vals))]
+        return self
+
     def order(self, col, desc=False):
         self._order, self._desc = col, desc
         return self
@@ -55,7 +59,8 @@ class _Query:
     def execute(self):
         if self._insert is not None:
             return type("R", (), {"data": [self.db.insert(self.name, self._insert)]})()
-        rows = [dict(r) for r in self.rows if all(r.get(c) == v for c, v in self._eq)]
+        rows = [dict(r) for r in self.rows if all(r.get(c) == v for c, v in self._eq)
+                and all(r.get(c) in vs for c, vs in getattr(self, "_in", []))]
         if self._order:
             rows.sort(key=lambda r: r[self._order], reverse=self._desc)
         if self._limit:
@@ -92,6 +97,7 @@ class _FakeSupabase:
                 {"id": PATIENT_B, "clinic_id": CLINIC_B},
             ],
             "messages": [],
+            "episodes": [],
             "message_drafts": [],
         }
         self.rpc_calls = 0
@@ -229,7 +235,7 @@ def test_generate_stores_a_pending_draft_and_sends_nothing(client, thread, model
     assert d["status"] == "pending"
     assert d["draft_text"] == model["text"]
     assert d["source_message_id"] == "m3"  # defaults to the latest patient message
-    assert (d["model_id"], d["prompt_version"]) == (MODEL, "draft_reply_v4")
+    assert (d["model_id"], d["prompt_version"]) == (MODEL, "draft_reply_v5")
     assert d["final_text"] is None and d["sent_message_id"] is None
     assert d["created_by"] == DOCTOR and d["decided_by"] is None
     assert len(thread.tables["messages"]) == 3  # nothing was sent
@@ -238,7 +244,7 @@ def test_generate_stores_a_pending_draft_and_sends_nothing(client, thread, model
 def test_generate_prompt_has_the_thread_and_uses_clinic_and_template(client, thread, model):
     _generate(client)
     call = model["calls"][0]
-    assert call["clinic_id"] == CLINIC_A and call["prompt_version"] == "draft_reply_v4"
+    assert call["clinic_id"] == CLINIC_A and call["prompt_version"] == "draft_reply_v5"
     assert "patient: My incision is a bit red." in call["prompt"]
     assert "clinician: How is the pain?" in call["prompt"]
     assert "Pain is better but still red." in call["prompt"]
@@ -253,7 +259,7 @@ def test_generate_audits_with_model_prompt_version_and_usage(client, thread, aud
     assert call["metadata"] == {
         "ref_type": "draft", "ref_id": d["id"],
         "actor": {"type": "member", "id": DOCTOR, "role": "clinician"},
-        "model_id": MODEL, "prompt_version": "draft_reply_v4",
+        "model_id": MODEL, "prompt_version": "draft_reply_v5",
         "input_tokens": 11, "output_tokens": 22,
     }
     assert call["payload"]["draft_text"] == d["draft_text"]  # hashed by record_event
@@ -385,7 +391,7 @@ def test_generate_race_returns_the_winners_draft(client, thread, model, monkeypa
         if seen["n"] == 1:
             thread.insert("message_drafts", {
                 "clinic_id": CLINIC_A, "patient_id": PATIENT_A, "source_message_id": source_id,
-                "draft_text": "winner", "model_id": MODEL, "prompt_version": "draft_reply_v4",
+                "draft_text": "winner", "model_id": MODEL, "prompt_version": "draft_reply_v5",
                 "created_by": DOCTOR,
             })
             return None
@@ -451,7 +457,7 @@ def test_approve_sends_the_draft_text_as_written(client, thread, model, audit_ca
     approved = audit_calls[1]
     assert approved["metadata"]["ref_type"] == "draft" and approved["metadata"]["ref_id"] == did
     assert approved["metadata"]["model_id"] == MODEL
-    assert approved["metadata"]["prompt_version"] == "draft_reply_v4"
+    assert approved["metadata"]["prompt_version"] == "draft_reply_v5"
     assert approved["metadata"]["sent_message_id"] == msg["id"]
     assert approved["metadata"]["actor"] == {"type": "member", "id": DOCTOR, "role": "clinician"}
     assert audit_calls[0]["metadata"]["ref_id"] == msg["id"]
@@ -471,7 +477,7 @@ def test_edit_sends_the_edit_and_keeps_the_original(client, thread, model, audit
     payload = audit_calls[1]["payload"]
     assert payload["draft_text"] == model["text"]
     assert payload["final_text"] == "Please call us if the redness spreads."
-    assert audit_calls[1]["metadata"]["prompt_version"] == "draft_reply_v4"
+    assert audit_calls[1]["metadata"]["prompt_version"] == "draft_reply_v5"
 
 
 def test_reject_sends_nothing(client, thread, audit_calls):
