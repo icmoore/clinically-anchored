@@ -99,9 +99,9 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   records first). Same behaviour as the AI patient summary: instructions before the first one,
   "Generate" / "Refresh" are the only things that call the model, the newest saved one is shown on
   open, the "Last updated" and "Written by AI" lines sit under the button. The paragraph sits in a box
-  with a copy icon in its top-right corner, and a **Copy text** button beside Refresh does the same: both
-  put what is shown on the clipboard ("Copied." for a moment; if the browser refuses, a note says to
-  select the text instead). **Edit** swaps the paragraph for a text box (3000 characters) with **Save
+  with a copy icon in its top-right corner that puts what is shown on the clipboard (the icon turns into
+  a check mark and "Copied." shows for a moment; if the browser refuses, a note says to select the text
+  instead). **Edit** swaps the paragraph for a text box (3000 characters) with **Save
   edit** (on only when the text changed) and **Cancel**; a saved edit is what is then shown and copied, the
   footer says it was edited and when, and what the AI wrote stays in the record. **Refresh** on an edited
   summary first asks whether to replace the edited version on screen (the edit stays in the record).
