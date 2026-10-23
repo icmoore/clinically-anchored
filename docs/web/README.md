@@ -110,7 +110,7 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   because the patient's link no longer works and a message could never be seen; every message
   you send lets the patient send one reply, and the box says so), plus an AI summary:
   - **Interaction Summary** (`components/summary-view.tsx`, badge "AI conversation summary"): opening a patient shows the newest saved summary
-    (read back without calling the model; "Refresh summary" asks again). "Summarise this conversation"
+    (read back without calling the model; "Refresh summary" asks again). "Summarise"
     calls the api on demand (never automatic). Each line shows chips for the messages it cites; clicking a
     chip scrolls to and highlights that message in the thread. The api has already verified
     every citation, and an unverifiable summary is discarded and shown as an error (any earlier
