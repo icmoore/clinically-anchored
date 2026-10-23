@@ -77,13 +77,14 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   hides the buttons; no care period yet says so), **Physician Summary**
   (`components/physician-summary.tsx`: computed from the schedule and the record, never by AI, so the
   facts have no AI badge). From the top: the procedure, surgery date and "Post-op day N" in a neutral
-  badge with the care period's status badge beside it; then the **check-ins** (`components/check-ins.tsx`):
+  badge; then the **check-ins** (`components/check-ins.tsx`):
   a "Show check-ins (N)" / "Hide check-ins" fold (the shared `components/disclosure.tsx`, a native
   `<details>`) that is **closed on load, always**, holding the check-in cards (answers, red-flag reasons,
   Mark reviewed; check-ins that are not this care period's follow under "Not in this care period"), and
   below it the latest check-in (completed date, flagged, reviewed) and every flagged check-in of this
   care period with its date and whether it has been reviewed, or "No red flags" -- those lines are
-  visible open or closed; with no check-in yet the block says so instead. Then the status sentence, a
+  visible open or closed; with no check-in yet the block says so instead. Then the status sentence with the care period's
+  status badge ("Window 3 of 9 · open") flush right on the same row (below it on a narrow screen), a
   row of the nine message windows: the window number above each circle, the circle for its
   state (✓ ✕ ● ○), then the days since the previous window opened (window 1: since the day of
   surgery; counted in calendar days from the schedule, 2, 3, 5, 7, ...) and its opening date (a missed window's reason is
