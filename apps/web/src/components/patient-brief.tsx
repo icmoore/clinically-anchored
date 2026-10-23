@@ -89,7 +89,7 @@ export function PatientBriefSection({
 
   return (
     <div>
-      <StatusBadge variant="ai">AI Patient summary</StatusBadge>
+      <StatusBadge variant="ai">AI patient summary</StatusBadge>
 
       {brief === null ? (
         <p className="mt-2 text-sm text-muted">
