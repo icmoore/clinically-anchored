@@ -62,7 +62,7 @@ export function SummarySection({
     : 0;
 
   return (
-    <Section title="Conversation Summary">
+    <Section title="Interaction Summary">
       {summary === null ? (
         <p className="text-sm text-muted">
           Ask the AI to summarise this conversation. Every line links to the messages it came
