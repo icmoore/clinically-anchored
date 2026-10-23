@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  BriefSource,
   CheckInDetail,
   Episode,
   Message,
@@ -30,7 +29,6 @@ export function PhysicianSummarySection({
   thread,
   touchpoints,
   highlighted,
-  onJump,
   onChanged,
 }: {
   clinicId: string;
@@ -41,7 +39,6 @@ export function PhysicianSummarySection({
   thread: Message[] | null;
   touchpoints: Touchpoint[] | null;
   highlighted: string | null; // the page element id to flash (a cited check-in)
-  onJump: (source: BriefSource) => void;
   onChanged: () => void;
 }) {
   if (episode === null) return null;
@@ -97,7 +94,6 @@ export function PhysicianSummarySection({
           thread={thread}
           checkIns={checkIns}
           touchpoints={touchpoints}
-          onJump={onJump}
         />
       </div>
 

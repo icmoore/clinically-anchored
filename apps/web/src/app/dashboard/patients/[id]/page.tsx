@@ -155,7 +155,6 @@ function PatientView({
         thread={thread}
         touchpoints={touchpoints}
         highlighted={highlighted}
-        onJump={jumpTo}
         onChanged={load}
       />
 
