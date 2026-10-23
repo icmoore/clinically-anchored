@@ -60,6 +60,11 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   since the session lives in the browser). No middleware is involved.
 - `/login`: clinician email + password via Supabase Auth (session handling only; all data
   goes through `apps/api`).
+- **Signed-in clinician** (`lib/use-clinician.ts`, used by the dashboard and the patient page): checks the
+  session, then asks the api `/me`. If that has not finished after 15 seconds it stops showing
+  "Loading...": the page says "Couldn't load. Check your connection." with a **Retry** button
+  (`components/clinician-problem.tsx`). The stalled request is aborted and anything it delivers late is
+  ignored, so a retry never has two attempts racing. Other failures keep their own messages (no Retry).
 - **Clinic switcher** (`components/app-header.tsx`, `lib/clinic-choice.ts`): the header always names the
   clinic being worked in. A user who belongs to more than one clinic gets a dropdown in its place
   (a user with one sees just the name). The choice is remembered per user in this browser
@@ -112,7 +117,7 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   category and window, or "Reply"; once the care period has ended the box is replaced by a note,
   because the patient's link no longer works and a message could never be seen; every message
   you send lets the patient send one reply, and the box says so), plus an AI summary:
-  - **Interaction Summary** (`components/summary-view.tsx`, badge "AI conversation summary"): opening a patient shows the newest saved summary
+  - **Interaction Summary** (`components/summary-view.tsx`, badge "AI interaction summary"): opening a patient shows the newest saved summary
     (read back without calling the model; "Refresh summary" asks again). "Summarise"
     calls the api on demand (never automatic). Each line shows chips for the messages it cites; clicking a
     chip scrolls to and highlights that message in the thread. The api has already verified

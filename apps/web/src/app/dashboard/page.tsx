@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AppHeader } from "@/components/app-header";
+import { ClinicianProblem } from "@/components/clinician-problem";
 import { StatusBadge } from "@/components/status-badge";
 import { ApiError } from "@/lib/api";
 import {
@@ -26,7 +27,7 @@ const REFRESH_MS = 15000;
 export default function DashboardPage() {
   const clinician = useClinician();
   if (clinician.status === "loading") return <p className="p-6 text-muted">Loading...</p>;
-  if (clinician.status === "error") return <p className="p-6 text-flag-text">{clinician.message}</p>;
+  if (clinician.status === "error") return <ClinicianProblem problem={clinician} />;
   return (
     <>
       <AppHeader clinician={clinician} />
