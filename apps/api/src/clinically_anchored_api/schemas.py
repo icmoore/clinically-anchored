@@ -448,10 +448,26 @@ class CareProviderSummaryOut(BaseModel):
     generated_at: str
     model_id: str
     prompt_version: str
-    text: str
+    text: str  # exactly what the AI wrote, never changed
     covers: BriefCountsOut  # how much the model was shown
     truncated: bool  # older messages or contacts were left out
     new_since: BriefCountsOut
+    # The physician's newest edit of `text` (migration 15), if there is one. This is what is shown
+    # and copied; `text` stays as the record of what the AI wrote.
+    edited_text: str | None = None
+    edited_at: str | None = None
+
+
+class CareProviderSummaryEdit(BaseModel):
+    # What the physician wants the summary to say, in place of what is shown now.
+    text: str = Field(min_length=1, max_length=3000)
+
+    @field_validator("text")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("text must not be blank")
+        return value
 
 
 class TouchpointCreate(BaseModel):

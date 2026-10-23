@@ -388,6 +388,10 @@ def test_the_only_route_that_summarises_is_the_explicit_post():
         # The care provider summary has the same two routes (tests/test_care_provider_summaries.py).
         "/clinics/{clinic_id}/patients/{patient_id}/care-provider-summary": ["post"],
         "/clinics/{clinic_id}/patients/{patient_id}/care-provider-summary/latest": ["get"],
+        # Saving the physician's edit of it: a POST that never calls the model.
+        "/clinics/{clinic_id}/patients/{patient_id}/care-provider-summary/{summary_id}/edit": [
+            "post"
+        ],
     }
 
 

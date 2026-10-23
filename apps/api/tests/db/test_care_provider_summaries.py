@@ -57,3 +57,59 @@ def test_members_read_their_clinics_summaries_but_cannot_write(db):
         assert c.execute("select count(*) as n from care_provider_summaries").fetchone()["n"] == 0
     finally:
         c.execute("reset role")
+
+
+# --- migration 15: the physician's edits ----------------------------------------------------------
+
+
+def save_edit(conn, clinic, patient, summary, user, text="edited"):
+    return conn.execute(
+        "insert into care_provider_summary_edits (id, clinic_id, patient_id, summary_id, "
+        "edited_text, edited_by, edited_at) values (gen_random_uuid(), %s, %s, %s, %s, %s, now()) "
+        "returning id",
+        (clinic, patient, summary, text, user),
+    ).fetchone()["id"]
+
+
+def test_a_saved_edit_is_never_changed_or_deleted_and_the_ai_text_stays(db):
+    w = build_world(db.conn)
+    e = make_episode(db.conn, w)
+    sid = save(db.conn, w.clinic_a, w.patient_a, e, w.user_a)
+    eid = save_edit(db.conn, w.clinic_a, w.patient_a, sid, w.user_a)
+    save_edit(db.conn, w.clinic_a, w.patient_a, sid, w.user_a, "edited again")  # both are kept
+    with pytest.raises(Exception, match="care_provider_summary_edits_retained"):
+        db.conn.execute("update care_provider_summary_edits set edited_text = 'x' where id = %s", (eid,))
+    with pytest.raises(Exception, match="care_provider_summary_edits_retained"):
+        db.conn.execute("delete from care_provider_summary_edits where id = %s", (eid,))
+    ai_text = db.conn.execute(
+        "select summary_text from care_provider_summaries where id = %s", (sid,)
+    ).fetchone()["summary_text"]
+    assert ai_text == "A short paragraph."
+
+
+def test_an_edit_cannot_name_another_patients_summary(db):
+    w = build_world(db.conn)
+    e = make_episode(db.conn, w)
+    sid = save(db.conn, w.clinic_a, w.patient_a, e, w.user_a)
+    with pytest.raises(errors.ForeignKeyViolation):
+        save_edit(db.conn, w.clinic_a, w.patient_a2, sid, w.user_a)  # the summary is patient A's
+    with pytest.raises(errors.ForeignKeyViolation):
+        save_edit(db.conn, w.clinic_a, w.patient_b, sid, w.user_a)
+
+
+def test_members_read_their_clinics_edits_but_cannot_write(db):
+    c = db.conn
+    w = build_world(c)
+    e = make_episode(c, w)
+    sid = save(c, w.clinic_a, w.patient_a, e, w.user_a)
+    save_edit(c, w.clinic_a, w.patient_a, sid, w.user_a)
+    c.execute("set role authenticated")
+    try:
+        c.execute("select set_config('request.jwt.claim.sub', %s, false)", (w.user_a,))
+        assert c.execute("select count(*) as n from care_provider_summary_edits").fetchone()["n"] == 1
+        with pytest.raises(errors.InsufficientPrivilege):
+            save_edit(c, w.clinic_a, w.patient_a, sid, w.user_a)
+        c.execute("select set_config('request.jwt.claim.sub', %s, false)", (w.user_b,))
+        assert c.execute("select count(*) as n from care_provider_summary_edits").fetchone()["n"] == 0
+    finally:
+        c.execute("reset role")

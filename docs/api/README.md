@@ -248,6 +248,16 @@ Built (on `main`):
   `GET .../care-provider-summary/latest` reads the newest back (null if none) without calling the model,
   with `new_since` counts as for the AI patient summary. Reconcile checks saved rows against
   `care_provider_summary.generated`. Same data-flow caveats as drafts.
+  **Editing:** `POST .../care-provider-summary/{summary_id}/edit` with `{"text": ...}` (1 to 3000
+  characters, not blank, different from what is shown now, else 422) saves the physician's version. The
+  AI's row is never changed: the edit is a new row in `care_provider_summary_edits` (migration 15), audited
+  as `care_provider_summary.edited` *before* it is saved (text only in the hashed payload; `ref_id` = the
+  edit's id), and a failed audit or save returns 500 with nothing saved. Only the patient's newest summary
+  can be edited (409 if a newer one exists, 404 for an id that is not this patient's), any clinic member
+  may, and the model is never called. The text is the physician's own, so it is not shape-checked like the
+  AI's. `GET .../latest` and the edit response carry `edited_text` / `edited_at` (null until edited) next
+  to `text`, which stays what the AI wrote. Reconcile checks saved edits against
+  `care_provider_summary.edited`.
 - AI message drafts (`api/drafts.py`, migration 6, data-catalogue D8): `POST
   /clinics/{id}/patients/{pid}/drafts` asks the model for a reply to the patient's latest message
   and stores it `pending` -- it sends nothing. It is refused with **409 before any model call**

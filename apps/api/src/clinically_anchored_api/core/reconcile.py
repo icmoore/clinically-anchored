@@ -66,6 +66,10 @@ CHECKS = [
         "care_provider_summaries", "care_provider_summary", "care_provider_summary.generated",
         "generated_at",
     ),
+    Check(
+        "care_provider_summary_edits", "care_provider_summary_edit",
+        "care_provider_summary.edited", "edited_at",
+    ),
     Check("message_drafts", "draft", "draft.generated", "created_at"),
     Check("message_drafts", "draft", "draft.approved", "decided_at", (("status", "approved"),)),
     Check("message_drafts", "draft", "draft.edited", "decided_at", (("status", "edited"),)),
