@@ -83,6 +83,9 @@ function Dashboard({ clinicId }: { clinicId: string }) {
                     {item.has_red_flag && (
                       <StatusBadge variant="flag">Red flag</StatusBadge>
                     )}
+                    {item.extension_requested && (
+                      <StatusBadge variant="watch">Extension requested</StatusBadge>
+                    )}
                     {item.unreviewed_check_ins > 0 && (
                       <span className="rounded-full border border-border bg-surface-subtle px-2 py-0.5 text-muted">
                         {item.unreviewed_check_ins} check-in

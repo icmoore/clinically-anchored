@@ -12,6 +12,7 @@ import { inZone } from "@/lib/format";
 import { CareProviderSummarySection } from "./care-provider-summary";
 import { CheckInsBlock } from "./check-ins";
 import { CorrectForm, DISCHARGE_ROLES, Discharge } from "./episode-actions";
+import { ExtensionRequestCard } from "./extension-request";
 import { PatientBriefSection } from "./patient-brief";
 import { Section } from "./section";
 import { StatusBadge } from "./status-badge";
@@ -46,7 +47,9 @@ export function PhysicianSummarySection({
   const { label, detail, tone } = episodeSummary(episode);
   const s = episode.state;
   const closed = s.phase === "closed";
-  const windows = s.windows ?? [];
+  // The nine windows, then the six of each follow-up extension, as rows of their own.
+  const windows = [...(episode.extension?.earlier_windows ?? []), ...(s.windows ?? [])];
+  const request = episode.extension?.request ?? null;
 
   return (
     <Section title="Physician Summary">
@@ -78,6 +81,16 @@ export function PhysicianSummarySection({
           <StatusBadge variant={tone}>{label}</StatusBadge>
         )}
       </div>
+
+      {request && (
+        <ExtensionRequestCard
+          clinicId={clinicId}
+          role={role}
+          episode={episode}
+          request={request}
+          onChanged={onChanged}
+        />
+      )}
 
       {windows.length > 0 && <WindowTimeline windows={windows} timeZone={episode.timezone} surgeryDate={episode.surgery_date} />}
 
@@ -156,6 +169,17 @@ function daysSincePrevious(windows: WindowState[], i: number, surgeryDate: strin
   const before = i === 0 ? surgeryDate : localDay(windows[i - 1].opens_at, timeZone);
   return dayNumber(localDay(windows[i].opens_at, timeZone)) - dayNumber(before);
 }
+
+/** The windows grouped by care period: the first nine, then one group per follow-up extension. */
+function groupWindows(windows: WindowState[]): WindowState[][] {
+  const groups: WindowState[][] = [];
+  for (const w of windows) {
+    const n = w.extension_no ?? 0;
+    if (!groups[n]) groups[n] = [];
+    groups[n].push(w);
+  }
+  return groups.filter(Boolean);
+}
 const daysLabel = (n: number) => `${n} day${n === 1 ? "" : "s"}`;
 
 function WindowTimeline({
@@ -167,38 +191,93 @@ function WindowTimeline({
   timeZone: string;
   surgeryDate: string;
 }) {
+  const groups = groupWindows(windows);
+  const extended = groups.length > 1;
   return (
-    <div className="mt-4">
-      <ol className="grid grid-cols-9 gap-1" aria-label="Message windows">
-        {windows.map((w, i) => {
-          const m = MARKER[w.status];
-          const why = w.missed_reason ? `, ${WHY[w.missed_reason]}` : "";
-          const days = daysLabel(daysSincePrevious(windows, i, surgeryDate, timeZone));
-          const hover = `Window ${w.number}: ${m.word}${why}. Opens ${inZone(w.opens_at, timeZone)}, ${days} after ${i === 0 ? "surgery" : "the previous window"}.`;
-          return (
-            <li key={w.number} title={hover} aria-label={hover} className="flex flex-col items-center gap-1">
-              <span aria-hidden="true" className="text-xs font-medium leading-none text-ink">
-                {w.number}
-              </span>
-              <span className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs font-medium ${m.box}`}>
-                <span aria-hidden="true">{m.glyph}</span>
-              </span>
-              <span aria-hidden="true" className="text-[10px] leading-none text-ink">
-                {days}
-              </span>
-              <span aria-hidden="true" className="text-[10px] leading-none text-muted">
-                {zoneDate(w.opens_at, timeZone)}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
-      <p className="mt-2 text-[11px] text-muted">
+    <div className="mt-4 space-y-4">
+      {groups.map((group, g) => (
+        <div key={g}>
+          {extended && (
+            <p className="mb-1 text-xs font-medium text-ink">
+              {g === 0 ? "Care period" : groups.length > 2 ? `Extension ${g}` : "Extension"}
+              {g > 0 && (
+                <span className="font-normal text-muted">
+                  {" "}
+                  &middot; {group.length} windows, from when the clinic accepted
+                </span>
+              )}
+            </p>
+          )}
+          <WindowRow
+            windows={group}
+            extensionNo={g}
+            timeZone={timeZone}
+            surgeryDate={surgeryDate}
+          />
+        </div>
+      ))}
+      <p className="text-[11px] text-muted">
         {"✓"} message received &middot; {"✕"} missed &middot; {"●"} open now &middot; {"○"} upcoming
         {windows.some((w) => w.status === "locked") &&
           " · dashed ●: open by the clock, waiting for the check-in"}
-        . Under each circle: days since the previous window opened (window 1: since surgery), then the date it opens.
+        . Under each circle: days since the previous window opened (window 1: since surgery
+        {extended && "; the first of an extension: since it was accepted"}), then the date it opens.
       </p>
     </div>
+  );
+}
+
+function WindowRow({
+  windows,
+  extensionNo,
+  timeZone,
+  surgeryDate,
+}: {
+  windows: WindowState[];
+  extensionNo: number;
+  timeZone: string;
+  surgeryDate: string;
+}) {
+  const noun = extensionNo > 0 ? "Extension window" : "Window";
+  return (
+    <ol
+      className="grid gap-1"
+      style={{ gridTemplateColumns: `repeat(${windows.length}, minmax(0, 1fr))` }}
+      aria-label={extensionNo > 0 ? "Follow-up extension message windows" : "Message windows"}
+    >
+      {windows.map((w, i) => {
+        const m = MARKER[w.status];
+        const why = w.missed_reason ? `, ${WHY[w.missed_reason]}` : "";
+        // The first window of an extension opens at the acceptance: no "days since" to show.
+        const accepted = extensionNo > 0 && i === 0;
+        const days = accepted
+          ? "accepted"
+          : daysLabel(daysSincePrevious(windows, i, surgeryDate, timeZone));
+        const since = accepted
+          ? "when the clinic accepted the request"
+          : `${days} after ${i === 0 ? "surgery" : "the previous window"}`;
+        const hover = `${noun} ${w.number}: ${m.word}${why}. Opens ${inZone(w.opens_at, timeZone)}, ${since}.`;
+        return (
+          <li key={w.number} title={hover} aria-label={hover} className="flex flex-col items-center gap-1">
+            <span aria-hidden="true" className="text-xs font-medium leading-none text-ink">
+              {w.number}
+            </span>
+            <span
+              className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs font-medium ${m.box} ${
+                extensionNo > 0 ? "border-dotted" : ""
+              }`}
+            >
+              <span aria-hidden="true">{m.glyph}</span>
+            </span>
+            <span aria-hidden="true" className="text-[10px] leading-none text-ink">
+              {days}
+            </span>
+            <span aria-hidden="true" className="text-[10px] leading-none text-muted">
+              {zoneDate(w.opens_at, timeZone)}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
   );
 }

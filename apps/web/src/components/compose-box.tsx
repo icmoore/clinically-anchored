@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ApiError } from "@/lib/api";
-import { awaitingReplyCount } from "@/lib/contact-stats";
+import { awaitingReplyCount, isExtensionEntry } from "@/lib/contact-stats";
 import {
   Draft,
   Message,
@@ -58,7 +58,9 @@ export function ComposeBox({
     // Opened on a draft that is still waiting for this thread's latest patient message
     // (e.g. after a reload): offer the decision again rather than leave it unseen.
     if (!canDecide || !awaiting || !thread) return null;
-    const latest = [...thread].reverse().find((m) => m.sender === "patient");
+    const latest = [...thread]
+      .reverse()
+      .find((m) => m.sender === "patient" && !isExtensionEntry(m));
     return (drafts ?? []).find((d) => d.status === "pending" && d.source_message_id === latest?.id) ?? null;
   });
   const [busy, setBusy] = useState<"send" | "draft" | null>(null);

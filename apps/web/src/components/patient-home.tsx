@@ -6,6 +6,7 @@ import { useCallback, useState } from "react";
 import {
   ApiError,
   MyCheckIn,
+  PatientExtension,
   PatientMessage,
   PatientState,
   getMyCheckIn,
@@ -19,6 +20,7 @@ import { PATIENT_TEXT } from "@/lib/patient-strings";
 import { buildSummary } from "@/lib/symptoms";
 import { usePolling } from "@/lib/use-polling";
 import { PatientExplainer } from "./patient-explainer";
+import { EndedScreen } from "./ended-screen";
 import { ClosedScreen, InvalidLinkScreen, PatientFrame } from "./patient-frame";
 import { PatientTimeline } from "./patient-timeline";
 
@@ -56,12 +58,27 @@ export function PatientHome() {
   }
 
   const { state, thread, checkIn } = data;
-  if (state.phase === "closed") return <ClosedScreen phone={state.office_phone} />;
+  if (state.phase === "closed") {
+    // Ended by schedule and still inside the limited "ended" mode (api: `extension` is set).
+    if (state.extension) {
+      return (
+        <EndedScreen
+          token={token}
+          phone={state.office_phone}
+          timeZone={state.timezone}
+          extension={state.extension}
+          onChanged={reload}
+        />
+      );
+    }
+    return <ClosedScreen phone={state.office_phone} />;
+  }
 
   return (
     <PatientFrame title="Messages with your care team" phone={state.office_phone} noticeFirst>
       <PatientExplainer />
       {failed && <p className="mb-3 text-sm text-flag-text">Couldn&apos;t refresh. Retrying...</p>}
+      {state.extension?.standing === "accepted" && <AcceptedCard extension={state.extension} state={state} />}
       {checkIn && <CheckInCard checkIn={checkIn} timeZone={state.timezone} />}
       <Thread thread={thread} timeZone={state.timezone} />
       {/* The notice sits just above the box it is about: the message window's form when there is
@@ -80,6 +97,26 @@ export function PatientHome() {
         </>
       )}
     </PatientFrame>
+  );
+}
+
+/** Shown while the patient is inside extra follow-up: that the care team agreed, in their words if
+ *  they wrote any, and how many extra periods there are. */
+function AcceptedCard({ extension, state }: { extension: PatientExtension; state: PatientState }) {
+  const X = PATIENT_TEXT.extension;
+  return (
+    <section className="mb-4 rounded-lg border border-clear-border bg-clear-bg p-4 text-clear-text">
+      <p className="font-medium">{X.accepted}</p>
+      {state.intervals_total ? <p className="mt-1 text-sm">{X.acceptedMore(state.intervals_total)}</p> : null}
+      {extension.decision_message && (
+        <>
+          <p className="mt-3 text-xs font-medium">{X.messageFromTeam}</p>
+          <p className="mt-0.5 whitespace-pre-wrap rounded-md bg-surface p-3 text-sm text-ink">
+            {extension.decision_message}
+          </p>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -139,6 +176,7 @@ function StatusPanel({ state, token }: { state: PatientState; token: string }) {
             windows={state.windows ?? []}
             timeZone={state.timezone}
             nextOpensAt={state.next_opens_at}
+            extra={state.extension?.standing === "accepted"}
           />
         </section>
       )}
