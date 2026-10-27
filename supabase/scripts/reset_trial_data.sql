@@ -3,8 +3,8 @@
 -- migration or a seed file.
 --
 --   Wiped:  message_drafts, thread_summaries, patient_briefs, care_provider_summaries,
---           care_provider_summary_edits, touchpoints, consents, extension_requests, messages, check_ins,
---           episodes, patients, audit_log
+--           care_provider_summary_edits, touchpoints, consents, extension_requests, email_outbox,
+--           messages, check_ins, episodes, patients, audit_log
 --   Kept:   clinics, clinic_members, procedures, message_schedules, auth.users
 --
 -- One transaction, one TRUNCATE over an explicit list (no CASCADE): a table that
@@ -32,7 +32,7 @@ do $$
 declare
   wipe text[] := array['message_drafts', 'thread_summaries', 'patient_briefs',
                        'care_provider_summaries', 'care_provider_summary_edits', 'touchpoints',
-                       'extension_requests',
+                       'extension_requests', 'email_outbox',
                        'consents', 'messages', 'check_ins', 'episodes', 'patients', 'audit_log'];
   keep text[] := array['clinics', 'clinic_members', 'procedures', 'message_schedules'];
   t text;

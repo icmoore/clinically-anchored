@@ -65,6 +65,14 @@ class Settings(BaseSettings):
     # The current key's public half is derived automatically.
     audit_public_keys: str = ""
 
+    # Email (core/mailer.py): sent through Amazon SES in ca-central-1 (fixed in code). Credentials
+    # are not settings -- boto3 reads AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY from the real
+    # process environment. Not required at startup: without a sender address a send is recorded
+    # as failed ("ses_not_configured") instead of the service refusing to boot.
+    ses_from_address: str = ""
+    ses_from_name: str = ""
+    ses_configuration_set: str = ""
+
     # Where patients open their links (the deployed web app). Used to build the
     # URLs the "issue link" endpoint returns. Development falls back to
     # http://localhost:3000; elsewhere the endpoint refuses until it's set.
