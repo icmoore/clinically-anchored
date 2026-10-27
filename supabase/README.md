@@ -32,7 +32,7 @@ npx supabase migration new <name>
 ## Resetting trial data
 
 `scripts/reset_trial_data.sh` wipes every clinic's patients, check-ins, messages, drafts, saved AI
-summaries, touchpoints, consents, episodes and audit log, and keeps clinics, memberships, procedures,
+summaries, touchpoints, consents, sent-email records (`email_outbox`), episodes and audit log, and keeps clinics, memberships, procedures,
 message schedules and Supabase Auth users. A person runs it, on purpose (it refuses in CI and
 without a terminal; there is no `--yes`). Dev and production share one database, so it wipes both.
 

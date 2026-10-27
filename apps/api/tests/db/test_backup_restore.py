@@ -31,7 +31,7 @@ RESTORE_SH = SCRIPTS / "restore_trial_data.sh"
 RESET_SH = SCRIPTS / "reset_trial_data.sh"
 RESET_SQL = SCRIPTS / "reset_trial_data.sql"
 TABLES = ["message_drafts", "thread_summaries", "patient_briefs", "care_provider_summaries",
-          "care_provider_summary_edits", "touchpoints", "consents", "extension_requests", "messages",
+          "care_provider_summary_edits", "touchpoints", "consents", "extension_requests", "email_outbox", "messages",
           "check_ins",
           "episodes", "patients", "audit_log"]
 
@@ -125,6 +125,13 @@ def populate(conn):
         end_by_schedule(conn, w, accepted)
         decide_extension(
             conn, w, ask_extension(conn, w, accepted)["request"]["id"], "accepted", "Welcome back."
+        )
+    if conn.execute("select to_regclass('email_outbox') as t").fetchone()["t"]:  # 17
+        conn.execute(
+            "insert into email_outbox (clinic_id, patient_id, recipient, template, status, "
+            "rendered_subject, rendered_text, rendered_html) values "
+            "(%s, %s, 'pat@example.org', 'sign_in_code', 'demo', 's', 't', '<p>t</p>')",
+            (w.clinic_a, w.patient_a),
         )
     prev = None
     for n in range(3):

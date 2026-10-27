@@ -365,6 +365,12 @@ Built (on `main`):
   a mistake with a new entry. Not built: calendar import, and any baseline/outcome metrics
   rollup (decision 8) -- this is only the log those will read. The auto row isn't linked to the
   message that caused it (no `message_id` column); add one if the metrics need that join.
+- **Email sending, part 1 of patient accounts** (`core/mailer.py`, `core/email_templates.py`,
+  `api/demo_inbox.py`, migration 17; setup steps in [email.md](email.md)). Amazon SES in
+  `ca-central-1`, an `email_outbox` row for every attempt (no body, no sign-in code), demo clinics
+  (`clinics.is_demo`, set only by SQL) that send nothing and keep the rendered email for the
+  owner-only `GET /clinics/{id}/demo-inbox`, and real email refused to reserved test domains.
+  Nothing calls it yet: invites and sign-in codes arrive with the account PRs.
 
 Not built: auto-refreshing ("rolling") summaries -- by decision, summaries are on demand only --
 and storing summaries (see above).

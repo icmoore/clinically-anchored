@@ -8,6 +8,7 @@ from clinically_anchored_api.api import (
     check_ins,
     clinics,
     consents,
+    demo_inbox,
     drafts,
     episodes,
     extensions,
@@ -47,6 +48,7 @@ app.include_router(procedures.router)
 app.include_router(check_ins.router)
 app.include_router(messages.router)
 app.include_router(consents.router)
+app.include_router(demo_inbox.router)
 app.include_router(drafts.router)
 app.include_router(queue.router)
 app.include_router(summaries.router)

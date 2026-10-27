@@ -366,6 +366,19 @@ class MeOut(BaseModel):
     clinics: list[ClinicOut]
 
 
+class DemoEmailOut(BaseModel):
+    """An email a demo clinic did not send, as the owner-only demo inbox shows it."""
+
+    id: str
+    recipient: str
+    template: str
+    patient_id: str | None
+    subject: str
+    text: str
+    html: str
+    created_at: str
+
+
 class PatientCreate(BaseModel):
     full_name: str = Field(min_length=1, max_length=200)
     # Phone or email the patient's link is sent to (free text for now).

@@ -194,8 +194,9 @@ class FakeSupabase:
         }
         self.tables: dict[str, list[dict]] = {
             "clinic_members": [{"clinic_id": CLINIC_A, "user_id": USER, "role": role}],
-            "clinics": [{"id": CLINIC_A, "name": "A", "office_phone": "905-555-0100"},
-                        {"id": CLINIC_B, "name": "B", "office_phone": None}],
+            "clinics": [{"id": CLINIC_A, "name": "A", "office_phone": "905-555-0100",
+                         "is_demo": False},
+                        {"id": CLINIC_B, "name": "B", "office_phone": None, "is_demo": False}],
             "patients": [
                 {"id": PATIENT_A, "clinic_id": CLINIC_A, "full_name": "Pat A", "contact": None,
                  "created_at": "2026-10-01T00:00:00+00:00"},
@@ -206,6 +207,7 @@ class FakeSupabase:
                             "category": "abdominal_bowel_resection", "active": True}],
             "message_schedules": [dict(V1_ROW), dict(V2_ROW), dict(EXT_ROW)],
             "extension_requests": [],
+            "email_outbox": [],
             "episodes": [],
             "messages": [],
             "check_ins": [],

@@ -113,6 +113,15 @@ def template_pre12(admin_info):
         admin.execute(f'drop database if exists "{name}" with (force)')
 
 
+@pytest.fixture(scope="session")
+def template_pre17(admin_info):
+    """Schema before migration 17 (clinics.is_demo and the email outbox)."""
+    name = _build_template(admin_info, 16)
+    yield name
+    with _connect(admin_info) as admin:
+        admin.execute(f'drop database if exists "{name}" with (force)')
+
+
 @dataclass
 class Scratch:
     conn: "psycopg.Connection"
@@ -148,6 +157,12 @@ def db(admin_info, template_all):
 def db_pre9(admin_info, template_pre9):
     """A scratch database as production is today (migrations 1-8)."""
     yield from _scratch(admin_info, template_pre9)
+
+
+@pytest.fixture
+def db_pre17(admin_info, template_pre17):
+    """A scratch database as production is before migration 17 (migrations 1-16)."""
+    yield from _scratch(admin_info, template_pre17)
 
 
 @pytest.fixture
