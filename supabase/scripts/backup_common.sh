@@ -18,7 +18,7 @@
 # needs more than the privileges the reset script already uses.
 
 # The tables a backup holds, in no particular order (pg_dump sorts them by foreign key).
-BACKUP_TABLES=(message_drafts thread_summaries patient_briefs care_provider_summaries care_provider_summary_edits touchpoints consents extension_requests email_outbox messages check_ins episodes patients audit_log)
+BACKUP_TABLES=(message_drafts thread_summaries patient_briefs care_provider_summaries care_provider_summary_edits touchpoints consents extension_requests email_outbox patient_accounts patient_sign_in_links messages check_ins episodes patients audit_log)
 
 backup_tables_csv() {
   local IFS=,

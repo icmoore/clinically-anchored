@@ -25,6 +25,11 @@ The extension events (`extension.requested/accepted/declined`) are written BEFOR
 save that then lost a race leaves an event with no row: that shows up as a dangling event, not
 a gap.
 
+Patient-account events (`patient_account.*`) are written BEFORE the change they describe, like the
+extension events: a change that then failed leaves a dangling event, never a gap. The outbox is
+checked for `patient_account.sign_in_code_sent` only (invite emails are audited as
+`patient_account.invited`, which a re-send and a re-invite repeat).
+
 Not covered: `link.issued` and `episode.link_rotated` have no business row of their own
 (links are stateless signed tokens, and the URL is only returned after the audit write
 succeeds), so they cannot leave an orphan. Rows that predate an event type existing (patients
@@ -87,6 +92,29 @@ CHECKS = [
     Check(
         "extension_requests", "extension_request", "extension.declined", "decided_at",
         (("status", "declined"),),
+    ),
+    # Patient accounts (migration 18). Each event is written BEFORE the change, so a change that
+    # then failed shows up as a dangling event, not a gap.
+    Check("patient_accounts", "patient_account", "patient_account.invited", "invited_at"),
+    Check("patient_accounts", "patient_account", "patient_account.activated", "activated_at"),
+    Check(
+        "patient_accounts", "patient_account", "patient_account.access_turned_off",
+        "turned_off_at",
+    ),
+    Check("patient_accounts", "patient_account", "patient_account.identity_locked", "locked_at"),
+    Check(
+        "patient_sign_in_links", "patient_sign_in_link", "patient_account.fallback_link_issued",
+        "issued_at",
+    ),
+    Check(
+        "patient_sign_in_links", "patient_sign_in_link", "patient_account.fallback_link_used",
+        "used_at",
+    ),
+    # (migration 17's outbox) the code email's id is decided before the send, so the event can
+    # come first. Invite emails are audited as patient_account.invited instead.
+    Check(
+        "email_outbox", "email", "patient_account.sign_in_code_sent", "created_at",
+        (("template", "sign_in_code"),),
     ),
     Check("message_drafts", "draft", "draft.generated", "created_at"),
     Check("message_drafts", "draft", "draft.approved", "decided_at", (("status", "approved"),)),

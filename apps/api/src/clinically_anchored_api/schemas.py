@@ -366,6 +366,89 @@ class MeOut(BaseModel):
     clinics: list[ClinicOut]
 
 
+# --- patient accounts ---------------------------------------------------------------------
+
+
+class RequestCodeIn(BaseModel):
+    email: str = Field(max_length=320)
+
+
+class VerifyCodeIn(BaseModel):
+    email: str = Field(max_length=320)
+    code: str = Field(max_length=32)
+
+
+class LinkRedeemIn(BaseModel):
+    token: str = Field(min_length=20, max_length=200)
+    surgery_date: date
+
+
+class PatientSessionOut(BaseModel):
+    """A Supabase Auth session, handed to the web app, which stores it in its own storage."""
+
+    access_token: str
+    refresh_token: str
+    expires_in: int
+    expires_at: int | None = None
+
+
+class IdentityIn(BaseModel):
+    surgery_date: date
+
+
+class ConsentAcceptIn(BaseModel):
+    consent_text_version: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
+    consents: list[str] = Field(max_length=10)
+
+
+class PatientAccountOut(BaseModel):
+    """What the signed-in patient's own screens start from."""
+
+    status: str  # invited | active | locked | off
+    needs_identity: bool  # still to enter the surgery date
+    needs_consent: bool  # still to agree
+    identity_attempts_left: int
+    consent_version: str
+    required_consents: list[str]
+    clinic_name: str
+    office_phone: str | None
+
+
+class PatientEmailIn(BaseModel):
+    email: str | None = Field(default=None, max_length=254)
+
+
+class InviteEmailOut(BaseModel):
+    status: str  # the outbox status of the latest invite email
+    at: str
+
+
+class FallbackLinkInfo(BaseModel):
+    issued_at: str
+    expires_at: str
+    used_at: str | None
+    revoked_at: str | None
+
+
+class AccountOut(BaseModel):
+    """A patient's account as the clinic sees it. `status` is none until someone is invited."""
+
+    status: str  # none | invited | active | locked | off
+    email: str | None
+    invited_at: str | None = None
+    activated_at: str | None = None
+    turned_off_at: str | None = None
+    locked_at: str | None = None
+    last_sign_in_at: str | None = None
+    last_invite_email: InviteEmailOut | None = None
+    fallback_link: FallbackLinkInfo | None = None
+
+
+class FallbackLinkOut(BaseModel):
+    url: str  # shown once: only a hash of the secret is stored
+    expires_at: str
+
+
 class DemoEmailOut(BaseModel):
     """An email a demo clinic did not send, as the owner-only demo inbox shows it."""
 
@@ -383,6 +466,9 @@ class PatientCreate(BaseModel):
     full_name: str = Field(min_length=1, max_length=200)
     # Phone or email the patient's link is sent to (free text for now).
     contact: str | None = Field(default=None, max_length=200)
+    # Where the sign-in invite and codes go (patient accounts). Optional: a patient without
+    # email signs in with a single-use link the clinic gives them.
+    email: str | None = Field(default=None, max_length=254)
     # Entered by the clinic: every interval is measured from it.
     surgery_date: date
     procedure_id: str
@@ -399,6 +485,7 @@ class PatientOut(BaseModel):
     id: str
     full_name: str
     contact: str | None
+    email: str | None = None
     created_at: str
     episode: EpisodeOut | None = None  # the latest episode
 

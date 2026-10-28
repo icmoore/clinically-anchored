@@ -21,15 +21,26 @@ the api storing it.
 
 This is not yet the real delivery flow -- nothing sends these over SMS/email; a clinician
 copies the link from the dashboard.
+
+PATIENT ACCOUNTS (core/patient_auth.py) are replacing these links. While both exist, every
+patient route takes either credential and decides by what the request CARRIES:
+
+  * an `Authorization: Bearer` header means a signed-in patient: the patient, clinic and episode
+    come from their account and nothing else. A `token` in the same request is ignored, and a
+    header that does not pass (a clinician's token, a turned-off account) is refused, never
+    "fallen back" to the link;
+  * no header, a `token`: the legacy link above.
+
+The legacy half is deleted when the links are retired.
 """
 
 from dataclasses import dataclass
 from datetime import datetime
 
-from fastapi import HTTPException, Query, Request
+from fastapi import Header, HTTPException, Query, Request
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
-from clinically_anchored_api.core import clock, episodes
+from clinically_anchored_api.core import clock, episodes, patient_auth
 from clinically_anchored_api.core.config import get_settings
 from clinically_anchored_api.core.db import get_supabase
 from clinically_anchored_api.core.extension import ExtensionStatus
@@ -89,8 +100,44 @@ class PatientLink:
         return self.episode["patient_id"]
 
 
+def _open_link(supabase, episode: dict, *, allow_closed: bool, ended_mode: bool) -> PatientLink:
+    """The episode as the patient meets it now, or the refusal for one that has closed."""
+    now = clock.now()
+    episode, state = episodes.current_state(supabase, episode, now)
+    request, extension = episodes.ended_context(supabase, episode, state, now)
+    if state.closed and not allow_closed:
+        if not (ended_mode and extension.link_works):
+            raise HTTPException(status_code=410, detail="This care period has ended.")
+    return PatientLink(episode=episode, state=state, now=now, extension=extension, request=request)
+
+
+def _session_link(
+    request: Request, authorization: str, *, allow_closed: bool, ended_mode: bool
+) -> PatientLink:
+    """A signed-in patient: their latest care period, found from their account alone."""
+    session = patient_auth.require_active_patient(request, authorization)
+    supabase = get_supabase()
+    episode = episodes.latest_episode(supabase, session.clinic_id, session.patient_id)
+    if episode is None:
+        raise HTTPException(status_code=404, detail="There is no care period yet.")
+    return _open_link(
+        supabase, episodes.resolve_tail(supabase, episode),
+        allow_closed=allow_closed, ended_mode=ended_mode,
+    )
+
+
 def _require_link(*, allow_closed: bool, ended_mode: bool = False):
-    def dependency(request: Request, token: str = Query(..., description="Patient link token")):
+    def dependency(
+        request: Request,
+        authorization: str | None = Header(default=None),
+        token: str | None = Query(default=None, description="Legacy patient link token"),
+    ):
+        if authorization is not None:
+            return _session_link(
+                request, authorization, allow_closed=allow_closed, ended_mode=ended_mode
+            )
+        if not token:
+            raise HTTPException(status_code=401, detail="Please sign in.")
         try:
             episode_id, generation = verify_episode_token(token)
         except InvalidLinkToken as exc:
@@ -107,16 +154,7 @@ def _require_link(*, allow_closed: bool, ended_mode: bool = False):
         episode = episodes.resolve_tail(supabase, episode)
         if episode["link_generation"] != generation:
             raise HTTPException(status_code=401, detail="This link is no longer valid.")
-
-        now = clock.now()
-        episode, state = episodes.current_state(supabase, episode, now)
-        request, extension = episodes.ended_context(supabase, episode, state, now)
-        if state.closed and not allow_closed:
-            if not (ended_mode and extension.link_works):
-                raise HTTPException(status_code=410, detail="This care period has ended.")
-        return PatientLink(
-            episode=episode, state=state, now=now, extension=extension, request=request
-        )
+        return _open_link(supabase, episode, allow_closed=allow_closed, ended_mode=ended_mode)
 
     return dependency
 

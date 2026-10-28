@@ -168,6 +168,18 @@ def test_execute_after_migration_9_wipes_episodes_too_and_frees_the_schedule(db)
         "values (%s, %s, 'pat@example.org', 'invite', 'queued')",
         (w.clinic_a, w.patient_a),
     )
+    conn = c  # migration 18
+    pu = conn.execute("insert into auth.users (email) values ('acct@example.org') returning id"
+                      ).fetchone()["id"]
+    acct = conn.execute(
+        "insert into patient_accounts (clinic_id, patient_id, user_id, status, invited_by) "
+        "values (%s, %s, %s, 'invited', %s) returning id", (w.clinic_a, w.patient_a, pu, w.user_a),
+    ).fetchone()["id"]
+    conn.execute(
+        "insert into patient_sign_in_links (clinic_id, account_id, token_hash, issued_by, "
+        "expires_at) values (%s, %s, repeat('a', 64), %s, now() + interval '1 day')",
+        (w.clinic_a, acct, w.user_a),
+    )
     with pytest.raises(Exception, match="message_schedules_in_use"):
         c.execute("update message_schedules set offsets_days = '{2,3}' where version = 1")
 
@@ -176,6 +188,7 @@ def test_execute_after_migration_9_wipes_episodes_too_and_frees_the_schedule(db)
     emptied = WIPED + [
         "episodes", "thread_summaries", "patient_briefs", "care_provider_summaries",
         "care_provider_summary_edits", "extension_requests", "email_outbox",
+        "patient_accounts", "patient_sign_in_links",
     ]
     assert all(count(c, t) == 0 for t in emptied)
     assert count(c, "clinics") >= 2 and count(c, "procedures") >= 2 and count(c, "clinic_members") == 2
