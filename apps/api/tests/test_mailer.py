@@ -73,6 +73,37 @@ def test_uses_sesv2_in_ca_central_1_whatever_aws_region_says(ses, db, monkeypatc
     assert not {"aws_access_key_id", "aws_secret_access_key"} & made.keys()  # env chain only
 
 
+def test_a_different_region_only_comes_from_ses_region_and_is_logged(ses, db, monkeypatch, caplog):
+    monkeypatch.setenv("AWS_REGION", "eu-west-1")  # still ignored
+    monkeypatch.setattr(get_settings(), "ses_region", "us-east-2")
+    with caplog.at_level("WARNING"):
+        send(db)
+    assert ses.clients_made[0]["region_name"] == "us-east-2"
+    assert "us-east-2" in caplog.text and "SES_REGION" in caplog.text
+    mailer._client.cache_clear()
+    caplog.clear()
+    monkeypatch.setattr(get_settings(), "ses_region", "ca-central-1")
+    send(db)
+    assert ses.clients_made[-1]["region_name"] == "ca-central-1"
+    assert "SES_REGION" not in caplog.text  # nothing to warn about in Canada
+
+
+def test_ses_region_defaults_to_canada_and_must_look_like_a_region(monkeypatch):
+    from pydantic import ValidationError
+
+    from clinically_anchored_api.core.config import Settings
+
+    assert Settings(_env_file=None).ses_region == "ca-central-1"
+    monkeypatch.setenv("SES_REGION", " US-EAST-2 ")
+    assert Settings(_env_file=None).ses_region == "us-east-2"
+    monkeypatch.setenv("SES_REGION", "")
+    assert Settings(_env_file=None).ses_region == "ca-central-1"
+    for bad in ("ohio", "us east 2", "us-east-", "x"):
+        monkeypatch.setenv("SES_REGION", bad)
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None)
+
+
 def test_client_is_created_once(ses, db):
     send(db)
     send(db)
