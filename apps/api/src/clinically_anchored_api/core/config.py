@@ -1,7 +1,8 @@
 import logging
+import re
 from functools import lru_cache
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -53,10 +54,14 @@ class Settings(BaseSettings):
     # The current key's public half is derived automatically.
     audit_public_keys: str = ""
 
-    # Email (core/mailer.py): sent through Amazon SES in ca-central-1 (fixed in code). Credentials
-    # are not settings -- boto3 reads AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY from the real
-    # process environment. Not required at startup: without a sender address a send is recorded
-    # as failed ("ses_not_configured") instead of the service refusing to boot.
+    # Email (core/mailer.py): sent through Amazon SES, in ca-central-1 unless SES_REGION says
+    # otherwise. The ambient AWS_REGION is never used. Moving email out of Canada is a deliberate,
+    # temporary override (it is logged as a warning when the first email is sent); delete the
+    # variable to go back. Credentials are not settings -- boto3 reads AWS_ACCESS_KEY_ID /
+    # AWS_SECRET_ACCESS_KEY from the real process environment. Not required at startup: without
+    # a sender address a send is recorded as failed ("ses_not_configured") instead of the
+    # service refusing to boot.
+    ses_region: str = "ca-central-1"
     ses_from_address: str = ""
     ses_from_name: str = ""
     ses_configuration_set: str = ""
@@ -93,6 +98,14 @@ class Settings(BaseSettings):
 
     # CORS: the web app's origin(s), comma-separated in the env var
     allowed_origins: str = "http://localhost:3000"
+
+    @field_validator("ses_region")
+    @classmethod
+    def _ses_region_is_a_region(cls, value: str) -> str:
+        value = value.strip().lower() or "ca-central-1"
+        if not re.fullmatch(r"[a-z]{2}(-[a-z]+)+-\d", value):
+            raise ValueError(f"SES_REGION {value!r} is not an AWS region name (e.g. us-east-2)")
+        return value
 
     @model_validator(mode="after")
     def _require_secrets_outside_development(self) -> "Settings":

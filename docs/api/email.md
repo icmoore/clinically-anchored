@@ -1,7 +1,8 @@
 # Email (Amazon SES)
 
 The api sends the patient invite and the sign-in code through Amazon SES in `ca-central-1`
-(`core/mailer.py`; the region is fixed in code, `AWS_REGION` is ignored). Supabase Auth never
+(`core/mailer.py`; `AWS_REGION` is ignored, and only the optional `SES_REGION` setting can move email
+to another region -- see "Using another region" below). Supabase Auth never
 sends mail. Every attempt is recorded in `email_outbox` (migration 17): recipient, template,
 clinic, patient, status, SES message id, timestamps. The outbox does not keep the email body or
 a sign-in code, with one exception: a **demo clinic** sends nothing and keeps the rendered email so
@@ -72,6 +73,22 @@ codes and invitations only, no marketing, one email per request, no clinical con
 how you handle bounces and complaints: say you will add a configuration set with an SNS event
 destination before sending to real patients (not built yet). AWS usually answers within a day.
 While the request is pending, keep using verified test addresses.
+
+## Using another region (temporary)
+
+Canada is the default and the rule: nothing here depends on it, but data residency was the
+reason. If SES cannot be used in `ca-central-1` yet (for example the account's organization blocks
+the region), set `SES_REGION=us-east-2` (or another region) on Railway. Only EMAIL moves: Bedrock
+stays fixed to Canada. The api logs a warning when it sends from another region. To go back, delete
+the variable. Then redo, in Canada: verify the identities again (they are per region) and request
+production access again if you had in the other region. The IAM permission is not per region.
+Emails carry the clinic's name, its office phone and a code, no clinical content.
+
+Do the steps above in the region you chose (the console's region picker, top right).
+
+If the console says an organization policy (SCP) denies `ses:*`, that is set in the organization's
+**management account** (Organizations -> Policies -> Service control policies). A member account
+cannot read or change it.
 
 ## Demo clinics and test addresses
 

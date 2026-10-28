@@ -1,9 +1,11 @@
-"""Sending email: Amazon SES in `ca-central-1`, and the outbox that records every attempt.
+"""Sending email: Amazon SES (`ca-central-1` unless SES_REGION says otherwise), and the outbox that
+records every attempt.
 
 What every send does, and nothing more:
-  * runs in SES `ca-central-1` -- fixed here rather than read from AWS_REGION, like the Bedrock
-    wrapper (core/ai.py), so an ambient AWS_REGION cannot move it. Credentials come from boto3's
-    standard chain (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY in the process environment);
+  * runs in SES `ca-central-1` by default, and only the SES_REGION setting can change that -- never
+    the ambient AWS_REGION, as with the Bedrock wrapper (core/ai.py), which stays in Canada. A
+    different region is a deliberate, logged override. Credentials come from boto3's standard
+    chain (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY in the process environment);
   * writes an `email_outbox` row first (status 'queued'), sends, then settles the row ('sent' with
     SES's message id, or 'failed' with an error CODE -- never a provider message, never the body);
   * for a DEMO clinic (clinics.is_demo) sends nothing: the rendered email, sign-in code included,
@@ -41,7 +43,7 @@ from clinically_anchored_api.core.email_templates import RenderedEmail
 
 logger = logging.getLogger(__name__)
 
-SES_REGION = "ca-central-1"
+DEFAULT_SES_REGION = "ca-central-1"
 
 # Domains that never reach a person (RFC 2606 / 6761). example.com and friends include their
 # subdomains.
@@ -92,11 +94,20 @@ def patient_sign_in_url() -> str | None:
     return f"{base.rstrip('/')}/sign-in" if base else None
 
 
+def ses_region() -> str:
+    return get_settings().ses_region
+
+
 @lru_cache
-def _client():
+def _client(region: str):
+    if region != DEFAULT_SES_REGION:
+        logger.warning(
+            "Email goes through SES in %s, not %s (SES_REGION is set). Remove SES_REGION to "
+            "keep it in Canada.", region, DEFAULT_SES_REGION,
+        )
     return boto3.client(
         "sesv2",
-        region_name=SES_REGION,
+        region_name=region,
         config=Config(retries={"max_attempts": 3, "mode": "standard"}, connect_timeout=5,
                       read_timeout=15),
     )
@@ -133,7 +144,7 @@ def deliver(to: str, email: RenderedEmail) -> str:
     }
     if settings.ses_configuration_set:
         params["ConfigurationSetName"] = settings.ses_configuration_set
-    return _client().send_email(**params)["MessageId"]
+    return _client(ses_region()).send_email(**params)["MessageId"]
 
 
 def _error_code(exc: Exception) -> str:
