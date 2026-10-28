@@ -31,7 +31,8 @@ RESTORE_SH = SCRIPTS / "restore_trial_data.sh"
 RESET_SH = SCRIPTS / "reset_trial_data.sh"
 RESET_SQL = SCRIPTS / "reset_trial_data.sql"
 TABLES = ["message_drafts", "thread_summaries", "patient_briefs", "care_provider_summaries",
-          "care_provider_summary_edits", "touchpoints", "consents", "extension_requests", "email_outbox", "messages",
+          "care_provider_summary_edits", "touchpoints", "consents", "extension_requests", "email_outbox", "patient_accounts", "patient_sign_in_links",
+          "messages",
           "check_ins",
           "episodes", "patients", "audit_log"]
 
@@ -132,6 +133,18 @@ def populate(conn):
             "rendered_subject, rendered_text, rendered_html) values "
             "(%s, %s, 'pat@example.org', 'sign_in_code', 'demo', 's', 't', '<p>t</p>')",
             (w.clinic_a, w.patient_a),
+        )
+    if conn.execute("select to_regclass('patient_accounts') as t").fetchone()["t"]:  # 18
+        pu = conn.execute("insert into auth.users (email) values ('acct@example.org') returning id"
+                          ).fetchone()["id"]
+        acct = conn.execute(
+            "insert into patient_accounts (clinic_id, patient_id, user_id, status, invited_by) "
+            "values (%s, %s, %s, 'invited', %s) returning id", (w.clinic_a, w.patient_a, pu, w.user_a),
+        ).fetchone()["id"]
+        conn.execute(
+            "insert into patient_sign_in_links (clinic_id, account_id, token_hash, issued_by, "
+            "expires_at) values (%s, %s, repeat('a', 64), %s, now() + interval '1 day')",
+            (w.clinic_a, acct, w.user_a),
         )
     prev = None
     for n in range(3):

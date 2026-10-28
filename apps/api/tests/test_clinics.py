@@ -201,3 +201,26 @@ def test_if_the_episode_cannot_be_saved_the_patient_is_taken_back_out(client, fa
     assert [p["id"] for p in fake.tables["patients"]].count("pb") == 1
     assert len(fake.tables["patients"]) == 3  # the new one is gone again
     assert fake.tables["episodes"] == []
+
+
+def test_a_new_patient_can_come_with_the_email_their_account_invite_goes_to(client, fake):
+    r = client.post(f"/clinics/{A}/patients", headers=AUTH,
+                    json={**NEW, "email": "  Test.Person@Mail.ORG "})
+    assert r.status_code == 200 and r.json()["email"] == "test.person@mail.org"
+    assert fake.tables["patients"][-1]["email"] == "test.person@mail.org"
+    assert "test.person@mail.org" not in str(fake.audits[0]["metadata"])  # hashed, not stored
+    no_email = client.post(f"/clinics/{A}/patients", headers=AUTH, json={**NEW, "email": "  "})
+    assert no_email.json()["email"] is None
+
+
+@pytest.mark.parametrize("bad", ["nope", "a@b", "two words@mail.org", "a@@b.org"])
+def test_a_malformed_patient_email_is_refused_before_anything_is_written(client, fake, bad):
+    r = client.post(f"/clinics/{A}/patients", headers=AUTH, json={**NEW, "email": bad})
+    assert r.status_code == 422
+    assert len(fake.tables["patients"]) == 3 and fake.audits == []
+
+
+def test_the_patient_list_carries_each_patients_email(client, fake):
+    fake.tables["patients"][1]["email"] = "amy@mail.org"
+    by_id = {p["id"]: p["email"] for p in client.get(f"/clinics/{A}/patients", headers=AUTH).json()}
+    assert by_id == {"p1": None, "p0": "amy@mail.org"}

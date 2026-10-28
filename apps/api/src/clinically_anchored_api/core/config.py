@@ -73,6 +73,31 @@ class Settings(BaseSettings):
     ses_from_name: str = ""
     ses_configuration_set: str = ""
 
+    # Patient accounts: passwordless email sign-in (core/patient_auth.py, api/patient_auth.py).
+    # The anon key is the public one the web app already has; the api uses it only to exchange a
+    # sign-in code for a session on a throwaway client. Not required at startup: without it the
+    # sign-in routes answer 503.
+    supabase_anon_key: str = ""
+    # Standard Webhooks secret of the Supabase "Send Email" auth hook (api/auth_hooks.py), which
+    # swallows every email Supabase Auth would send. Looks like "v1,whsec_<base64>".
+    send_email_hook_secret: str = ""
+    patient_code_ttl_seconds: int = 600  # a sign-in code works for 10 minutes
+    patient_code_max_attempts: int = 5  # tries per code
+    patient_code_cooldown_seconds: int = 60  # between two codes for one email
+    patient_codes_per_hour: int = 5  # codes per email per hour
+    patient_identity_max_attempts: int = 3  # wrong surgery dates before the account locks
+    patient_session_max_age_days: int = 30  # a signed-in device stays signed in this long
+    patient_fallback_link_ttl_hours: int = 24
+    # Per client address, per minute, for each of: request a code, enter a code, use a fallback
+    # link. In-memory, per instance (core/ratelimit.py); 0 or less turns it off.
+    patient_auth_per_ip_per_minute: int = 30
+    # How many reverse proxies sit in front of the api (Railway's edge: 1). With 0 the client
+    # address is the socket's, which behind a proxy is the proxy's -- so every patient shares one
+    # per-address budget. With N the address is the Nth from the RIGHT of X-Forwarded-For, the
+    # one our own proxy added; anything a client put further left is ignored, so it cannot be
+    # forged. Set it only to the true number of hops.
+    trusted_proxy_hops: int = 0
+
     # Where patients open their links (the deployed web app). Used to build the
     # URLs the "issue link" endpoint returns. Development falls back to
     # http://localhost:3000; elsewhere the endpoint refuses until it's set.

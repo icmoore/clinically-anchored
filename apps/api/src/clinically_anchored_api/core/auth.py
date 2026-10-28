@@ -5,7 +5,9 @@ token here as `Authorization: Bearer <jwt>`. This service uses the service
 role key, which bypasses RLS, so tenant scoping has to be enforced here:
 verify the JWT with Supabase, then confirm the user is a member of the clinic
 named in the route. Patients never come through this path -- they use the
-signed link tokens in core/security.py.
+signed link tokens in core/security.py, or sign in as a patient account
+(core/patient_auth.py). The two kinds of Supabase Auth user never mix: a token whose user is
+marked app_metadata.account_type = 'patient' is refused by every route in this module.
 """
 
 from dataclasses import dataclass
@@ -26,6 +28,7 @@ class ClinicMember:
 class AuthedUser:
     user_id: str
     email: str | None
+    account_type: str | None = None  # 'patient' for a patient account; staff have none
 
 
 def _authenticate(authorization: str | None) -> AuthedUser:
@@ -40,7 +43,14 @@ def _authenticate(authorization: str | None) -> AuthedUser:
     user = getattr(user_response, "user", None)
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid or expired session.")
-    return AuthedUser(user_id=user.id, email=getattr(user, "email", None))
+    metadata = getattr(user, "app_metadata", None) or {}
+    if metadata.get("account_type") == "patient":
+        raise HTTPException(status_code=403, detail="This is a patient account, not a staff one.")
+    return AuthedUser(
+        user_id=user.id,
+        email=getattr(user, "email", None),
+        account_type=metadata.get("account_type"),
+    )
 
 
 def require_user(authorization: str | None = Header(default=None)) -> AuthedUser:

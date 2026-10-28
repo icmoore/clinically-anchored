@@ -20,6 +20,7 @@ from clinically_anchored_api.core.auth import (
 )
 from clinically_anchored_api.core.db import get_supabase
 from clinically_anchored_api.core.episodes import COLUMNS as EPISODE_COLUMNS
+from clinically_anchored_api.core.mailer import clean_email
 from clinically_anchored_api.schemas import (
     ClinicOut,
     MeOut,
@@ -79,7 +80,7 @@ def list_patients(
     supabase = get_supabase()
     rows = (
         supabase.table("patients")
-        .select("id, full_name, contact, created_at")
+        .select("id, full_name, contact, email, created_at")
         .eq("clinic_id", clinic_id)
         .order("full_name")
         .execute()
@@ -105,6 +106,7 @@ def create_patient(
     """Add a patient together with their episode (surgery date and procedure). If the episode
     can't be created the patient is removed again, so no patient is left without one."""
     supabase = get_supabase()
+    email = clean_email(body.email)
     # Reject a bad procedure or surgery date (422) before anything is written.
     check_new_episode(supabase, clinic_id, body.procedure_id, body.surgery_date)
     result = (
@@ -114,6 +116,7 @@ def create_patient(
                 "clinic_id": clinic_id,
                 "full_name": body.full_name.strip(),
                 "contact": body.contact.strip() if body.contact else None,
+                "email": email,
             }
         )
         .execute()
@@ -127,7 +130,8 @@ def create_patient(
         member,
         "patient.created",
         {"ref_type": "patient", "ref_id": row["id"]},
-        {"patient_id": row["id"], "full_name": row["full_name"], "contact": row["contact"]},
+        {"patient_id": row["id"], "full_name": row["full_name"], "contact": row["contact"],
+         "email": row["email"]},
     )
     try:
         episode = create_episode(

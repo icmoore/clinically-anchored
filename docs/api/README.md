@@ -371,6 +371,12 @@ Built (on `main`):
   (`clinics.is_demo`, set only by SQL) that send nothing and keep the rendered email for the
   owner-only `GET /clinics/{id}/demo-inbox`, and real email refused to reserved test domains.
   Nothing calls it yet: invites and sign-in codes arrive with the account PRs.
+- **Patient accounts, part 2 of 4: accounts and access** (migration 18; read
+  [patient-accounts.md](patient-accounts.md)). Passwordless email sign-in for patients: invite, a
+  6-digit code by email, a surgery-date check and consent on first sign-in, a 30-day session, turn
+  off / re-invite, and a single-use fallback link. The patient routes now accept either that session
+  or the old `?token=` link (the link half is deleted when links are retired); clinician routes
+  refuse patient tokens. Needs the Supabase dashboard changes and Railway variables in that doc.
 
 Not built: auto-refreshing ("rolling") summaries -- by decision, summaries are on demand only --
 and storing summaries (see above).

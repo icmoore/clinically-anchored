@@ -33,6 +33,7 @@ from functools import lru_cache
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
+from fastapi import HTTPException
 
 from clinically_anchored_api.core import email_templates
 from clinically_anchored_api.core.config import get_settings
@@ -58,6 +59,16 @@ _OUTBOX_COLUMNS = (
 def normalize_address(address: str) -> str:
     """Trimmed and lower-cased: how an address is compared and stored."""
     return address.strip().lower()
+
+
+def clean_email(value: str | None) -> str | None:
+    """A clinic-entered email, normalised, or None if left empty. 422 if it is not an address."""
+    if value is None or not value.strip():
+        return None
+    email = normalize_address(value)
+    if not is_valid_address(email):
+        raise HTTPException(status_code=422, detail="That is not a valid email address.")
+    return email
 
 
 def is_valid_address(address: str) -> bool:
@@ -147,12 +158,16 @@ def send_email(
     to: str,
     template: str,
     code: str | None = None,
+    outbox_id: str | None = None,
 ) -> dict:
     """Send (or, for a demo clinic, store) one email and return its outbox row. `code` is the
-    sign-in code for the sign_in_code template. Read `row["status"]`: 'sent', 'demo', 'failed' or
+    sign-in code for the sign_in_code template. `outbox_id` lets a caller that audited the send
+    first name the row it is about to cause. Read `row["status"]`: 'sent', 'demo', 'failed' or
     'refused'."""
     to = normalize_address(to)
     base = {"clinic_id": clinic_id, "patient_id": patient_id, "recipient": to, "template": template}
+    if outbox_id:
+        base["id"] = outbox_id
 
     if not is_valid_address(to):
         # The outbox only accepts a plausible length; garbage the clinic typed is not kept.

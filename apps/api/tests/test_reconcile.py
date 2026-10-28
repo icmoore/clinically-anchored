@@ -50,7 +50,8 @@ class _Db:
         self.t = {n: [] for n in (
             "patients", "episodes", "check_ins", "messages", "consents", "message_drafts",
             "touchpoints", "thread_summaries", "patient_briefs", "care_provider_summaries",
-            "care_provider_summary_edits", "extension_requests", "audit_log",
+            "care_provider_summary_edits", "extension_requests", "patient_accounts",
+            "patient_sign_in_links", "email_outbox", "audit_log",
         )}
 
     def table(self, name):

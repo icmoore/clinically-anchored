@@ -4,8 +4,10 @@
 --
 --   Wiped:  message_drafts, thread_summaries, patient_briefs, care_provider_summaries,
 --           care_provider_summary_edits, touchpoints, consents, extension_requests, email_outbox,
---           messages, check_ins, episodes, patients, audit_log
---   Kept:   clinics, clinic_members, procedures, message_schedules, auth.users
+--           patient_sign_in_links, patient_accounts, messages, check_ins, episodes, patients,
+--           audit_log
+--   Kept:   clinics, clinic_members, procedures, message_schedules, auth.users (patients' Auth
+--           users stay, without an account; inviting the same email again reuses them)
 --
 -- One transaction, one TRUNCATE over an explicit list (no CASCADE): a table that
 -- references patients and is missing from the list makes the whole statement fail instead
@@ -32,7 +34,8 @@ do $$
 declare
   wipe text[] := array['message_drafts', 'thread_summaries', 'patient_briefs',
                        'care_provider_summaries', 'care_provider_summary_edits', 'touchpoints',
-                       'extension_requests', 'email_outbox',
+                       'extension_requests', 'email_outbox', 'patient_sign_in_links',
+                       'patient_accounts',
                        'consents', 'messages', 'check_ins', 'episodes', 'patients', 'audit_log'];
   keep text[] := array['clinics', 'clinic_members', 'procedures', 'message_schedules'];
   t text;
