@@ -110,7 +110,7 @@ def run() -> list[tuple[str, bool, str]]:
             gotrue.ban(uid)
             try:
                 gotrue.mint_session(email)
-            except Exception:  # CodeRejected, or Supabase refusing the admin call: either is a refusal
+            except Exception:  # a refusal of any kind
                 return
             raise AssertionError("a banned user got a session")
 
