@@ -142,7 +142,9 @@ function Dashboard({ clinicId }: { clinicId: string }) {
                     >
                       {p.full_name}
                     </span>
-                    {p.contact && <span className="block truncate text-sm text-muted">{p.contact}</span>}
+                    {(p.contact || p.email) && (
+                      <span className="block truncate text-sm text-muted">{p.contact ?? p.email}</span>
+                    )}
                   </span>
                   <EpisodeTag patient={p} />
                 </Link>
@@ -173,6 +175,7 @@ function AddPatientForm({ clinicId }: { clinicId: string }) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [contact, setContact] = useState("");
+  const [email, setEmail] = useState("");
   const [surgeryDate, setSurgeryDate] = useState("");
   const [procedureId, setProcedureId] = useState("");
   const [procedures, setProcedures] = useState<Procedure[] | null>(null);
@@ -193,6 +196,7 @@ function AddPatientForm({ clinicId }: { clinicId: string }) {
       const patient = await createPatient(clinicId, {
         full_name: name,
         contact: contact || null,
+        email: email.trim() || null,
         surgery_date: surgeryDate,
         procedure_id: procedureId,
       });
@@ -215,11 +219,19 @@ function AddPatientForm({ clinicId }: { clinicId: string }) {
         className={field}
       />
       <input
+        type="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        placeholder="Email for the sign-in invite (optional)"
+        aria-label="Patient email"
+        className={field}
+      />
+      <input
         value={contact}
         onChange={(e) => setContact(e.target.value)}
-        placeholder="Phone or email (optional)"
-        aria-label="Phone or email"
-        className={field}
+        placeholder="Phone (optional)"
+        aria-label="Phone"
+        className={`${field} sm:col-span-2`}
       />
       <label className="flex flex-col gap-1 text-xs text-muted">
         Surgery date

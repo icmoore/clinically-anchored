@@ -46,7 +46,7 @@ def client(fake):
 def test_me_lists_only_my_clinics(client):
     body = client.get("/me", headers=AUTH).json()
     assert body["email"] == "u@example.com"
-    assert body["clinics"] == [{"id": A, "name": "A", "role": "owner"}]
+    assert body["clinics"] == [{"id": A, "name": "A", "role": "owner", "is_demo": False}]
 
 
 def test_me_requires_auth(client):
@@ -224,3 +224,8 @@ def test_the_patient_list_carries_each_patients_email(client, fake):
     fake.tables["patients"][1]["email"] = "amy@mail.org"
     by_id = {p["id"]: p["email"] for p in client.get(f"/clinics/{A}/patients", headers=AUTH).json()}
     assert by_id == {"p1": None, "p0": "amy@mail.org"}
+
+
+def test_me_says_which_clinic_is_a_demo_clinic(client, fake):
+    fake.tables["clinics"][0]["is_demo"] = True
+    assert client.get("/me", headers=AUTH).json()["clinics"][0]["is_demo"] is True

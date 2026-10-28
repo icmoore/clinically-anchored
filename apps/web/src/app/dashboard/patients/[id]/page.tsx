@@ -7,7 +7,7 @@ import { AppHeader } from "@/components/app-header";
 import { ClinicianProblem } from "@/components/clinician-problem";
 import { ComposeBox } from "@/components/compose-box";
 import { ContactLogSection } from "@/components/contact-log";
-import { PatientLinksSection } from "@/components/patient-links";
+import { PatientAccountSection } from "@/components/patient-account";
 import { PhysicianSummarySection } from "@/components/physician-summary";
 import { SummarySection } from "@/components/summary-view";
 import {
@@ -143,11 +143,13 @@ function PatientView({
           &larr; Dashboard
         </Link>
         <h1 className="mt-1 text-xl font-semibold text-ink">{patient.full_name}</h1>
-        {patient.contact && <p className="text-sm text-muted">{patient.contact}</p>}
+        {(patient.contact || patient.email) && (
+          <p className="text-sm text-muted">{patient.contact ?? patient.email}</p>
+        )}
         {error && <p className="mt-1 text-sm text-flag-text">{error}</p>}
       </div>
 
-      <PatientLinksSection clinicId={clinicId} episode={episode} />
+      <PatientAccountSection clinicId={clinicId} patientId={patientId} role={role} />
 
       <PhysicianSummarySection
         clinicId={clinicId}

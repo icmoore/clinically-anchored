@@ -65,9 +65,18 @@ def me(user: AuthedUser = Depends(require_user)) -> MeOut:
     if memberships:
         roles = {m["clinic_id"]: m["role"] for m in memberships}
         rows = (
-            supabase.table("clinics").select("id, name").in_("id", sorted(roles)).execute().data
+            supabase.table("clinics")
+            .select("id, name, is_demo")
+            .in_("id", sorted(roles))
+            .execute()
+            .data
         )
-        clinics = [ClinicOut(id=r["id"], name=r["name"], role=roles[r["id"]]) for r in rows]
+        clinics = [
+            ClinicOut(
+                id=r["id"], name=r["name"], role=roles[r["id"]], is_demo=bool(r.get("is_demo"))
+            )
+            for r in rows
+        ]
     return MeOut(user_id=user.user_id, email=user.email, clinics=clinics)
 
 

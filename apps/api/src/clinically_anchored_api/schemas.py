@@ -358,6 +358,8 @@ class ClinicOut(BaseModel):
     id: str
     name: str
     role: str
+    # A demo clinic sends no real email (its mail goes to the owner-only demo inbox). SQL-only flag.
+    is_demo: bool = False
 
 
 class MeOut(BaseModel):

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ApiError,
   MyCheckIn,
@@ -20,17 +20,27 @@ import { PATIENT_TEXT } from "@/lib/patient-strings";
 import { buildSummary } from "@/lib/symptoms";
 import { usePolling } from "@/lib/use-polling";
 import { PatientExplainer } from "./patient-explainer";
+import { SignedInPatient } from "./patient-gate";
 import { EndedScreen } from "./ended-screen";
 import { ClosedScreen, InvalidLinkScreen, PatientFrame } from "./patient-frame";
 import { PatientTimeline } from "./patient-timeline";
 
 const REFRESH_MS = 10000;
 
-/** The patient's home: their thread with the care team, when they can next write, and the
- *  forms to do it. Everything about WHAT they may do comes from the api's state (it is
- *  computed from the schedule and the clock there); this only shows it. */
+/** The patient's home. A signed-in patient gets it inside the gate (components/patient-gate.tsx):
+ *  the first sign-in steps come first. A legacy link (`?token=`) opens it directly; those links
+ *  are retired later. */
 export function PatientHome() {
   const token = useSearchParams().get("token") ?? "";
+  if (token) return <PatientMessages token={token} />;
+  return <SignedInPatient>{({ recheck }) => <PatientMessages token="" onRefused={recheck} />}</SignedInPatient>;
+}
+
+/** Their thread with the care team, when they can next write, and the forms to do it. Everything
+ *  about WHAT they may do comes from the api's state (it is computed from the schedule and the
+ *  clock there); this only shows it. `token` is the legacy link; empty means the signed-in patient,
+ *  and `onRefused` is told when the api turns that patient away. */
+function PatientMessages({ token, onRefused }: { token: string; onRefused?: () => void }) {
   const fetchAll = useCallback(async () => {
     const state = await getPatientState(token);
     // A closed link opens nothing but its own "closed" answer.
@@ -44,8 +54,15 @@ export function PatientHome() {
   }, [token]);
   const { data, failed, error, reload } = usePolling(fetchAll, REFRESH_MS);
 
-  if (!token) return <InvalidLinkScreen />;
+  // Signed in, but the api no longer lets this patient in (signed out elsewhere, access turned off,
+  // locked): the gate looks at the account again and decides what to show.
+  const refused = error instanceof ApiError && (error.status === 401 || error.status === 403);
+  useEffect(() => {
+    if (!token && refused) onRefused?.();
+  }, [token, refused, onRefused]);
+
   if (data === null) {
+    if (!token && refused) return <p className="p-6 text-muted">Loading...</p>;
     if (error instanceof ApiError && error.status === 401) return <InvalidLinkScreen />;
     if (error instanceof ApiError && error.status === 410) return <ClosedScreen />;
     return (
@@ -150,7 +167,10 @@ function StatusPanel({ state, token }: { state: PatientState; token: string }) {
     tone = "watch";
     sentence = T.beforeCheckIn;
     action = (
-      <Link href={`/check-in?token=${encodeURIComponent(token)}`} className={`${buttonClass} mt-3 inline-block`}>
+      <Link
+        href={token ? `/check-in?token=${encodeURIComponent(token)}` : "/check-in"}
+        className={`${buttonClass} mt-3 inline-block`}
+      >
         {T.startCheckIn}
       </Link>
     );
