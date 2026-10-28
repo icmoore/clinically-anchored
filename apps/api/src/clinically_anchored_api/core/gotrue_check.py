@@ -41,13 +41,21 @@ def run() -> list[tuple[str, bool, str]]:
         if uid is None:
             return results
 
-        def code_is_six_digits():
+        def code_is_digits():
             code = gotrue.generate_code(email)
-            assert re.fullmatch(r"\d{6}", code), f"got {code!r}"
+            assert re.fullmatch(r"\d{6,10}", code), f"got {code!r}"
             return code
 
-        code = _step(results, "generate_link returns a 6-digit code (and sends nothing)",
-                     code_is_six_digits)
+        code = _step(results, "generate_link returns a numeric code (and sends nothing)",
+                     code_is_digits)
+
+        def code_is_six_digits():
+            assert code and len(code) == 6, (
+                f"Supabase makes {len(code or '')}-digit codes: set Email OTP Length to 6 in the "
+                "dashboard (Authentication -> Sign In / Providers -> Email)"
+            )
+
+        _step(results, "the code is 6 digits (dashboard setting)", code_is_six_digits)
 
         def wrong_code_is_refused():
             try:

@@ -125,6 +125,16 @@ def test_the_right_code_signs_in_once_and_only_once(env):
     assert env.account(pid)["code_sent_at"] is None
 
 
+def test_a_code_of_another_length_still_works_if_the_dashboard_is_set_differently(env):
+    env.gt.code_digits = 8  # found by gotrue_check: the project was making 8-digit codes
+    pid = env.add_patient()
+    env.act(pid, "invite")
+    env.request_code("pat@mail.org")
+    code = env.last_code("pat@mail.org")
+    assert len(code) == 8
+    assert env.verify("pat@mail.org", code).status_code == 200
+
+
 def test_every_way_of_failing_to_enter_a_code_looks_the_same(env):
     invited = env.add_patient("I", "i@mail.org")
     off = env.add_patient("O", "o@mail.org")

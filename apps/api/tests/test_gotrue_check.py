@@ -57,3 +57,33 @@ def test_nothing_is_attempted_if_the_user_cannot_be_made(monkeypatch):
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no")))
     results = gotrue_check.run()
     assert len(results) == 1 and results[0][1] is False
+
+
+def test_a_code_of_the_wrong_length_is_its_own_failure_and_the_rest_still_run(monkeypatch):
+    class Admin:
+        def delete_user(self, uid):
+            pass
+
+    class Supa:
+        auth = type("A", (), {"admin": Admin()})()
+
+        def rpc(self, name, params):
+            return Rpc({"created_at": "x", "ended": 1, "id": "u-1"})
+
+    monkeypatch.setattr(gotrue_check, "get_supabase", lambda: Supa())
+    monkeypatch.setattr(gotrue, "ensure_patient_user", lambda email, user_id=None, **kw: "u-1")
+    monkeypatch.setattr(gotrue, "generate_code", lambda email: "27857844")
+
+    def verify(email, code):
+        if code == "27857844":
+            return gotrue.AuthSession("u-1", "a", "r", 3600, None)
+        raise gotrue.CodeRejected()
+
+    monkeypatch.setattr(gotrue, "verify_code", verify)
+    monkeypatch.setattr(
+        gotrue, "user_for_token", lambda t: gotrue.AuthUser("u-1", None, "patient", "s")
+    )
+    results = {name: ok for name, ok, _ in gotrue_check.run()}
+    assert results["generate_link returns a numeric code (and sends nothing)"] is True
+    assert results["the code is 6 digits (dashboard setting)"] is False
+    assert results["the right code gives a session"] is True  # not a cascade of failures

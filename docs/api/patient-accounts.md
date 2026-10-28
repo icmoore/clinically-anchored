@@ -52,7 +52,9 @@ Clinician routes refuse a patient token, and patient routes refuse a clinician t
    send to the api, which drops it. Without this, anyone can ask Supabase to email a code to a
    registered patient (the anon key is public).
 3. **Authentication -> Sign In / Providers -> Email: "Email OTP Expiration" = 600** seconds and
-   "Email OTP Length" = 6. (The api also enforces 10 minutes itself.)
+   "Email OTP Length" = 6. (The api also enforces 10 minutes itself. The project defaulted to 8 digits,
+   which `gotrue_check` reports; the api accepts 6 to 10 so a mis-set length does not lock patients
+   out, but the emails and screens are written for 6.)
 4. **Authentication -> Rate Limits -> "Rate limit for token verifications"**: the api checks codes
    from one server address, and Supabase's default (30 per 5 minutes per address) is shared by every
    patient. Raise it to something like 300.

@@ -45,6 +45,7 @@ class FakeGoTrue:
         self.sessions_made = 0
         self.calls: list[str] = []
         self._code_numbers = itertools.count(100000)
+        self.code_digits = 6  # what the dashboard's "Email OTP Length" says
         self.admin = _Admin(self)
 
     def user_obj(self, uid: str) -> Obj:
@@ -123,7 +124,7 @@ class _Admin:
         # Real GoTrue would quietly CREATE a user for an unknown address; the api must never rely
         # on that, so the fake refuses.
         assert self.gt.by_email(params["email"]), "generate_link for a user that does not exist"
-        code = f"{next(self.gt._code_numbers):06d}"
+        code = f"{next(self.gt._code_numbers):0{self.gt.code_digits}d}"
         self.gt.codes[params["email"]] = code
         return Obj(properties=Obj(email_otp=code))
 
@@ -141,7 +142,7 @@ class FakeSes:
         return mine[-1] if mine else None
 
 
-CODE_LINE = re.compile(r"^(\d{6})$", re.MULTILINE)
+CODE_LINE = re.compile(r"^(\d{6,10})$", re.MULTILINE)
 
 
 class Env:

@@ -42,7 +42,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["patient sign-in"])
 
-CODE = re.compile(r"^\d{6}$")
+# Six digits is what the dashboard should be set to (Email OTP Length), but Supabase decides the
+# length, so a mis-set dashboard must not turn every real code into a refusal.
+CODE = re.compile(r"^\d{6,10}$")
 CODE_FAILED = "That code did not work. Check it, or ask for a new one."
 LINK_FAILED = "This link does not work any more. Please ask your surgeon's office for a new one."
 
