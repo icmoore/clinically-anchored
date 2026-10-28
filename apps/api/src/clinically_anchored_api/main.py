@@ -63,8 +63,3 @@ app.include_router(summaries.router)
 app.include_router(briefs.router)
 app.include_router(care_provider_summaries.router)
 app.include_router(touchpoints.router)
-
-if settings.environment == "development":
-    from clinically_anchored_api.api import dev
-
-    app.include_router(dev.router)

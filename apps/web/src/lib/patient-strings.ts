@@ -163,6 +163,13 @@ export const PATIENT_TEXT = {
   },
   signOut: "Sign out",
 
+  // An old per-episode link (?token=): replaced by signing in with an email and a code.
+  replacedLink: {
+    title: "This link has been replaced",
+    body: "This link has been replaced. Your surgeon's office will email you a sign-in invite.",
+    signIn: "Already have an invite? Sign in",
+  },
+
   // The single-use link the office gives a patient who has no email.
   link: {
     title: "Sign in with your link",

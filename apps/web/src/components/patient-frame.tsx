@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
 import { PATIENT_TEXT } from "@/lib/patient-strings";
@@ -82,14 +83,17 @@ export function PatientFrame({
   );
 }
 
-/** The link was never valid, was replaced ("reset") by the clinic, or has expired. */
-export function InvalidLinkScreen({ phone }: { phone?: string | null }) {
+/** One of the old per-episode patient links (`?token=`): they were replaced by sign-in with an
+ *  email and a code, so it opens nothing. It says so, and points at the sign-in page for a patient
+ *  who already has their invite. */
+export function ReplacedLinkScreen() {
+  const T = PATIENT_TEXT.replacedLink;
   return (
-    <PatientFrame title="This link doesn't work" phone={phone}>
-      <p className="text-ink">
-        This link is not valid any more. The care team may have sent you a newer one. If you
-        can&apos;t find it, please call the office.
-      </p>
+    <PatientFrame title={T.title}>
+      <p className="text-ink">{T.body}</p>
+      <Link href="/sign-in" className="mt-4 inline-block text-sm text-primary underline">
+        {T.signIn}
+      </Link>
     </PatientFrame>
   );
 }

@@ -4,7 +4,7 @@ import { useState, useSyncExternalStore } from "react";
 import { PATIENT_TEXT } from "@/lib/patient-strings";
 
 const T = PATIENT_TEXT.explainer;
-// Per browser, not per link: it says nothing about the patient, and the key holds no token.
+// Per browser, not per patient: it says nothing about the patient, and the key holds no credential.
 const KEY = "ca.patient.explainer-seen";
 
 type Stored = "seen" | "new" | "unknown";
@@ -22,7 +22,7 @@ const subscribe = (notify: () => void) => {
   return () => window.removeEventListener("storage", notify);
 };
 
-/** The first time a patient opens their link: "How this works", three steps and a "Got it".
+/** The first time a patient reaches their care page: "How this works", three steps and a "Got it".
  *  Remembered in this browser only; if storage is blocked or fails, it simply shows again next
  *  time. A small link brings it back. */
 export function PatientExplainer() {

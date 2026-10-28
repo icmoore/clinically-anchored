@@ -20,8 +20,8 @@ from tests.fakes import (
     FakeSupabase,
     install,
     message_row,
+    patient_headers,
     pin_clock,
-    token_for,
 )
 
 
@@ -61,7 +61,8 @@ def _thread(clinic, patient):
 
 
 def tok(fake):
-    return {"token": token_for(fake.tables["episodes"][0])}
+    ep = fake.tables["episodes"][0]
+    return patient_headers(fake, patient=ep["patient_id"], clinic=ep["clinic_id"])
 
 
 def fail_with(fake, rpc, text):
@@ -211,12 +212,12 @@ def test_mark_read_other_clinic_message_is_404(client, fake):
 
 
 def send(client, fake, **body):
-    return client.post("/messages", params=tok(fake), json={"body": "Pain is worse", **body})
+    return client.post("/messages", headers=tok(fake), json={"body": "Pain is worse", **body})
 
 
-def test_patient_endpoints_reject_bad_token(client):
-    assert client.get("/messages", params={"token": "garbage"}).status_code == 401
-    r = client.post("/messages", params={"token": "garbage"}, json={"body": "hi"})
+def test_patient_endpoints_reject_a_bad_session(client):
+    assert client.get("/messages", headers={"Authorization": "Bearer garbage"}).status_code == 401
+    r = client.post("/messages", headers={"Authorization": "Bearer garbage"}, json={"body": "hi"})
     assert r.status_code == 401
 
 
@@ -319,7 +320,7 @@ def test_an_unexpected_database_error_is_not_swallowed(client, fake):
 
 def test_the_patient_sees_only_this_episodes_thread_and_clinician_sees_it_too(client, fake):
     send(client, fake, category="admin", body="hello doctor")
-    mine = client.get("/messages", params=tok(fake)).json()
+    mine = client.get("/messages", headers=tok(fake)).json()
     assert [(m["sender"], m["body"], m["category"]) for m in mine] == [
         ("patient", "hello doctor", "admin")
     ]

@@ -1,14 +1,15 @@
-"""Episodes, clinician side: create (with the patient), read, correct, discharge, and the
-patient's link.
+"""Episodes, clinician side: create (with the patient), read, correct, discharge.
 
 An episode is one patient's post-op period: a surgery date and procedure entered by the
 clinic, and a schedule version. Everything about which interval is open is computed
 (core/schedule.py); the routes here only change the stored facts, and audit each change:
 
-  episode.created / episode.corrected / episode.closed / episode.link_rotated, link.issued
+  episode.created / episode.corrected / episode.closed
 
 Discharging is a clinical decision, so it is limited to owner and clinician (a delegate
-can create and correct episodes and hand out links)."""
+can create and correct episodes). The patient's way in is their account (api/patient_accounts.py).
+Events from the retired patient links (`link.issued`, `episode.link_rotated`) stay in the audit
+log, which is append-only; nothing writes them any more."""
 
 import logging
 from datetime import date, datetime
@@ -17,20 +18,17 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from clinically_anchored_api.api.messages import _require_patient_in_clinic
 from clinically_anchored_api.core import clock, episodes
-from clinically_anchored_api.core.audit import AuditWriteError, record_event
+from clinically_anchored_api.core.audit import AuditWriteError
 from clinically_anchored_api.core.auth import ClinicMember, require_clinic_member
-from clinically_anchored_api.core.config import get_settings
 from clinically_anchored_api.core.db import get_supabase
 from clinically_anchored_api.core.extension import extension_status
 from clinically_anchored_api.core.schedule import EpisodeState, Schedule, episode_end
-from clinically_anchored_api.core.security import create_episode_token
 from clinically_anchored_api.schemas import (
     EpisodeCorrect,
     EpisodeExtensionOut,
     EpisodeOut,
     EpisodeStateOut,
     ExtensionRequestOut,
-    LinkOut,
     NewEpisode,
     WindowStateOut,
 )
@@ -40,7 +38,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["episodes"])
 
 DISCHARGE_ROLES = frozenset({"owner", "clinician"})
-LINK_PATH = "/care"
 
 
 # --- shaping -------------------------------------------------------------------------------
@@ -423,84 +420,3 @@ def discharge(
     if not changed:  # someone else closed it between our check and the write
         raise HTTPException(status_code=409, detail="This care period has already ended.")
     return episode_outs(supabase, [row])[row["id"]]
-
-
-# --- the patient's link ------------------------------------------------------------------------
-
-
-def _link_url(token: str) -> str:
-    settings = get_settings()
-    base = settings.web_base_url or (
-        "http://localhost:3000" if settings.environment == "development" else ""
-    )
-    if not base:
-        raise HTTPException(status_code=503, detail="WEB_BASE_URL is not configured.")
-    return f"{base.rstrip('/')}{LINK_PATH}?token={token}"
-
-
-def _open_episode_row(supabase, clinic_id: str, episode_id: str) -> dict:
-    episode = _load(supabase, clinic_id, episode_id)
-    episode, state = episodes.current_state(supabase, episode)
-    if state.closed:
-        raise HTTPException(status_code=409, detail="This care period has ended.")
-    return episode
-
-
-@router.post("/clinics/{clinic_id}/episodes/{episode_id}/link", response_model=LinkOut)
-def issue_link(
-    clinic_id: str, episode_id: str, member: ClinicMember = Depends(require_clinic_member)
-) -> LinkOut:
-    """The patient's link for the current generation: the same URL every time until the link
-    is reset. Anyone holding it can use it until the episode closes, so hand it only to the
-    patient. Every issuance is audited (without the token itself)."""
-    supabase = get_supabase()
-    episode = _open_episode_row(supabase, clinic_id, episode_id)
-    url = _link_url(
-        create_episode_token(episode_id=episode["id"], generation=episode["link_generation"])
-    )
-    try:
-        record_event(
-            supabase,
-            clinic_id=clinic_id,
-            event_type="link.issued",
-            payload={"ref_type": "episode", "ref_id": episode["id"],
-                     "generation": episode["link_generation"]},
-            metadata={
-                "patient_id": episode["patient_id"],
-                "episode_id": episode["id"],
-                "generation": episode["link_generation"],
-                "actor": episodes.member_actor(member),
-            },
-        )
-    except AuditWriteError as exc:
-        logger.error("link.issued audit write failed: %s", exc)
-        raise HTTPException(status_code=500, detail="Saved but not audited.") from exc
-    return LinkOut(url=url, generation=episode["link_generation"])
-
-
-@router.post("/clinics/{clinic_id}/episodes/{episode_id}/link/reset", response_model=LinkOut)
-def reset_link(
-    clinic_id: str, episode_id: str, member: ClinicMember = Depends(require_clinic_member)
-) -> LinkOut:
-    """Revoke the current link (e.g. it was sent to the wrong number) and return a new one.
-    The old URL stops working immediately."""
-    supabase = get_supabase()
-    episode = _open_episode_row(supabase, clinic_id, episode_id)
-    updated = (
-        supabase.table("episodes")
-        .update({"link_generation": episode["link_generation"] + 1})
-        .eq("id", episode_id).eq("clinic_id", clinic_id)
-        .eq("link_generation", episode["link_generation"])  # two resets at once: one wins
-        .is_("closed_at", "null")
-        .execute()
-        .data
-    )
-    if not updated:
-        raise HTTPException(status_code=409, detail="The link changed; try again.")
-    row = updated[0]
-    audit_or_500(
-        supabase, "episode.link_rotated", row, member,
-        {"from_generation": episode["link_generation"], "to_generation": row["link_generation"]},
-    )
-    token = create_episode_token(episode_id=row["id"], generation=row["link_generation"])
-    return LinkOut(url=_link_url(token), generation=row["link_generation"])

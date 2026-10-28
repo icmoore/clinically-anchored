@@ -102,3 +102,19 @@ Check afterwards with `python -m clinically_anchored_api.core.reconcile --clinic
 `--clinic dev` fills the shared dev clinic instead (the same 13 patients, so each account has its own
 copy). The dev clinic must already exist and the account must already be a member of it; the seed
 never adds a membership to it. Run it with the account that belongs to that clinic.
+
+**Patient accounts** (migration 18). The seed also gives every patient an email at a reserved test
+domain (`trial-patient-N.demo@example.com`, `...dev@...`: no real mail can reach it) and puts some in
+each account state: patients 1-3 active, 11 invited (its invite is in the Demo inbox), 12 locked by the
+surgery-date check, 10 with access turned off; everyone else is not invited. A database seeded before
+accounts existed gets its emails and accounts on a re-run (existing patients are skipped, never
+duplicated). To test real email through SES, add one more synthetic patient under YOUR address, with
+an active account, in the dev clinic:
+
+```
+uv run python -m clinically_anchored_api.seed_trial_patients --email you@example.com --clinic dev --active-email you+patient@gmail.com
+```
+
+Use an address that is not a clinician's (a plus-address is a different sign-in); the seed refuses one
+that belongs to staff or to another patient's live account, before it writes anything. Then open
+`/sign-in` on the web app, enter that address, and the code arrives by email.

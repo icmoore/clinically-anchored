@@ -33,11 +33,9 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-/** A call as a patient. `token` is the legacy patient link (sent as ?token=); with an empty token
- *  it is the signed-in patient (lib/patient-session.ts), sent as a bearer token. The legacy half
- *  goes when the links are retired. */
-async function patientRequest<T>(path: string, token: string, init?: RequestInit): Promise<T> {
-  if (token) return request<T>(`${path}?token=${encodeURIComponent(token)}`, init);
+/** A call as the signed-in patient (lib/patient-session.ts), sent as a bearer token. The retired
+ *  per-episode links (`?token=`) are gone: the api ignores a token in the address. */
+async function patientRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const access = await getPatientAccessToken();
   return request<T>(path, {
     ...init,
@@ -71,15 +69,15 @@ export interface CheckInOut {
   created_at: string;
 }
 
-export function getCheckInContext(token: string): Promise<CheckInContext> {
-  return patientRequest(`/check-ins/context`, token);
+export function getCheckInContext(): Promise<CheckInContext> {
+  return patientRequest(`/check-ins/context`);
 }
 
-export function submitCheckIn(token: string, body: { answers: CheckInAnswers }): Promise<CheckInOut> {
-  return patientRequest(`/check-ins`, token, { method: "POST", body: JSON.stringify(body) });
+export function submitCheckIn(body: { answers: CheckInAnswers }): Promise<CheckInOut> {
+  return patientRequest(`/check-ins`, { method: "POST", body: JSON.stringify(body) });
 }
 
-// --- The patient's episode link (one link for the whole post-op period) -------------------
+// --- The signed-in patient's care period ------------------------------------------------
 
 export type PatientPhase = "locked_checkin" | "waiting" | "open" | "used" | "closed";
 
@@ -143,20 +141,19 @@ export interface MyCheckIn {
   procedure_name: string | null;
   answers: CheckInAnswers;
 }
-export const getMyCheckIn = (token: string) => patientRequest<MyCheckIn | null>(`/check-ins/mine`, token);
+export const getMyCheckIn = () => patientRequest<MyCheckIn | null>(`/check-ins/mine`);
 
-export const requestExtension = (token: string, reason: string) =>
-  patientRequest<PatientExtension>(`/extension-request`, token, {
+export const requestExtension = (reason: string) =>
+  patientRequest<PatientExtension>(`/extension-request`, {
     method: "POST",
     body: JSON.stringify({ reason }),
   });
 
-export const getPatientState = (token: string) => patientRequest<PatientState>(`/episode`, token);
-export const getPatientThread = (token: string) => patientRequest<PatientMessage[]>(`/messages`, token);
+export const getPatientState = () => patientRequest<PatientState>(`/episode`);
+export const getPatientThread = () => patientRequest<PatientMessage[]>(`/messages`);
 export const sendPatientMessage = (
-  token: string,
   body: { body: string; kind: "scheduled" | "reply"; category?: string },
-) => patientRequest<PatientMessage>(`/messages`, token, { method: "POST", body: JSON.stringify(body) });
+) => patientRequest<PatientMessage>(`/messages`, { method: "POST", body: JSON.stringify(body) });
 
 // --- Patient accounts: sign in with an email and a code (api/patient_auth.py) --------------------
 
@@ -203,14 +200,14 @@ export interface PatientAccount {
   office_phone: string | null;
 }
 
-export const getPatientAccount = () => patientRequest<PatientAccount>("/patient/account", "");
+export const getPatientAccount = () => patientRequest<PatientAccount>("/patient/account");
 export const confirmSurgeryDate = (surgeryDate: string) =>
-  patientRequest<PatientAccount>("/patient/identity", "", {
+  patientRequest<PatientAccount>("/patient/identity", {
     method: "POST",
     body: JSON.stringify({ surgery_date: surgeryDate }),
   });
 export const acceptConsents = (consentTextVersion: string, consents: string[]) =>
-  patientRequest<PatientAccount>("/patient/consent", "", {
+  patientRequest<PatientAccount>("/patient/consent", {
     method: "POST",
     body: JSON.stringify({ consent_text_version: consentTextVersion, consents }),
   });

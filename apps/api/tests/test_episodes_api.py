@@ -1,14 +1,10 @@
 """Episodes, clinician side: a new surgery for an existing patient, correcting the surgery
-date, discharge, and the patient's link (issue, reset). The rules the database enforces
-(frozen once closed, correction locked after the check-in) are tested in tests/db."""
-
-from urllib.parse import parse_qs, urlparse
+date, discharge. (The patient's link is retired: its routes are gone.) The rules the database
+enforces (frozen once closed, correction locked after the check-in) are tested in tests/db."""
 
 import pytest
 from fastapi.testclient import TestClient
 
-from clinically_anchored_api.core.config import get_settings
-from clinically_anchored_api.core.security import verify_episode_token
 from clinically_anchored_api.main import app
 from tests.fakes import (
     AUTH,
@@ -34,7 +30,6 @@ def fake(monkeypatch):
     f.add_episode()
     pin_clock(monkeypatch)
     f.audits = install(monkeypatch, f)
-    monkeypatch.setattr(get_settings(), "web_base_url", "https://app.example.com/")
     return f
 
 
@@ -218,56 +213,12 @@ def test_a_failed_audit_on_discharge_is_a_500(client, fake, monkeypatch):
     assert r.status_code == 500 and "not audited" in r.json()["detail"]
 
 
-# --- the link ------------------------------------------------------------------------------
+# --- the retired patient link ----------------------------------------------------------------
 
 
-def test_the_link_is_the_same_url_each_time_until_reset(client, fake):
-    one = client.post(f"{EP}/link", headers=AUTH).json()
-    two = client.post(f"{EP}/link", headers=AUTH).json()
-    assert one == two and one["generation"] == 1
-    url = urlparse(one["url"])
-    assert (url.netloc, url.path) == ("app.example.com", "/care")
-    assert verify_episode_token(parse_qs(url.query)["token"][0]) == (EPISODE_A, 1)
-
-
-def test_issuing_is_audited_without_the_token(client, fake):
-    url = client.post(f"{EP}/link", headers=AUTH).json()["url"]
-    (event,) = fake.audits
-    assert event["event_type"] == "link.issued"
-    assert parse_qs(urlparse(url).query)["token"][0] not in str(event)
-    assert event["metadata"]["generation"] == 1 and event["metadata"]["episode_id"] == EPISODE_A
-
-
-def test_reset_gives_a_new_url_that_works_and_kills_the_old_one(client, fake):
-    old = client.post(f"{EP}/link", headers=AUTH).json()
-    new = client.post(f"{EP}/link/reset", headers=AUTH).json()
-    assert new["generation"] == 2 and new["url"] != old["url"]
-    assert row(fake)["link_generation"] == 2
-    old_token = parse_qs(urlparse(old["url"]).query)["token"][0]
-    new_token = parse_qs(urlparse(new["url"]).query)["token"][0]
-    assert client.get("/messages", params={"token": old_token}).status_code == 401
-    assert client.get("/messages", params={"token": new_token}).status_code == 200
-    assert fake.audits[-1]["event_type"] == "episode.link_rotated"
-    assert fake.audits[-1]["payload"] == {
-        "episode_id": EPISODE_A, "patient_id": PATIENT_A, "from_generation": 1, "to_generation": 2,
-    }
-
-
-def test_no_link_for_a_closed_episode(client, fake):
-    closed(fake)
-    assert client.post(f"{EP}/link", headers=AUTH).status_code == 409
-    assert client.post(f"{EP}/link/reset", headers=AUTH).status_code == 409
-
-
-def test_link_needs_web_base_url_outside_development(client, monkeypatch):
-    settings = get_settings()
-    monkeypatch.setattr(settings, "web_base_url", "")
-    monkeypatch.setattr(settings, "environment", "production")
-    assert client.post(f"{EP}/link", headers=AUTH).status_code == 503
-
-
-def test_link_for_another_clinics_episode_is_404_and_not_a_member_is_403(client, fake):
-    fake.add_episode(id="e-b", clinic=CLINIC_B, patient=PATIENT_B)
-    assert client.post(f"/clinics/{A}/episodes/e-b/link", headers=AUTH).status_code == 404
-    assert client.post(f"/clinics/{CLINIC_B}/episodes/e-b/link", headers=AUTH).status_code == 403
+def test_the_routes_that_issued_and_reset_the_patient_link_are_gone(client, fake):
+    for path in (f"{EP}/link", f"{EP}/link/reset"):
+        assert client.post(path, headers=AUTH).status_code == 404 or (
+            client.post(path, headers=AUTH).status_code == 405
+        )
     assert fake.audits == []

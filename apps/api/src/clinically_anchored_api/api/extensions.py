@@ -28,7 +28,7 @@ from clinically_anchored_api.core.extension import (
     Standing,
     decision_entry_body,
 )
-from clinically_anchored_api.core.security import PatientLink, require_patient_link_ended_mode
+from clinically_anchored_api.core.security import PatientContext, require_patient_ended_mode
 from clinically_anchored_api.schemas import (
     ExtensionDecision,
     ExtensionRequestCreate,
@@ -75,15 +75,15 @@ def _raise_for(exc: Exception, table) -> None:
 # --- patient side ----------------------------------------------------------------------------
 
 
-def patient_extension(supabase, link: PatientLink) -> PatientExtensionOut | None:
+def patient_extension(supabase, ctx: PatientContext) -> PatientExtensionOut | None:
     """The follow-up block of the patient's state, or None when there is nothing to show."""
-    episode = link.episode
+    episode = ctx.episode
     number = 0
     if episode.get("kind") == "extension":
         number = len(episodes.chain(supabase, episode)) - 1
-    ext = link.extension
+    ext = ctx.extension
     if ext.standing in (Standing.ELIGIBLE, Standing.PENDING, Standing.DECLINED):
-        request = link.request
+        request = ctx.request
         return PatientExtensionOut(
             standing=ext.standing.value,
             request_by=iso(ext.request_by),
@@ -92,7 +92,7 @@ def patient_extension(supabase, link: PatientLink) -> PatientExtensionOut | None
             decision_message=request["decision_message"] if request else None,
             extension_no=number,
         )
-    if episode.get("kind") == "extension" and not link.state.closed:
+    if episode.get("kind") == "extension" and not ctx.state.closed:
         # Inside a running extension: show the clinician's words from the acceptance.
         accepted = episodes.request_for(supabase, episode["extends_episode_id"])
         return PatientExtensionOut(
@@ -107,13 +107,13 @@ def patient_extension(supabase, link: PatientLink) -> PatientExtensionOut | None
 
 @router.post("/extension-request", response_model=PatientExtensionOut)
 def patient_request_extension(
-    body: ExtensionRequestCreate, link: PatientLink = Depends(require_patient_link_ended_mode)
+    body: ExtensionRequestCreate, ctx: PatientContext = Depends(require_patient_ended_mode)
 ) -> PatientExtensionOut:
     """The patient asks for more follow-up. Only when their care period ended by schedule, they
     have not asked before, and the time to ask has not run out."""
     supabase = get_supabase()
-    ext = link.extension
-    if link.request is not None:
+    ext = ctx.extension
+    if ctx.request is not None:
         raise HTTPException(status_code=409, detail="You have already sent a request.")
     if not ext.can_request:
         raise HTTPException(
@@ -129,12 +129,12 @@ def patient_request_extension(
     try:
         record_event(
             supabase,
-            clinic_id=link.clinic_id,
+            clinic_id=ctx.clinic_id,
             event_type="extension.requested",
             payload={
                 "request_id": request_id,
-                "episode_id": link.episode_id,
-                "patient_id": link.patient_id,
+                "episode_id": ctx.episode_id,
+                "patient_id": ctx.patient_id,
                 "message_id": message_id,
                 "schedule_version": schedule.version,
                 "request_by": iso(ext.request_by),
@@ -143,10 +143,10 @@ def patient_request_extension(
             metadata={
                 "ref_type": "extension_request",
                 "ref_id": request_id,
-                "patient_id": link.patient_id,
-                "episode_id": link.episode_id,
+                "patient_id": ctx.patient_id,
+                "episode_id": ctx.episode_id,
                 "schedule_version": schedule.version,
-                "actor": {"type": "patient", "id": link.patient_id},
+                "actor": {"type": "patient", "id": ctx.patient_id},
             },
         )
     except AuditWriteError as exc:
@@ -158,8 +158,8 @@ def patient_request_extension(
             supabase.rpc(
                 "request_extension",
                 {
-                    "p_clinic_id": link.clinic_id,
-                    "p_episode_id": link.episode_id,
+                    "p_clinic_id": ctx.clinic_id,
+                    "p_episode_id": ctx.episode_id,
                     "p_request_id": request_id,
                     "p_message_id": message_id,
                     "p_reason": body.reason,

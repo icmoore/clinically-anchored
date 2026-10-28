@@ -20,8 +20,8 @@ from tests.fakes import (
     FakeSupabase,
     install,
     new_id,
+    patient_headers,
     pin_clock,
-    token_for,
 )
 
 A = CLINIC_A
@@ -56,8 +56,9 @@ class World:
         self.client = TestClient(app)
 
     @property
-    def token(self) -> dict:
-        return {"token": token_for(self.episode)}
+    def headers(self) -> dict:
+        return patient_headers(self.fake, patient=self.episode["patient_id"],
+                               clinic=self.episode["clinic_id"])
 
     # --- stand-ins for the database functions -------------------------------------------
     def _request(self, p):
@@ -132,7 +133,7 @@ def events(world):
 
 
 def test_an_ended_episode_in_its_window_shows_the_request_form_data_and_nothing_else(world):
-    state = world.client.get("/episode", params=world.token).json()
+    state = world.client.get("/episode", headers=world.headers).json()
     assert state["phase"] == "closed" and state["ended_at"] == "2026-11-19T12:00:00+00:00"
     assert state["timezone"] == "America/Toronto"  # the dates on the ended screen are written in it
     assert state["extension"] == {
@@ -142,40 +143,40 @@ def test_an_ended_episode_in_its_window_shows_the_request_form_data_and_nothing_
     assert state["office_phone"] == "905-555-0100"
     assert state["windows"] == [] and not state["can_send_scheduled"]
     for path in ("/messages", "/check-ins/context", "/consents"):
-        assert world.client.get(path, params=world.token).status_code == 410
+        assert world.client.get(path, headers=world.headers).status_code == 410
     assert world.client.post(
-        "/messages", params=world.token, json={"body": "hi", "category": "admin"}
+        "/messages", headers=world.headers, json={"body": "hi", "category": "admin"}
     ).status_code == 410
 
 
 def test_after_the_window_with_no_request_the_link_says_only_closed(monkeypatch):
     w = World(monkeypatch, now=at(30) + timedelta(minutes=1))
-    state = w.client.get("/episode", params=w.token).json()
+    state = w.client.get("/episode", headers=w.headers).json()
     assert state["phase"] == "closed" and state["extension"] is None and state["ended_at"] is None
-    r = w.client.post("/extension-request", params=w.token, json={"reason": REASON})
+    r = w.client.post("/extension-request", headers=w.headers, json={"reason": REASON})
     assert r.status_code == 410 and "rpc:request_extension" not in events(w)
 
 
 def test_the_window_is_still_open_on_day_29(monkeypatch):
     w = World(monkeypatch, now=at(29.9))
-    assert w.client.get("/episode", params=w.token).json()["extension"]["standing"] == "eligible"
+    assert w.client.get("/episode", headers=w.headers).json()["extension"]["standing"] == "eligible"
 
 
 def test_a_term_that_is_still_running_cannot_ask(monkeypatch):
     w = World(monkeypatch, now=at(-1), ended=False)
-    r = w.client.post("/extension-request", params=w.token, json={"reason": REASON})
+    r = w.client.post("/extension-request", headers=w.headers, json={"reason": REASON})
     assert r.status_code == 410
-    assert w.client.get("/episode", params=w.token).json()["extension"] is None
+    assert w.client.get("/episode", headers=w.headers).json()["extension"] is None
 
 
 def test_a_discharged_episode_cannot_ask_and_shows_only_closed(monkeypatch):
     w = World(monkeypatch, ended=False)
     w.episode.update(closed_at="2026-11-10T12:00:00+00:00", close_reason="discharged",
                      closed_by=USER)
-    state = w.client.get("/episode", params=w.token).json()
+    state = w.client.get("/episode", headers=w.headers).json()
     assert state["phase"] == "closed" and state["extension"] is None
     assert w.client.post(
-        "/extension-request", params=w.token, json={"reason": REASON}
+        "/extension-request", headers=w.headers, json={"reason": REASON}
     ).status_code == 410
 
 
@@ -183,7 +184,9 @@ def test_a_discharged_episode_cannot_ask_and_shows_only_closed(monkeypatch):
 
 
 def test_asking_audits_first_then_saves_and_returns_pending(world):
-    r = world.client.post("/extension-request", params=world.token, json={"reason": f"  {REASON} "})
+    r = world.client.post(
+        "/extension-request", headers=world.headers, json={"reason": f"  {REASON} "}
+    )
     assert r.status_code == 200
     body = r.json()
     assert body["standing"] == "pending" and body["reason_max"] == 500
@@ -199,20 +202,20 @@ def test_asking_audits_first_then_saves_and_returns_pending(world):
     # Neither the reason text nor the clinician's name is in the readable metadata.
     assert REASON not in str(meta)
     # And the patient now sees "pending" with no way to ask again.
-    state = world.client.get("/episode", params=world.token).json()
+    state = world.client.get("/episode", headers=world.headers).json()
     assert state["extension"]["standing"] == "pending"
-    again = world.client.post("/extension-request", params=world.token, json={"reason": REASON})
+    again = world.client.post("/extension-request", headers=world.headers, json={"reason": REASON})
     assert again.status_code == 409
 
 
 @pytest.mark.parametrize("reason", ["", "   ", "x" * 501])
 def test_the_reason_is_required_and_limited(world, reason):
-    r = world.client.post("/extension-request", params=world.token, json={"reason": reason})
+    r = world.client.post("/extension-request", headers=world.headers, json={"reason": reason})
     assert r.status_code == 422 and events(world) == []
 
 
 def test_exactly_500_characters_is_allowed(world):
-    r = world.client.post("/extension-request", params=world.token, json={"reason": "x" * 500})
+    r = world.client.post("/extension-request", headers=world.headers, json={"reason": "x" * 500})
     assert r.status_code == 200
 
 
@@ -224,7 +227,7 @@ def test_if_the_audit_cannot_be_written_nothing_is_saved(world, monkeypatch):
         raise AuditWriteError("down")
 
     monkeypatch.setattr(extensions, "record_event", boom)
-    r = world.client.post("/extension-request", params=world.token, json={"reason": REASON})
+    r = world.client.post("/extension-request", headers=world.headers, json={"reason": REASON})
     assert r.status_code == 500 and world.fake.rpc_calls == []
     assert world.fake.tables["extension_requests"] == []
 
@@ -237,7 +240,7 @@ def test_if_the_audit_cannot_be_written_nothing_is_saved(world, monkeypatch):
 )
 def test_the_databases_refusals_become_plain_statuses(world, code, status):
     world.fail_rpc = RuntimeError(code)
-    r = world.client.post("/extension-request", params=world.token, json={"reason": REASON})
+    r = world.client.post("/extension-request", headers=world.headers, json={"reason": REASON})
     assert r.status_code == status
 
 
@@ -245,11 +248,11 @@ def test_patient_state_after_a_decline_shows_the_message_and_no_form(world):
     world.add_request(status="declined", decided_by=USER, decided_at=at(8).isoformat(),
                       decision_message="We do not need to see you further.",
                       decision_entry_id=new_id())
-    state = world.client.get("/episode", params=world.token).json()
+    state = world.client.get("/episode", headers=world.headers).json()
     assert state["extension"]["standing"] == "declined"
     assert state["extension"]["decision_message"] == "We do not need to see you further."
     assert world.client.post(
-        "/extension-request", params=world.token, json={"reason": REASON}
+        "/extension-request", headers=world.headers, json={"reason": REASON}
     ).status_code == 409
 
 
@@ -257,17 +260,17 @@ def test_a_decline_stays_readable_past_day_30_when_it_came_late(monkeypatch):
     w = World(monkeypatch, now=at(45))
     w.add_request(status="declined", decided_by=USER, decided_at=at(40).isoformat(),
                   decision_entry_id=new_id())
-    assert w.client.get("/episode", params=w.token).json()["extension"]["standing"] == "declined"
+    assert w.client.get("/episode", headers=w.headers).json()["extension"]["standing"] == "declined"
     later = World(monkeypatch, now=at(71))
     later.add_request(status="declined", decided_by=USER, decided_at=at(40).isoformat(),
                       decision_entry_id=new_id())
-    assert later.client.get("/episode", params=later.token).json()["extension"] is None
+    assert later.client.get("/episode", headers=later.headers).json()["extension"] is None
 
 
 def test_a_pending_request_keeps_working_long_after_day_30(monkeypatch):
     w = World(monkeypatch, now=at(120))
     w.add_request()
-    assert w.client.get("/episode", params=w.token).json()["extension"]["standing"] == "pending"
+    assert w.client.get("/episode", headers=w.headers).json()["extension"]["standing"] == "pending"
 
 
 # --- an accepted extension -----------------------------------------------------------------------
@@ -288,7 +291,7 @@ def accepted_world(monkeypatch):
 
 def test_the_original_link_opens_the_extension_and_messaging_works_normally(monkeypatch):
     w = accepted_world(monkeypatch)
-    state = w.client.get("/episode", params=w.token).json()
+    state = w.client.get("/episode", headers=w.headers).json()
     assert state["phase"] == "open" and state["intervals_total"] == 6
     assert state["interval_no"] == 2 and state["can_send_scheduled"]
     assert state["extension"]["standing"] == "accepted"
@@ -297,23 +300,25 @@ def test_the_original_link_opens_the_extension_and_messaging_works_normally(monk
     assert [x["status"] for x in state["windows"]] == [
         "passed", "open", "upcoming", "upcoming", "upcoming", "upcoming"
     ]
-    assert w.client.get("/messages", params=w.token).status_code == 200
+    assert w.client.get("/messages", headers=w.headers).status_code == 200
     sent = []
     w.fake.rpc_handlers["send_patient_message"] = lambda p: sent.append(p) or {
         **w.fake.add_message(episode=CHILD, interval_no=p["p_interval_no"]),
     }
-    r = w.client.post("/messages", params=w.token, json={"body": "hi", "category": "admin"})
+    r = w.client.post("/messages", headers=w.headers, json={"body": "hi", "category": "admin"})
     assert r.status_code == 200 and sent[0]["p_episode_id"] == CHILD
     assert sent[0]["p_interval_no"] == 2  # the extension's window 2, worked out here
 
 
-def test_resetting_the_link_on_the_extension_revokes_the_original_url(monkeypatch):
+def test_the_patient_always_lands_in_the_newest_episode_of_the_chain(monkeypatch):
+    """Their account never names an episode: the latest care period is found each time, so once
+    the extension exists the same session opens it."""
     w = accepted_world(monkeypatch)
     child = w.fake.tables["episodes"][-1]
-    original = w.token
-    child["link_generation"] = 2
-    assert w.client.get("/episode", params=original).status_code == 401
-    assert w.client.get("/episode", params={"token": token_for(child)}).status_code == 200
+    state = w.client.get("/episode", headers=w.headers)
+    assert state.status_code == 200
+    assert state.json()["extension"]["extension_no"] == 1
+    assert child["extends_episode_id"] == w.episode["id"]
 
 
 def test_when_the_extension_ends_the_patient_may_ask_again(monkeypatch):
@@ -322,11 +327,11 @@ def test_when_the_extension_ends_the_patient_may_ask_again(monkeypatch):
     child = w.fake.tables["episodes"][-1]
     child.update(closed_at=end.isoformat(), close_reason="schedule_complete")
     pin_clock(monkeypatch, end + timedelta(days=3))
-    state = w.client.get("/episode", params=w.token).json()
+    state = w.client.get("/episode", headers=w.headers).json()
     assert state["phase"] == "closed"
     assert state["extension"]["standing"] == "eligible" and state["extension"]["extension_no"] == 1
     assert w.client.post(
-        "/extension-request", params=w.token, json={"reason": REASON}
+        "/extension-request", headers=w.headers, json={"reason": REASON}
     ).status_code == 200
     assert world_call(w)["p_episode_id"] == CHILD  # about the extension, not the first episode
 
@@ -341,11 +346,11 @@ def test_a_discharge_during_an_extension_kills_the_link(monkeypatch):
         closed_at=(DAY_55 + timedelta(days=3)).isoformat(), close_reason="discharged",
         closed_by=USER,
     )
-    state = w.client.get("/episode", params=w.token).json()
+    state = w.client.get("/episode", headers=w.headers).json()
     assert state["phase"] == "closed" and state["extension"] is None
-    assert w.client.get("/messages", params=w.token).status_code == 410
+    assert w.client.get("/messages", headers=w.headers).status_code == 410
     assert w.client.post(
-        "/extension-request", params=w.token, json={"reason": REASON}
+        "/extension-request", headers=w.headers, json={"reason": REASON}
     ).status_code == 410
 
 
@@ -540,16 +545,16 @@ def test_the_thread_lists_the_new_entry_kinds(world):
 
 def test_with_the_feature_switched_off_the_link_is_the_plain_closed_screen(world):
     next(r for r in world.fake.tables["message_schedules"] if r["version"] == 3)["active"] = False
-    state = world.client.get("/episode", params=world.token).json()
+    state = world.client.get("/episode", headers=world.headers).json()
     assert state["phase"] == "closed" and state["extension"] is None
-    r = world.client.post("/extension-request", params=world.token, json={"reason": REASON})
+    r = world.client.post("/extension-request", headers=world.headers, json={"reason": REASON})
     assert r.status_code == 410 and world.fake.rpc_calls == []
 
 
 def test_a_request_already_made_survives_the_feature_being_switched_off(world):
     world.add_request()
     next(r for r in world.fake.tables["message_schedules"] if r["version"] == 3)["active"] = False
-    state = world.client.get("/episode", params=world.token).json()
+    state = world.client.get("/episode", headers=world.headers).json()
     assert state["extension"]["standing"] == "pending"  # it keeps the version it was made under
 
 

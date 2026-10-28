@@ -13,8 +13,8 @@ from tests.fakes import (
     PROC_A,
     FakeSupabase,
     install,
+    patient_headers,
     pin_clock,
-    token_for,
 )
 
 FEVER = {"fever": {"took_temperature": True, "temperature_c": 39.0}}
@@ -46,11 +46,12 @@ def client(fake):
 
 
 def tok(fake):
-    return {"token": token_for(fake.tables["episodes"][0])}
+    ep = fake.tables["episodes"][0]
+    return patient_headers(fake, patient=ep["patient_id"], clinic=ep["clinic_id"])
 
 
 def test_submit_flags_red_flag_and_audits_with_episode_and_missed_intervals(client, fake):
-    r = client.post("/check-ins", params=tok(fake), json={"answers": FEVER})
+    r = client.post("/check-ins", headers=tok(fake), json={"answers": FEVER})
     assert r.status_code == 200
     body = r.json()
     assert (body["clinic_id"], body["patient_id"], body["episode_id"]) == (
@@ -67,7 +68,7 @@ def test_submit_flags_red_flag_and_audits_with_episode_and_missed_intervals(clie
 
 def test_no_red_flag(client, fake):
     r = client.post(
-        "/check-ins", params=tok(fake),
+        "/check-ins", headers=tok(fake),
         json={"answers": {"fever": {"took_temperature": True, "temperature_c": 37.0}}},
     )
     assert r.status_code == 200 and r.json()["is_red_flag"] is False
@@ -75,7 +76,7 @@ def test_no_red_flag(client, fake):
 
 def test_the_post_op_day_is_worked_out_not_taken_from_the_patient(client, fake):
     # NOW is 2026-10-03 in Toronto; surgery 2026-10-01 -> day 2, whatever the client claims.
-    r = client.post("/check-ins", params=tok(fake), json={"answers": {}, "post_op_day": 99})
+    r = client.post("/check-ins", headers=tok(fake), json={"answers": {}, "post_op_day": 99})
     assert r.status_code == 200 and r.json()["post_op_day"] == 2
     (_, params), = fake.rpc_calls
     assert params["p_post_op_day"] == 2
@@ -86,7 +87,7 @@ def test_a_late_check_in_records_the_intervals_that_already_passed(client, fake,
     from datetime import UTC, datetime
 
     pin_clock(monkeypatch, datetime(2026, 10, 15, 14, 0, tzinfo=UTC))  # interval 5 is open
-    client.post("/check-ins", params=tok(fake), json={"answers": {}})
+    client.post("/check-ins", headers=tok(fake), json={"answers": {}})
     assert fake.audit[0]["payload"]["missed_intervals"] == [1, 2, 3, 4]
 
 
@@ -95,7 +96,7 @@ def test_a_second_check_in_is_refused(client, fake):
         raise RuntimeError('{"message": "check_in_already_done"}')
 
     fake.rpc_handlers["complete_check_in"] = already
-    r = client.post("/check-ins", params=tok(fake), json={"answers": {}})
+    r = client.post("/check-ins", headers=tok(fake), json={"answers": {}})
     assert r.status_code == 409
     assert fake.audit == []
 
@@ -105,7 +106,7 @@ def test_a_discharge_between_check_and_write_is_a_410(client, fake):
         raise RuntimeError("episode_closed")
 
     fake.rpc_handlers["complete_check_in"] = closed
-    assert client.post("/check-ins", params=tok(fake), json={"answers": {}}).status_code == 410
+    assert client.post("/check-ins", headers=tok(fake), json={"answers": {}}).status_code == 410
 
 
 def test_a_failed_audit_is_reported_not_hidden(client, fake, monkeypatch):
@@ -116,18 +117,19 @@ def test_a_failed_audit_is_reported_not_hidden(client, fake, monkeypatch):
         raise AuditWriteError("down")
 
     monkeypatch.setattr(module, "record_event", boom)
-    r = client.post("/check-ins", params=tok(fake), json={"answers": {}})
+    r = client.post("/check-ins", headers=tok(fake), json={"answers": {}})
     assert r.status_code == 500 and "not audited" in r.json()["detail"]
 
 
-def test_bad_token_is_rejected(client):
-    r = client.post("/check-ins", params={"token": "nope"}, json={"answers": {}})
+def test_a_bad_session_is_rejected(client):
+    nope = {"Authorization": "Bearer nope"}
+    r = client.post("/check-ins", headers=nope, json={"answers": {}})
     assert r.status_code == 401
-    assert client.get("/check-ins/context", params={"token": "nope"}).status_code == 401
+    assert client.get("/check-ins/context", headers=nope).status_code == 401
 
 
 def test_context_gives_the_procedure_the_clinic_chose(client, fake):
-    r = client.get("/check-ins/context", params=tok(fake))
+    r = client.get("/check-ins/context", headers=tok(fake))
     assert r.status_code == 200
     body = r.json()
     assert body["clinic_id"] == CLINIC_A
@@ -139,22 +141,22 @@ def test_context_gives_the_procedure_the_clinic_chose(client, fake):
 
 def test_context_says_when_the_check_in_is_already_done(client, fake):
     fake.tables["episodes"][0]["checkin_completed_at"] = "2026-10-02T12:00:00+00:00"
-    assert client.get("/check-ins/context", params=tok(fake)).json()["check_in_done"] is True
+    assert client.get("/check-ins/context", headers=tok(fake)).json()["check_in_done"] is True
 
 
 def test_context_is_before_surgery_negative(client, fake, monkeypatch):
     from datetime import UTC, datetime
 
     pin_clock(monkeypatch, datetime(2026, 9, 29, 16, 0, tzinfo=UTC))
-    assert client.get("/check-ins/context", params=tok(fake)).json()["post_op_day"] == -2
+    assert client.get("/check-ins/context", headers=tok(fake)).json()["post_op_day"] == -2
 
 
 def test_nothing_is_reachable_on_a_closed_episode(client, fake):
     fake.tables["episodes"][0].update(
         closed_at="2026-10-02T13:00:00+00:00", close_reason="discharged", closed_by="u"
     )
-    assert client.get("/check-ins/context", params=tok(fake)).status_code == 410
-    assert client.post("/check-ins", params=tok(fake), json={"answers": {}}).status_code == 410
+    assert client.get("/check-ins/context", headers=tok(fake)).status_code == 410
+    assert client.post("/check-ins", headers=tok(fake), json={"answers": {}}).status_code == 410
 
 
 # --- the patient reads their own check-in back ---------------------------------------------
@@ -171,13 +173,13 @@ def _stored_check_in(fake, **extra):
 
 
 def test_my_check_in_is_null_until_they_have_checked_in(client, fake):
-    r = client.get("/check-ins/mine", params=tok(fake))
+    r = client.get("/check-ins/mine", headers=tok(fake))
     assert r.status_code == 200 and r.json() is None
 
 
 def test_my_check_in_returns_what_they_entered_and_nothing_the_clinic_derived(client, fake):
     _stored_check_in(fake)
-    body = client.get("/check-ins/mine", params=tok(fake)).json()
+    body = client.get("/check-ins/mine", headers=tok(fake)).json()
     assert body == {
         "submitted_at": "2026-10-03T11:30:00+00:00", "post_op_day": 3,
         "procedure_name": "Colectomy",
@@ -188,12 +190,13 @@ def test_my_check_in_returns_what_they_entered_and_nothing_the_clinic_derived(cl
 
 def test_my_check_in_is_only_this_episodes(client, fake):
     _stored_check_in(fake, episode_id="someone-elses", patient_id="p2", id="c2")
-    assert client.get("/check-ins/mine", params=tok(fake)).json() is None
+    assert client.get("/check-ins/mine", headers=tok(fake)).json() is None
 
 
-def test_my_check_in_needs_a_valid_open_link(client, fake):
-    assert client.get("/check-ins/mine", params={"token": "nope"}).status_code == 401
+def test_my_check_in_needs_a_signed_in_patient_with_an_open_care_period(client, fake):
+    nope = {"Authorization": "Bearer nope"}
+    assert client.get("/check-ins/mine", headers=nope).status_code == 401
     fake.tables["episodes"][0].update(
         closed_at="2026-10-02T13:00:00+00:00", close_reason="discharged", closed_by="u"
     )
-    assert client.get("/check-ins/mine", params=tok(fake)).status_code == 410
+    assert client.get("/check-ins/mine", headers=tok(fake)).status_code == 410

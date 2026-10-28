@@ -129,13 +129,13 @@ _LINKS: dict = {}
 
 
 def _tok(clinic=CLINIC_A, patient=PATIENT_A, **facts):
-    return {"token": _LINKS["links"].token(clinic=clinic, patient=patient, **facts)}
+    return _LINKS["links"].token(clinic=clinic, patient=patient, **facts)
 
 
-def _grant(client, ctype="messaging", version="v1", **tok):
+def _grant(client, ctype="messaging", version="v1", headers=None):
     return client.post(
         "/consents",
-        params=tok or _tok(),
+        headers=headers or _tok(),
         json={"consent_type": ctype, "consent_text_version": version},
     )
 
@@ -168,16 +168,16 @@ def test_grant_stores_and_audits(client, fake, audit_calls):
 
 
 def test_grant_works_before_the_check_in_and_not_after_the_episode_closed(client, fake):
-    assert _grant(client, **_tok(checked_in=False)).status_code == 200
-    assert _grant(client, ctype="other_thing", **_tok(checked_in=True)).status_code == 200
-    assert _grant(client, ctype="third_thing", **_tok(closed=True)).status_code == 410
+    assert _grant(client, headers=_tok(checked_in=False)).status_code == 200
+    assert _grant(client, ctype="other_thing", headers=_tok(checked_in=True)).status_code == 200
+    assert _grant(client, ctype="third_thing", headers=_tok(closed=True)).status_code == 410
     assert {r["consent_type"] for r in fake.tables["consents"]} == {"messaging", "other_thing"}
 
 
-def test_grant_identity_comes_from_token_not_body(client, fake):
+def test_grant_identity_comes_from_the_session_not_the_body(client, fake):
     client.post(
         "/consents",
-        params=_tok(),
+        headers=_tok(),
         json={
             "consent_type": "messaging",
             "consent_text_version": "v1",
@@ -251,7 +251,7 @@ def test_genuine_insert_failure_is_not_swallowed(client, fake):
     ],
 )
 def test_grant_rejects_malformed_input(client, fake, body):
-    assert client.post("/consents", params=_tok(), json=body).status_code == 422
+    assert client.post("/consents", headers=_tok(), json=body).status_code == 422
     assert fake.tables["consents"] == []
 
 
@@ -274,14 +274,16 @@ def test_grant_reports_500_when_audit_write_fails(client, monkeypatch):
     assert "not audited" in r.json()["detail"]
 
 
-def test_grant_requires_a_valid_token(client):
-    assert client.post("/consents", params={"token": "garbage"}, json={}).status_code == 401
-    assert client.get("/consents", params={"token": "garbage"}).status_code == 401
-    assert client.post("/consents/messaging/revoke", params={"token": "x"}).status_code == 401
+def test_grant_requires_a_signed_in_patient(client):
+    bad = {"Authorization": "Bearer garbage"}
+    assert client.post("/consents", headers=bad, json={}).status_code == 401
+    assert client.get("/consents", headers=bad).status_code == 401
+    assert client.post("/consents/messaging/revoke", headers=bad).status_code == 401
+    assert client.get("/consents").status_code == 401
 
 
 def test_grant_for_patient_not_in_clinic_is_404(client):
-    r = _grant(client, **_tok(clinic=CLINIC_A, patient=PATIENT_B))
+    r = _grant(client, headers=_tok(clinic=CLINIC_A, patient=PATIENT_B))
     assert r.status_code == 404
 
 
@@ -291,7 +293,7 @@ def test_grant_for_patient_not_in_clinic_is_404(client):
 def test_revoke_ends_grant_keeps_history_and_audits(client, fake, audit_calls):
     _grant(client)
     audit_calls.clear()
-    r = client.post("/consents/messaging/revoke", params=_tok())
+    r = client.post("/consents/messaging/revoke", headers=_tok())
     assert r.status_code == 200
     body = r.json()
     assert body["active"] == []
@@ -310,7 +312,7 @@ def test_revoke_ends_every_live_version_and_audits_each(client, fake, audit_call
     _grant(client, version="v1")
     _grant(client, version="v2")
     audit_calls.clear()
-    client.post("/consents/messaging/revoke", params=_tok())
+    client.post("/consents/messaging/revoke", headers=_tok())
     assert all(r["revoked_at"] for r in fake.tables["consents"])
     assert sorted(c["metadata"]["ref_id"] for c in audit_calls) == ["consent-1", "consent-2"]
 
@@ -318,23 +320,23 @@ def test_revoke_ends_every_live_version_and_audits_each(client, fake, audit_call
 def test_revoke_is_idempotent_and_only_touches_that_type(client, fake, audit_calls):
     _grant(client, ctype="messaging")
     _grant(client, ctype="ai_assisted")
-    client.post("/consents/messaging/revoke", params=_tok())
+    client.post("/consents/messaging/revoke", headers=_tok())
     audit_calls.clear()
-    r = client.post("/consents/messaging/revoke", params=_tok())
+    r = client.post("/consents/messaging/revoke", headers=_tok())
     assert r.status_code == 200
     assert audit_calls == []
     assert r.json()["active"] == ["ai_assisted"]
 
 
 def test_revoke_with_nothing_granted_is_a_quiet_noop(client, audit_calls):
-    r = client.post("/consents/messaging/revoke", params=_tok())
+    r = client.post("/consents/messaging/revoke", headers=_tok())
     assert r.status_code == 200 and r.json()["active"] == []
     assert audit_calls == []
 
 
 def test_regrant_after_revoke_is_a_new_row(client, fake, audit_calls):
     _grant(client)
-    client.post("/consents/messaging/revoke", params=_tok())
+    client.post("/consents/messaging/revoke", headers=_tok())
     r = _grant(client)
     assert r.json()["active"] == ["messaging"]
     assert len(fake.tables["consents"]) == 2
@@ -344,7 +346,7 @@ def test_regrant_after_revoke_is_a_new_row(client, fake, audit_calls):
 
 
 def test_revoke_rejects_malformed_type(client):
-    assert client.post("/consents/NOT-A-SLUG/revoke", params=_tok()).status_code == 422
+    assert client.post("/consents/NOT-A-SLUG/revoke", headers=_tok()).status_code == 422
 
 
 # --- reads --------------------------------------------------------------------
@@ -352,8 +354,8 @@ def test_revoke_rejects_malformed_type(client):
 
 def test_patient_reads_only_their_own_consents(client, fake):
     _grant(client)
-    _grant(client, **_tok(clinic=CLINIC_B, patient=PATIENT_B))
-    r = client.get("/consents", params=_tok())
+    _grant(client, headers=_tok(clinic=CLINIC_B, patient=PATIENT_B))
+    r = client.get("/consents", headers=_tok())
     assert r.json()["patient_id"] == PATIENT_A
     assert [c["consent_type"] for c in r.json()["records"]] == ["messaging"]
 
@@ -361,7 +363,7 @@ def test_patient_reads_only_their_own_consents(client, fake):
 def test_clinician_reads_patient_consent_status(client):
     _grant(client, ctype="messaging")
     _grant(client, ctype="ai_assisted")
-    client.post("/consents/ai_assisted/revoke", params=_tok())
+    client.post("/consents/ai_assisted/revoke", headers=_tok())
     r = client.get(f"/clinics/{CLINIC_A}/patients/{PATIENT_A}/consents", headers=AUTH)
     assert r.status_code == 200
     body = r.json()

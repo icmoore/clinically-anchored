@@ -37,6 +37,23 @@ Patient 13 (the schedule ran out three days ago, no request) is the one who is E
 to ask for a follow-up extension; 15-17 are the other follow-up states (migration 16, extension
 v1). Their dates are placeholders like the schedule's. Run migration 16 before seeding.
 
+Patient ACCOUNTS (migration 18). Each patient also has an email (`trial-patient-N.<demo|dev>@
+example.com`, a reserved test domain: no real mail can ever go to it) and, for some, an account in
+a state the clinician screens can show:
+
+   1, 2, 3   Elena, Gordon, Nadia   ACTIVE: signed in, gave the surgery date, consented
+   11        Hannah Doucet          INVITED: the invite is in the demo inbox, sign-in not finished
+   12        Tomas Reyes            LOCKED: three wrong surgery dates
+   10        Daniel Cho             ACCESS TURNED OFF (discharged)
+   others                           NOT INVITED (an email on file, no account)
+
+and with --active-email you@real.example (dev clinic only) one more synthetic patient, 18, whose
+account is ACTIVE under YOUR address, so you can sign in at /sign-in and have SES email you a code.
+A real address must not belong to staff or to another patient's live account; the seed refuses.
+Accounts are written the way the api writes them (same audit events, same consents), so reconcile
+stays clean. No invite email is sent to a real address: the only invite the seed mails (patient 11)
+goes to a reserved domain, so it is stored in the demo inbox or refused, never delivered.
+
 Everything here is invented. No real patient data.
 
 How the plan is built. Each patient's surgery date is `today - pod` days (Toronto), so what the
@@ -65,9 +82,11 @@ Usage, from apps/api with the same .env the api uses locally:
 
     uv run python -m clinically_anchored_api.seed_trial_patients --dry-run
     uv run python -m clinically_anchored_api.seed_trial_patients --email you@example.com
+    uv run python -m clinically_anchored_api.seed_trial_patients --email you@example.com \\
+        --clinic dev --active-email you+patient@gmail.com
 
-Needs migrations 9, 11 and 16 applied (after supabase/scripts/reset_trial_data.sh). Re-running is
-safe: the demo clinic, membership and procedures are reused, and a patient that already exists
+Needs migrations 9, 11, 16 and 18 applied (after supabase/scripts/reset_trial_data.sh). Re-running
+is safe: the demo clinic, membership and procedures are reused, and a patient that already exists
 (matched by its synthetic contact address) is skipped, never duplicated.
 
 --clinic dev fills the shared dev clinic instead of the separate demo clinic (the same patients,
@@ -86,7 +105,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from clinically_anchored_api.core import categories
+from clinically_anchored_api.core import categories, consent_wording, gotrue, mailer
 from clinically_anchored_api.core.episodes import default_schedule
 from clinically_anchored_api.core.extension import decision_entry_body, request_deadline
 from clinically_anchored_api.core.rules import evaluate_red_flags
@@ -115,6 +134,17 @@ DEFAULT_SCHEDULES = {
     1: Schedule(1, (2, 3, 5, 7, 14, 21, 28, 35, 42), 7, time(7, 0), "America/Toronto"),
     2: Schedule(2, (2, 5, 10, 17, 24, 31, 38, 45, 52), 7, time(7, 0), "America/Toronto"),
     3: Schedule(3, (7, 14, 21, 28, 35), 7, time(7, 0), "America/Toronto", "extension", 30),
+}
+
+
+# The account state of each synthetic patient (see the module docstring); the rest are not invited.
+ACCOUNT_STATES = {
+    "Trial Patient 1": "active",
+    "Trial Patient 2": "active",
+    "Trial Patient 3": "active",
+    "Trial Patient 10": "off",
+    "Trial Patient 11": "invited",
+    "Trial Patient 12": "locked",
 }
 
 
@@ -197,6 +227,10 @@ class PatientPlan:
     # and the patient had already checked in, at `inherited_check_in_at`, in the first episode.
     started_at: datetime | None = None
     inherited_check_in_at: datetime | None = None
+    # Patient accounts: None (not invited) | "invited" | "active" | "locked" | "off". `email` is
+    # set only for a patient with a real address (--active-email); otherwise it is made up.
+    account: str | None = None
+    email: str | None = None
 
 
 class Clock:
@@ -275,7 +309,9 @@ def _answers(symptoms, *, abdominal=True, wound="staples", surgery="laparoscopic
     return answers
 
 
-def build_plan(now: datetime, include_v1_patient: bool = False) -> list[PatientPlan]:
+def build_plan(
+    now: datetime, include_v1_patient: bool = False, active_email: str | None = None
+) -> list[PatientPlan]:
     t = Clock(now)
     plans: list[PatientPlan] = []
 
@@ -766,7 +802,17 @@ def build_plan(now: datetime, include_v1_patient: bool = False) -> list[PatientP
             ],
         )
 
+    if active_email:
+        # 18: a synthetic patient under a REAL address, with an active account (--active-email).
+        new(
+            "Trial Patient 18", "Test Inbox (synthetic)", "Anal advancement flap", 1,
+            Expect(Phase.WAITING), created="14:40",
+            check_in=CheckIn(t.ago(80), _answers(["pain"], abdominal=False, pain=_pain(2))),
+            account="active", email=active_email,
+        )
+
     for plan in plans:
+        plan.account = plan.account or ACCOUNT_STATES.get(plan.label)
         _mark_reads(plan)
         episode = extension_episode(plan)
         if episode is not None:
@@ -1001,7 +1047,7 @@ def describe(plans: list[PatientPlan]) -> str:
             f"{len(plan.messages) - patient} clinic, {unread} awaiting reply), "
             f"check-in {'none' if plan.check_in is None else 'red flag' if flagged else 'clear'}"
             f"{', unreviewed' if unreviewed else ''}, {len(plan.touchpoints)} logged calls/visits"
-            f"{_describe_extension(plan)}"
+            f"{_describe_extension(plan)}; account: {plan.account or 'not invited'}"
         )
     return "\n".join(lines)
 
@@ -1471,8 +1517,19 @@ def _seed_extension(
     )
 
 
+def plan_email(plan: PatientPlan, email_tag: str) -> str:
+    """Where this patient's invite and codes go: their real address (--active-email), or a made-up
+    one at a reserved test domain, different in each clinic (one Auth user can serve only one live
+    account, and the demo and dev clinics both seed these patients)."""
+    if plan.email:
+        return plan.email.strip().lower()
+    number = plan.label.split()[-1]
+    return f"trial-patient-{number}.{email_tag}@example.com"
+
+
 def seed_patient(
-    supabase, *, clinic_id: str, user_id: str, plan: PatientPlan, schedules: dict[int, Schedule]
+    supabase, *, clinic_id: str, user_id: str, plan: PatientPlan, schedules: dict[int, Schedule],
+    email_tag: str = "demo",
 ) -> None:
     exists = (
         supabase.table("patients")
@@ -1483,7 +1540,17 @@ def seed_patient(
         .data
     )
     if exists:
-        print(f"{plan.label}: already exists ({exists[0]['id']}), skipped")
+        patient_id = exists[0]["id"]
+        # A patient seeded before accounts existed: give them their email and account now.
+        supabase.table("patients").update({"email": plan_email(plan, email_tag)}).eq(
+            "id", patient_id
+        ).is_("email", "null").execute()
+        made = seed_account(
+            supabase, clinic_id=clinic_id, user_id=user_id, patient_id=patient_id, plan=plan,
+            email=plan_email(plan, email_tag),
+        )
+        print(f"{plan.label}: already exists ({patient_id}), skipped"
+              f"{', account ' + plan.account if made else ''}")
         return
 
     procs = (
@@ -1506,6 +1573,7 @@ def seed_patient(
             "clinic_id": clinic_id,
             "full_name": plan.full_name,
             "contact": plan.contact,
+            "email": plan_email(plan, email_tag),
             "created_at": _iso(plan.created_at),
         },
     )
@@ -1514,7 +1582,8 @@ def seed_patient(
         supabase,
         clinic_id=clinic_id,
         event_type="patient.created",
-        payload={"patient_id": patient_id, "full_name": plan.full_name, "contact": plan.contact},
+        payload={"patient_id": patient_id, "full_name": plan.full_name, "contact": plan.contact,
+                 "email": plan_email(plan, email_tag)},
         metadata={"ref_type": "patient", "ref_id": patient_id},
     )
 
@@ -1527,7 +1596,141 @@ def seed_patient(
             supabase, clinic_id=clinic_id, user_id=user_id, patient_id=patient_id,
             procedure_id=procedure_id, plan=plan, episode=episode, schedules=schedules,
         )
-    print(f"{plan.label}: created {plan.full_name} ({patient_id})")
+    seed_account(
+        supabase, clinic_id=clinic_id, user_id=user_id, patient_id=patient_id, plan=plan,
+        email=plan_email(plan, email_tag),
+    )
+    print(f"{plan.label}: created {plan.full_name} ({patient_id})"
+          f"{', account ' + plan.account if plan.account else ''}")
+
+
+def _check_address(supabase, email: str, patient_id: str | None) -> str | None:
+    """Refuse an address that belongs to staff or to ANOTHER patient's live account (seeding must
+    never turn a real person's sign-in into a patient's). Returns the address's existing Auth user,
+    or None if it has none yet. `patient_id` is the patient it is for, if they exist already."""
+    found = supabase.rpc("find_auth_user_by_email", {"p_email": email}).execute().data
+    existing = found["id"] if found else None
+    if existing is not None:
+        if supabase.table("clinic_members").select("id").eq("user_id", existing).execute().data:
+            raise SystemExit(
+                f"{email} belongs to a clinic member. Use a different address for a patient "
+                "(a plus-address such as you+patient@... is a different Auth user)."
+            )
+        query = (
+            supabase.table("patient_accounts").select("patient_id").eq("user_id", existing)
+            .neq("status", "off")
+        )
+        if patient_id:
+            query = query.neq("patient_id", patient_id)
+        if query.execute().data:
+            raise SystemExit(f"{email} already belongs to another patient's live account.")
+    return existing
+
+
+def _auth_user_for(supabase, email: str, patient_id: str) -> str:
+    """The Auth user for a patient's account: reused if the address already has one (a reset keeps
+    Auth users), made otherwise."""
+    return gotrue.ensure_patient_user(
+        email, user_id=_check_address(supabase, email, patient_id)
+    )
+
+
+def preflight(supabase, plans: list[PatientPlan], clinic_id: str) -> None:
+    """Check every real address BEFORE anything is written, so a refusal leaves no half-seeded
+    patient behind."""
+    for plan in plans:
+        if not plan.email:
+            continue
+        email = plan_email(plan, "")
+        mine = (
+            supabase.table("patients").select("id").eq("clinic_id", clinic_id)
+            .eq("contact", plan.contact).execute().data
+        )
+        _check_address(supabase, email, mine[0]["id"] if mine else None)
+
+
+def seed_account(
+    supabase, *, clinic_id: str, user_id: str, patient_id: str, plan: PatientPlan, email: str
+) -> bool:
+    """Write the patient's account in the state the plan says (nothing if it says none, or if the
+    patient already has one). The rows are backdated like the rest of the plan; the audit events
+    (invited, activated, identity_locked, access_turned_off, and consent.granted) carry the time
+    the seed ran, as the other seeded events do. Returns whether an account was written."""
+    if plan.account is None:
+        return False
+    if supabase.table("patient_accounts").select("id").eq("patient_id", patient_id).execute().data:
+        return False
+    state = plan.account
+    now = datetime.now(UTC)
+    auth_id = _auth_user_for(supabase, email, patient_id)
+    account_id = str(uuid.uuid4())
+    ref = {"ref_type": "patient_account", "ref_id": account_id, "patient_id": patient_id}
+    ids = {"account_id": account_id, "patient_id": patient_id}
+
+    invited_at = min(plan.created_at + timedelta(minutes=20), now - timedelta(minutes=30))
+    verified_at = min(invited_at + timedelta(hours=2), now - timedelta(minutes=20))
+    row = {
+        "id": account_id, "clinic_id": clinic_id, "patient_id": patient_id, "user_id": auth_id,
+        "status": state, "invited_at": _iso(invited_at), "invited_by": user_id,
+    }
+    consents: list[tuple[str, str, datetime]] = []
+    if state in ("active", "off"):
+        row.update(identity_verified_at=_iso(verified_at), activated_at=_iso(verified_at))
+        consents = [(kind, str(uuid.uuid4()), verified_at) for kind in consent_wording.REQUIRED]
+    if state == "active":
+        row["last_sign_in_at"] = _iso(now - timedelta(minutes=30))
+    if state == "locked":
+        locked_at = min(invited_at + timedelta(hours=3), now - timedelta(minutes=10))
+        row.update(status="locked", locked_at=_iso(locked_at), identity_failed_attempts=3)
+    if state == "off":
+        closed = plan.closed.at if plan.closed and plan.closed.at else None
+        off_at = min((closed or now - timedelta(hours=1)) + timedelta(minutes=10),
+                     now - timedelta(minutes=5))
+        row.update(turned_off_at=_iso(off_at), turned_off_by=user_id)
+
+    _audit(supabase, clinic_id=clinic_id, event_type="patient_account.invited",
+           payload={**ids, "email": email}, metadata=ref)
+    for kind, consent_id, at in consents:
+        _audit(
+            supabase, clinic_id=clinic_id, event_type="consent.granted",
+            payload={"consent_id": consent_id, "patient_id": patient_id, "consent_type": kind,
+                     "consent_text_version": consent_wording.CURRENT_VERSION,
+                     "granted_at": _iso(at)},
+            metadata={"ref_type": "consent", "ref_id": consent_id, "patient_id": patient_id},
+        )
+    if state in ("active", "off"):
+        _audit(supabase, clinic_id=clinic_id, event_type="patient_account.activated",
+               payload=ids, metadata=ref)
+    if state == "locked":
+        _audit(supabase, clinic_id=clinic_id, event_type="patient_account.identity_locked",
+               payload=ids, metadata=ref)
+    if state == "off":
+        _audit(supabase, clinic_id=clinic_id, event_type="patient_account.access_turned_off",
+               payload={**ids, "was": "active"}, metadata=ref)
+
+    _insert(supabase, "patient_accounts", row)
+    for kind, consent_id, at in consents:
+        _insert(supabase, "consents", {
+            "id": consent_id, "clinic_id": clinic_id, "patient_id": patient_id,
+            "consent_type": kind, "consent_text_version": consent_wording.CURRENT_VERSION,
+            "granted_at": _iso(at),
+        })
+    if state == "off":
+        gotrue.ban(auth_id)
+    if state == "invited":
+        _mail_invite(supabase, clinic_id=clinic_id, patient_id=patient_id, email=email)
+    return True
+
+
+def _mail_invite(supabase, *, clinic_id: str, patient_id: str, email: str) -> None:
+    """The invite for the INVITED patient. Only ever to a reserved test domain or a demo clinic,
+    so nothing is delivered: a demo clinic stores it (demo inbox), any other clinic refuses it."""
+    demo = supabase.table("clinics").select("is_demo").eq("id", clinic_id).execute().data
+    if not (mailer.is_reserved_domain(email) or (demo and demo[0]["is_demo"])):
+        return
+    mailer.send_email(
+        supabase, clinic_id=clinic_id, patient_id=patient_id, to=email, template="invite"
+    )
 
 
 def _audit_touchpoint(supabase, clinic_id: str, row: dict) -> None:
@@ -1569,14 +1772,32 @@ def main(argv: list[str] | None = None) -> int:
         "the shared dev clinic (it must exist, and the account must already be a member)",
     )
     parser.add_argument(
+        "--active-email",
+        metavar="ADDRESS",
+        help="dev clinic only: add synthetic patient 18 with an ACTIVE account under this REAL "
+        "address, so you can sign in at /sign-in and have SES email you a code. It must not be a "
+        "clinician's address (a plus-address is a different one)",
+    )
+    parser.add_argument(
         "--include-v1-patient",
         action="store_true",
         help="also add patient 14 on the old schedule v1 (writes nothing to message_schedules)",
     )
     args = parser.parse_args(argv)
 
+    if args.active_email:
+        address = mailer.normalize_address(args.active_email)
+        if args.clinic != "dev":
+            parser.error("--active-email goes with --clinic dev (a demo clinic sends no email)")
+        if not mailer.is_valid_address(address) or mailer.is_reserved_domain(address):
+            parser.error("--active-email must be a real address, not a reserved test domain")
+        if args.email and address == mailer.normalize_address(args.email):
+            parser.error("--active-email must not be the clinician's own address; "
+                         "use a plus-address (you+patient@...)")
+        args.active_email = address
+
     now = datetime.now(UTC)
-    plans = build_plan(now, args.include_v1_patient)
+    plans = build_plan(now, args.include_v1_patient, args.active_email)
     versions = {p.schedule_version for p in plans} | {
         p.extension.schedule_version for p in plans if p.extension
     }
@@ -1618,9 +1839,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.clinic == "dev"
         else ensure_demo_clinic(supabase, user_id)
     )
+    preflight(supabase, plans, clinic_id)
     for plan in plans:
         seed_patient(
             supabase, clinic_id=clinic_id, user_id=user_id, plan=plan, schedules=schedules,
+            email_tag=args.clinic,
         )
     print("\nDone. Check with: uv run python -m clinically_anchored_api.core.reconcile "
           f"--clinic {clinic_id}")

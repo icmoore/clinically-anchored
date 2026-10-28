@@ -21,6 +21,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption,
 from fastapi.testclient import TestClient
 
 from clinically_anchored_api.core import gotrue, mailer, patient_auth
+from clinically_anchored_api.core.audit import record_event
 from clinically_anchored_api.core.config import get_settings
 from clinically_anchored_api.main import app
 from tests.db.conftest import build_world, make_episode
@@ -177,10 +178,13 @@ class Env:
             "supabase_url": "http://auth.invalid",
             "supabase_anon_key": "anon-key",
             "patient_auth_per_ip_per_minute": 1000,
-            "patient_link_reads_per_minute": 1000,
-            "patient_link_writes_per_minute": 1000,
+            "patient_reads_per_minute": 1000,
+            "patient_writes_per_minute": 1000,
             "patient_code_cooldown_seconds": 0,
             "patient_codes_per_hour": 1000,
+            # tests assign these directly; naming them here makes monkeypatch restore them
+            "environment": settings.environment,
+            "trusted_proxy_hops": settings.trusted_proxy_hops,
         }.items():
             monkeypatch.setattr(settings, name, value)
         key = Ed25519PrivateKey.generate().private_bytes(
@@ -278,3 +282,39 @@ class Env:
     def audit_types(self) -> list[str]:
         return [r["event_type"] for r in self.c.execute("select event_type from audit_log "
                                                         "order by id").fetchall()]
+
+
+def patient_session(pg, w, patient_id: str) -> dict:
+    """For tests that walk the patient routes without the sign-in flow: an ACTIVE account for this
+    patient (made once) and a live session for it. Returns the headers. `pg` is the PgSupabase the
+    api is installed on; its Auth is swapped for a FakeGoTrue (which still knows clinician tokens)."""
+    conn = pg.conn
+    gt = getattr(pg, "gt", None)
+    if gt is None:
+        gt = pg.gt = FakeGoTrue(conn)
+        pg.auth = gt
+    account = conn.execute("select user_id from patient_accounts where patient_id = %s",
+                           (patient_id,)).fetchone()
+    if account is None:
+        clinic = conn.execute("select clinic_id from patients where id = %s", (patient_id,)
+                              ).fetchone()["clinic_id"]
+        uid = gt.admin.create_user({"email": f"patient-{patient_id}@example.org",
+                                    "app_metadata": {"account_type": "patient"}}).user.id
+        account_id = conn.execute(
+            "insert into patient_accounts (clinic_id, patient_id, user_id, status, invited_by, "
+            "activated_at, identity_verified_at) values (%s, %s, %s, 'active', %s, now(), now()) "
+            "returning id",
+            (clinic, patient_id, uid, w.user_a),
+        ).fetchone()["id"]
+        # As the api would have audited them, so `reconcile` stays clean in the walk-throughs.
+        for event in ("patient_account.invited", "patient_account.activated"):
+            record_event(
+                pg, clinic_id=str(clinic), event_type=event,
+                payload={"account_id": str(account_id), "patient_id": patient_id},
+                metadata={"ref_type": "patient_account", "ref_id": str(account_id),
+                          "patient_id": patient_id, "actor": {"type": "system"}},
+            )
+    else:
+        uid = str(account["user_id"])
+    session = gt.new_session(uid)
+    return {"Authorization": f"Bearer {session.access_token}"}

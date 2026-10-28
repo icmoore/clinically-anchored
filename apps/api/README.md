@@ -40,8 +40,8 @@ They create and drop scratch databases, and also need `psql` and `pg_dump` on PA
 - Start command comes from `Procfile`; `railway.json` pins the builder, the `/health`
   check and the restart policy.
 - With `ENVIRONMENT` set to anything but `development`, the app refuses to boot unless
-  `CHECKIN_LINK_SECRET`, `AUDIT_SIGNING_KEY`, `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`
-  are set. Use fresh secrets, not the dev ones, and keep `AUDIT_SIGNING_KEY` stable (change
+  `AUDIT_SIGNING_KEY`, `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set. (The old
+  `CHECKIN_LINK_SECRET` is no longer read; it can be deleted from Railway.) Use fresh secrets, not the dev ones, and keep `AUDIT_SIGNING_KEY` stable (change
   `AUDIT_KEY_ID` if you rotate it).
 
 ### If Railway keeps serving old code

@@ -15,8 +15,8 @@ from psycopg import errors
 
 from clinically_anchored_api.core import audit, clock, episodes, reconcile
 from clinically_anchored_api.core.config import get_settings
-from clinically_anchored_api.core.security import create_episode_token
 from clinically_anchored_api.main import app
+from tests.db.accounts_env import patient_session
 from tests.db.conftest import (
     ask_extension,
     build_world,
@@ -513,8 +513,8 @@ def env(db, monkeypatch):
     )
     monkeypatch.setattr(settings, "audit_signing_key", base64.b64encode(key).decode())
     monkeypatch.setattr(settings, "audit_key_id", "test-1")
-    monkeypatch.setattr(settings, "patient_link_reads_per_minute", 0)
-    monkeypatch.setattr(settings, "patient_link_writes_per_minute", 0)
+    monkeypatch.setattr(settings, "patient_reads_per_minute", 0)
+    monkeypatch.setattr(settings, "patient_writes_per_minute", 0)
     # The database functions use the real clock (a request's deadline, an acceptance), so the api
     # does too: the care period is built to have ended three days ago.
     monkeypatch.setattr(clock, "now", lambda: datetime.now(UTC))
@@ -542,26 +542,29 @@ def ended_three_days_ago(env, patient=None) -> tuple[str, str]:
     return patient, e
 
 
-def tp(episode_id: str, generation: int = 1) -> dict:
-    return {"token": create_episode_token(episode_id=episode_id, generation=generation)}
+def tp(env, episode_id: str) -> dict:
+    """The headers of the care period's patient, signed in (an active account, made once)."""
+    patient = env.conn.execute("select patient_id from episodes where id = %s", (episode_id,)
+                               ).fetchone()["patient_id"]
+    return patient_session(env.pg, env.w, str(patient))
 
 
 def test_ask_accept_use_it_ask_again_and_the_audit_chain_still_verifies(env):
     c = env.client
     patient, e = ended_three_days_ago(env)
-    token = tp(e)
+    token = tp(env, e)
 
     # Ended and eligible: the limited mode, and nothing else.
-    state = c.get("/episode", params=token).json()
+    state = c.get("/episode", headers=token).json()
     assert state["phase"] == "closed" and state["extension"]["standing"] == "eligible"
     assert state["extension"]["reason_max"] == 500
-    assert c.get("/messages", params=token).status_code == 410
+    assert c.get("/messages", headers=token).status_code == 410
 
     # Ask. It is pending, once.
-    r = c.post("/extension-request", params=token, json={"reason": "Still sore on the right."})
+    r = c.post("/extension-request", headers=token, json={"reason": "Still sore on the right."})
     assert r.status_code == 200 and r.json()["standing"] == "pending"
-    assert c.post("/extension-request", params=token, json={"reason": "again"}).status_code == 409
-    assert c.get("/episode", params=token).json()["extension"]["standing"] == "pending"
+    assert c.post("/extension-request", headers=token, json={"reason": "again"}).status_code == 409
+    assert c.get("/episode", headers=token).json()["extension"]["standing"] == "pending"
 
     # The clinic sees it: in the queue, and on the patient's episode with the reason.
     queue = c.get(f"{env.clinic}/queue", headers=env.auth).json()
@@ -581,13 +584,13 @@ def test_ask_accept_use_it_ask_again_and_the_audit_chain_still_verifies(env):
                                                             headers=env.auth).json())
 
     # The original link now opens the extension, with window 1 open.
-    state = c.get("/episode", params=token).json()
+    state = c.get("/episode", headers=token).json()
     assert state["phase"] == "open" and state["intervals_total"] == 6 and state["interval_no"] == 1
     assert state["extension"]["standing"] == "accepted"
     assert state["extension"]["decision_message"] == "Glad to keep following you."
-    sent = c.post("/messages", params=token, json={"body": "Feeling better", "category": "admin"})
+    sent = c.post("/messages", headers=token, json={"body": "Feeling better", "category": "admin"})
     assert sent.status_code == 200 and sent.json()["episode_id"] == child
-    assert c.post("/messages", params=token,
+    assert c.post("/messages", headers=token,
                   json={"body": "More", "category": "admin"}).status_code == 409
 
     # The clinic's screen: nine windows, then the six of the extension.
@@ -599,7 +602,7 @@ def test_ask_accept_use_it_ask_again_and_the_audit_chain_still_verifies(env):
     # A clinician message grants one reply, exactly as before.
     assert c.post(f"{env.clinic}/patients/{patient}/messages", headers=env.auth,
                   json={"body": "Any fever?"}).status_code == 200
-    assert c.post("/messages", params=token,
+    assert c.post("/messages", headers=token,
                   json={"body": "No", "kind": "reply"}).status_code == 200
 
     # The thread has the request and the decision as their own kinds, in order.
@@ -612,10 +615,10 @@ def test_ask_accept_use_it_ask_again_and_the_audit_chain_still_verifies(env):
     ended_at = datetime.now(UTC)
     env.conn.execute("select close_episode(%s, %s, 'schedule_complete', null, %s)",
                      (env.w.clinic_a, child, ended_at))
-    state = c.get("/episode", params=token).json()
+    state = c.get("/episode", headers=token).json()
     assert state["phase"] == "closed" and state["extension"]["standing"] == "eligible"
     assert state["extension"]["extension_no"] == 1
-    assert c.post("/extension-request", params=token,
+    assert c.post("/extension-request", headers=token,
                   json={"reason": "One more round, please."}).status_code == 200
     request2 = c.get(f"{env.clinic}/patients/{patient}/episode", headers=env.auth).json()[
         "extension"]["request"]
@@ -629,7 +632,7 @@ def test_ask_accept_use_it_ask_again_and_the_audit_chain_still_verifies(env):
     # Discharge during the second extension ends it, and the link says only "closed".
     r = c.post(f"{env.clinic}/episodes/{shown['id']}/close", headers=env.auth)
     assert r.status_code == 200
-    state = c.get("/episode", params=token).json()
+    state = c.get("/episode", headers=token).json()
     assert state["phase"] == "closed" and state["extension"] is None
 
     # Everything was audited, in a chain that verifies, with no row left unaudited.
@@ -655,18 +658,18 @@ def test_ask_accept_use_it_ask_again_and_the_audit_chain_still_verifies(env):
 def test_a_decline_is_final_and_shows_the_patient_the_message(env):
     c = env.client
     patient, e = ended_three_days_ago(env)
-    token = tp(e)
-    assert c.post("/extension-request", params=token, json={"reason": "Please."}).status_code == 200
+    token = tp(env, e)
+    assert c.post("/extension-request", headers=token, json={"reason": "Please."}).status_code == 200
     request = c.get(f"{env.clinic}/patients/{patient}/episode", headers=env.auth).json()[
         "extension"]["request"]
     r = c.post(f"{env.clinic}/extension-requests/{request['id']}/decline", headers=env.auth,
                json={"message": "Please call the office."})
     assert r.status_code == 200 and r.json()["status"] == "declined"
-    state = c.get("/episode", params=token).json()
+    state = c.get("/episode", headers=token).json()
     assert state["phase"] == "closed" and state["extension"]["standing"] == "declined"
     assert state["extension"]["decision_message"] == "Please call the office."
-    assert c.post("/extension-request", params=token, json={"reason": "again"}).status_code == 409
-    assert c.get("/messages", params=token).status_code == 410
+    assert c.post("/extension-request", headers=token, json={"reason": "again"}).status_code == 409
+    assert c.get("/messages", headers=token).status_code == 410
     assert c.post(f"{env.clinic}/extension-requests/{request['id']}/accept",
                   headers=env.auth).status_code == 409
     report = reconcile.reconcile(env.pg, clinic_id=env.w.clinic_a)
@@ -677,7 +680,7 @@ def test_a_decline_is_final_and_shows_the_patient_the_message(env):
 def test_a_delegate_can_see_the_request_but_not_decide_it(env):
     c = env.client
     patient, e = ended_three_days_ago(env)
-    c.post("/extension-request", params=tp(e), json={"reason": "Please."})
+    c.post("/extension-request", headers=tp(env, e), json={"reason": "Please."})
     env.conn.execute("update clinic_members set role = 'delegate' where user_id = %s", (env.w.user_a,))
     shown = c.get(f"{env.clinic}/patients/{patient}/episode", headers=env.auth).json()
     request = shown["extension"]["request"]
@@ -693,14 +696,14 @@ def test_the_window_to_ask_runs_out_at_30_days(env, monkeypatch):
     _patient, e = ended_three_days_ago(env)
     later = datetime.now(UTC) + timedelta(days=28)  # 31 days after the end
     monkeypatch.setattr(clock, "now", lambda: later)
-    state = c.get("/episode", params=tp(e)).json()
+    state = c.get("/episode", headers=tp(env, e)).json()
     assert state["phase"] == "closed" and state["extension"] is None
-    assert c.post("/extension-request", params=tp(e), json={"reason": "late"}).status_code == 410
+    assert c.post("/extension-request", headers=tp(env, e), json={"reason": "late"}).status_code == 410
 
 
 def test_dates_are_what_the_engine_says(env):
     _patient, e = ended_three_days_ago(env)
-    state = env.client.get("/episode", params=tp(e)).json()
+    state = env.client.get("/episode", headers=tp(env, e)).json()
     end = datetime.fromisoformat(state["ended_at"]).astimezone(TORONTO)
     assert (end.hour, end.minute) == (7, 0)
     assert end.date() == datetime.now(TORONTO).date() - timedelta(days=3)

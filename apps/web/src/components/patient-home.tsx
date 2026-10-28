@@ -22,48 +22,46 @@ import { usePolling } from "@/lib/use-polling";
 import { PatientExplainer } from "./patient-explainer";
 import { SignedInPatient } from "./patient-gate";
 import { EndedScreen } from "./ended-screen";
-import { ClosedScreen, InvalidLinkScreen, PatientFrame } from "./patient-frame";
+import { ClosedScreen, PatientFrame, ReplacedLinkScreen } from "./patient-frame";
 import { PatientTimeline } from "./patient-timeline";
 
 const REFRESH_MS = 10000;
 
-/** The patient's home. A signed-in patient gets it inside the gate (components/patient-gate.tsx):
- *  the first sign-in steps come first. A legacy link (`?token=`) opens it directly; those links
- *  are retired later. */
+/** The patient's home, inside the gate (components/patient-gate.tsx): the first sign-in steps come
+ *  first. A `?token=` in the address is one of the retired per-episode links: it says so and points
+ *  to the sign-in page instead of opening anything. */
 export function PatientHome() {
-  const token = useSearchParams().get("token") ?? "";
-  if (token) return <PatientMessages token={token} />;
-  return <SignedInPatient>{({ recheck }) => <PatientMessages token="" onRefused={recheck} />}</SignedInPatient>;
+  const retiredLink = useSearchParams().get("token");
+  if (retiredLink) return <ReplacedLinkScreen />;
+  return <SignedInPatient>{({ recheck }) => <PatientMessages onRefused={recheck} />}</SignedInPatient>;
 }
 
 /** Their thread with the care team, when they can next write, and the forms to do it. Everything
  *  about WHAT they may do comes from the api's state (it is computed from the schedule and the
- *  clock there); this only shows it. `token` is the legacy link; empty means the signed-in patient,
- *  and `onRefused` is told when the api turns that patient away. */
-function PatientMessages({ token, onRefused }: { token: string; onRefused?: () => void }) {
+ *  clock there); this only shows it. `onRefused` is told when the api turns the patient away. */
+function PatientMessages({ onRefused }: { onRefused: () => void }) {
   const fetchAll = useCallback(async () => {
-    const state = await getPatientState(token);
-    // A closed link opens nothing but its own "closed" answer.
+    const state = await getPatientState();
+    // A closed care period opens nothing but its own "closed" answer.
     if (state.phase === "closed") return { state, thread: [], checkIn: null };
     const [thread, checkIn] = await Promise.all([
-      getPatientThread(token),
+      getPatientThread(),
       // Their own check-in, shown back to them. Not essential: if it fails the rest still works.
-      state.check_in_done ? getMyCheckIn(token).catch(() => null) : Promise.resolve(null),
+      state.check_in_done ? getMyCheckIn().catch(() => null) : Promise.resolve(null),
     ]);
     return { state, thread, checkIn };
-  }, [token]);
+  }, []);
   const { data, failed, error, reload } = usePolling(fetchAll, REFRESH_MS);
 
   // Signed in, but the api no longer lets this patient in (signed out elsewhere, access turned off,
   // locked): the gate looks at the account again and decides what to show.
   const refused = error instanceof ApiError && (error.status === 401 || error.status === 403);
   useEffect(() => {
-    if (!token && refused) onRefused?.();
-  }, [token, refused, onRefused]);
+    if (refused) onRefused();
+  }, [refused, onRefused]);
 
   if (data === null) {
-    if (!token && refused) return <p className="p-6 text-muted">Loading...</p>;
-    if (error instanceof ApiError && error.status === 401) return <InvalidLinkScreen />;
+    if (refused) return <p className="p-6 text-muted">Loading...</p>;
     if (error instanceof ApiError && error.status === 410) return <ClosedScreen />;
     return (
       <PatientFrame title="Messages with your care team">
@@ -80,7 +78,6 @@ function PatientMessages({ token, onRefused }: { token: string; onRefused?: () =
     if (state.extension) {
       return (
         <EndedScreen
-          token={token}
           phone={state.office_phone}
           timeZone={state.timezone}
           extension={state.extension}
@@ -103,14 +100,14 @@ function PatientMessages({ token, onRefused }: { token: string; onRefused?: () =
           the end of the thread. */}
       {state.can_send_scheduled ? (
         <>
-          {state.can_reply && <ReplyForm token={token} onSent={reload} />}
-          <StatusPanel state={state} token={token} />
-          <ScheduledForm token={token} state={state} onSent={reload} />
+          {state.can_reply && <ReplyForm onSent={reload} />}
+          <StatusPanel state={state} />
+          <ScheduledForm state={state} onSent={reload} />
         </>
       ) : (
         <>
-          <StatusPanel state={state} token={token} />
-          {state.can_reply && <ReplyForm token={token} onSent={reload} />}
+          <StatusPanel state={state} />
+          {state.can_reply && <ReplyForm onSent={reload} />}
         </>
       )}
     </PatientFrame>
@@ -149,7 +146,7 @@ const buttonClass =
 /** The one plain sentence about what the patient can do now, the row of their message periods
  *  under it, and (when there is one) the care team's message they can reply to. All the words are
  *  in lib/patient-strings.ts; the api says which state the patient is in. */
-function StatusPanel({ state, token }: { state: PatientState; token: string }) {
+function StatusPanel({ state }: { state: PatientState }) {
   const T = PATIENT_TEXT.status;
   const when = (iso: string | null) => (iso ? plainTime(iso, state.timezone) : "");
   const day =
@@ -167,10 +164,7 @@ function StatusPanel({ state, token }: { state: PatientState; token: string }) {
     tone = "watch";
     sentence = T.beforeCheckIn;
     action = (
-      <Link
-        href={token ? `/check-in?token=${encodeURIComponent(token)}` : "/check-in"}
-        className={`${buttonClass} mt-3 inline-block`}
-      >
+      <Link href="/check-in" className={`${buttonClass} mt-3 inline-block`}>
         {T.startCheckIn}
       </Link>
     );
@@ -282,14 +276,14 @@ function Thread({ thread, timeZone }: { thread: PatientMessage[]; timeZone: stri
   );
 }
 
-function useSender(token: string, onSent: () => void) {
+function useSender(onSent: () => void) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   async function send(body: { body: string; kind: "scheduled" | "reply"; category?: string }) {
     setBusy(true);
     setError(null);
     try {
-      await sendPatientMessage(token, body);
+      await sendPatientMessage(body);
       onSent();
       return true;
     } catch (err) {
@@ -305,9 +299,9 @@ function useSender(token: string, onSent: () => void) {
 
 const textarea = "block w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-base";
 
-function ReplyForm({ token, onSent }: { token: string; onSent: () => void }) {
+function ReplyForm({ onSent }: { onSent: () => void }) {
   const [text, setText] = useState("");
-  const { busy, error, send } = useSender(token, onSent);
+  const { busy, error, send } = useSender(onSent);
   return (
     <form
       onSubmit={async (e) => {
@@ -337,17 +331,15 @@ function ReplyForm({ token, onSent }: { token: string; onSent: () => void }) {
 }
 
 function ScheduledForm({
-  token,
   state,
   onSent,
 }: {
-  token: string;
   state: PatientState;
   onSent: () => void;
 }) {
   const [category, setCategory] = useState("");
   const [text, setText] = useState("");
-  const { busy, error, send } = useSender(token, onSent);
+  const { busy, error, send } = useSender(onSent);
   return (
     <form
       onSubmit={async (e) => {

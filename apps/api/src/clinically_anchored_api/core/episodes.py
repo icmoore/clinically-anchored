@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 COLUMNS = (
     "id, clinic_id, patient_id, procedure_id, surgery_date, schedule_version, "
-    "checkin_completed_at, link_generation, closed_at, close_reason, closed_by, "
+    "checkin_completed_at, closed_at, close_reason, closed_by, "
     "created_by, created_at, kind, extends_episode_id, started_at"
 )
 SYSTEM_ACTOR = {"type": "system"}

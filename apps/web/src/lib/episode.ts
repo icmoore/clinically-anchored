@@ -79,12 +79,12 @@ export function episodeSummary(e: Episode): { label: string; detail: string; ton
       };
     case "closed": {
       if (s.close_reason === "discharged")
-        return { label: "Discharged", detail: `Discharged ${at(s.closed_at)}. The patient's link no longer works.`, tone: "quiet" };
+        return { label: "Discharged", detail: `Discharged ${at(s.closed_at)}. The patient can no longer send messages.`, tone: "quiet" };
       const what = ext && ext.number > 0 ? "extension" : "care period";
       if (request?.status === "pending")
         return {
           label: "Extension requested",
-          detail: `The patient asked for more follow-up on ${at(request.requested_at)}. Their link shows only that request until you decide.`,
+          detail: `The patient asked for more follow-up on ${at(request.requested_at)}. Their screen shows only that request until you decide.`,
           tone: "watch",
         };
       const answered =
@@ -93,10 +93,10 @@ export function episodeSummary(e: Episode): { label: string; detail: string; ton
         !request && ext?.can_request && ext.request_by
           ? ` The patient can ask for more follow-up until ${at(ext.request_by)}.`
           : "";
-      const link = request || offer ? "" : " The patient's link no longer works.";
+      const closedNote = request || offer ? "" : " The patient can no longer send messages.";
       return {
         label: ext && ext.number > 0 ? "Extension ended" : "Care period ended",
-        detail: `The ${what === "extension" ? "extension" : "schedule"} ended ${at(s.closed_at)}.${answered}${offer}${link}`,
+        detail: `The ${what === "extension" ? "extension" : "schedule"} ended ${at(s.closed_at)}.${answered}${offer}${closedNote}`,
         tone: "quiet",
       };
     }

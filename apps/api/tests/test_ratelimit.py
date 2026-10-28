@@ -1,5 +1,5 @@
-"""Per-patient rate limits on link-token routes: the sliding window itself,
-and how it's wired (verified tokens only, separate read/write budgets,
+"""Per-patient rate limits on a signed-in patient's routes: the sliding window itself,
+and how it's wired (real sessions only, separate read/write budgets,
 per-patient isolation, 429 + Retry-After)."""
 
 import pytest
@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from clinically_anchored_api.core import ratelimit
 from clinically_anchored_api.core.config import get_settings
 from clinically_anchored_api.main import app
-from tests.fakes import EPISODE_B, PATIENT_B, FakeSupabase, install, pin_clock, token_for
+from tests.fakes import EPISODE_B, PATIENT_B, FakeSupabase, install, patient_headers, pin_clock
 
 
 class _Clock:
@@ -108,69 +108,72 @@ def client(monkeypatch):
         "created_at": "2026-10-03T11:30:00+00:00",
     }
     settings = get_settings()
-    monkeypatch.setattr(settings, "patient_link_reads_per_minute", 3)
-    monkeypatch.setattr(settings, "patient_link_writes_per_minute", 2)
+    monkeypatch.setattr(settings, "patient_reads_per_minute", 3)
+    monkeypatch.setattr(settings, "patient_writes_per_minute", 2)
     client = TestClient(app)
     client.fake = fake
     return client
 
 
 def _tok(client, which=0):
-    return token_for(client.fake.tables["episodes"][which])
+    ep = client.fake.tables["episodes"][which]
+    return patient_headers(client.fake, patient=ep["patient_id"], clinic=ep["clinic_id"])
 
 
 def _post(client, which=0):
     return client.post(
-        "/messages", params={"token": _tok(client, which)},
+        "/messages", headers=_tok(client, which),
         json={"body": "hi", "category": "admin"},
     )
 
 
 def test_reads_are_throttled_with_retry_after(client, clock):
-    params = {"token": _tok(client)}
-    assert [client.get("/messages", params=params).status_code for _ in range(3)] == [200] * 3
-    r = client.get("/messages", params=params)
+    headers = _tok(client)
+    assert [client.get("/messages", headers=headers).status_code for _ in range(3)] == [200] * 3
+    r = client.get("/messages", headers=headers)
     assert r.status_code == 429
     assert int(r.headers["Retry-After"]) == 60
     clock.now += 61
-    assert client.get("/messages", params=params).status_code == 200
+    assert client.get("/messages", headers=headers).status_code == 200
 
 
 def test_writes_have_their_own_stricter_budget(client):
     codes = [_post(client).status_code for _ in range(3)]
     assert codes == [200, 200, 429]
-    reads = client.get("/messages", params={"token": _tok(client)})
+    reads = client.get("/messages", headers=_tok(client))
     assert reads.status_code == 200  # reads have their own budget
 
 
-def test_budget_is_per_episode_not_global(client):
+def test_budget_is_per_patient_not_global(client):
     for _ in range(3):
-        client.get("/messages", params={"token": _tok(client)})
-    assert client.get("/messages", params={"token": _tok(client)}).status_code == 429
-    assert client.get("/messages", params={"token": _tok(client, 1)}).status_code != 429
+        client.get("/messages", headers=_tok(client))
+    assert client.get("/messages", headers=_tok(client)).status_code == 429
+    assert client.get("/messages", headers=_tok(client, 1)).status_code != 429
 
 
 def test_the_write_budget_is_shared_across_the_patients_routes(client):
     for _ in range(2):
         _post(client)
-    r = client.post("/check-ins", params={"token": _tok(client)}, json={"answers": {}})
+    r = client.post("/check-ins", headers=_tok(client), json={"answers": {}})
     assert r.status_code == 429
 
 
-def test_invalid_tokens_are_not_counted(client):
+def test_requests_without_a_valid_session_are_not_counted(client):
     for _ in range(10):
-        assert client.get("/messages", params={"token": "garbage"}).status_code == 401
-    assert client.get("/messages", params={"token": _tok(client)}).status_code == 200
+        bad = {"Authorization": "Bearer garbage"}
+        assert client.get("/messages", headers=bad).status_code == 401
+        assert client.get("/messages").status_code == 401
+    assert client.get("/messages", headers=_tok(client)).status_code == 200
 
 
-def test_a_link_for_a_missing_or_reset_episode_still_costs_budget_only_once_signed(client):
-    stale = _tok(client)
-    client.fake.tables["episodes"][0]["link_generation"] = 2
-    codes = [client.get("/messages", params={"token": stale}).status_code for _ in range(4)]
-    assert codes == [401, 401, 401, 429]  # signed, so counted: the database isn't hammered
+def test_a_turned_off_account_is_refused_but_still_costs_budget(client):
+    headers = _tok(client)
+    client.fake.tables["patient_accounts"][0]["status"] = "off"
+    codes = [client.get("/messages", headers=headers).status_code for _ in range(4)]
+    assert codes == [403, 403, 403, 429]  # a real session, so counted: the database isn't hammered
 
 
 def test_zero_disables_a_budget(client, monkeypatch):
-    monkeypatch.setattr(get_settings(), "patient_link_reads_per_minute", 0)
-    params = {"token": _tok(client)}
-    assert all(client.get("/messages", params=params).status_code == 200 for _ in range(20))
+    monkeypatch.setattr(get_settings(), "patient_reads_per_minute", 0)
+    headers = _tok(client)
+    assert all(client.get("/messages", headers=headers).status_code == 200 for _ in range(20))

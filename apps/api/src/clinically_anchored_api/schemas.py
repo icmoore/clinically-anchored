@@ -65,16 +65,8 @@ class CheckInOut(BaseModel):
     created_at: str
 
 
-class DevLinkRequest(BaseModel):
-    episode_id: str
-
-
-class DevLinkResponse(BaseModel):
-    token: str
-
-
 class CheckInContext(BaseModel):
-    """What the check-in page needs to render its form, resolved from the link alone:
+    """What the check-in page needs to render its form, resolved from the signed-in patient alone:
     the procedure the clinic chose for this episode (it picks the symptom set)."""
 
     clinic_id: str
@@ -490,11 +482,6 @@ class PatientOut(BaseModel):
     email: str | None = None
     created_at: str
     episode: EpisodeOut | None = None  # the latest episode
-
-
-class LinkOut(BaseModel):
-    url: str
-    generation: int
 
 
 # Consent types are slugs and wording versions are opaque labels: which ones

@@ -7,7 +7,7 @@ import { ApiError, CheckInContext, getCheckInContext, submitCheckIn } from "@/li
 import { SignedInPatient } from "@/components/patient-gate";
 import {
   ClosedScreen,
-  InvalidLinkScreen,
+  ReplacedLinkScreen,
   SignOutButton,
   UrgentNotice,
 } from "@/components/patient-frame";
@@ -27,22 +27,16 @@ type Status = "loading" | "ready" | "submitting" | "submitted" | "error";
 const buttonClass =
   "inline-block rounded-md bg-primary hover:bg-primary-hover active:bg-primary-active px-4 py-2 font-medium text-white";
 
-/** The check-in page. A signed-in patient gets it inside the gate (the first sign-in steps come
- *  first); a legacy link (`?token=`) opens it directly. Those links are retired later. */
+/** The check-in page, inside the gate (the first sign-in steps come first). A `?token=` in the
+ *  address is one of the retired per-episode links: it says so instead of opening anything. */
 export function CheckInPageContent() {
-  const token = useSearchParams().get("token") ?? "";
-  if (token) {
-    return (
-      <CheckInLayout>
-        <CheckInForm token={token} />
-      </CheckInLayout>
-    );
-  }
+  const retiredLink = useSearchParams().get("token");
+  if (retiredLink) return <ReplacedLinkScreen />;
   return (
     <SignedInPatient>
       {({ recheck }) => (
         <CheckInLayout>
-          <CheckInForm token="" onRefused={recheck} />
+          <CheckInForm onRefused={recheck} />
         </CheckInLayout>
       )}
     </SignedInPatient>
@@ -62,13 +56,12 @@ function CheckInLayout({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** `token` is the legacy link; empty means the signed-in patient, and `onRefused` is told when the
- *  api turns that patient away. */
-function CheckInForm({ token, onRefused }: { token: string; onRefused?: () => void }) {
+/** `onRefused` is told when the api turns the patient away (signed out elsewhere, access changed). */
+function CheckInForm({ onRefused }: { onRefused: () => void }) {
 
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
-  const [linkProblem, setLinkProblem] = useState<"invalid" | "closed" | null>(null);
+  const [linkProblem, setLinkProblem] = useState<"closed" | null>(null);
   const [context, setContext] = useState<CheckInContext | null>(null);
 
   const [surgeryType, setSurgeryType] = useState<"" | "open" | "laparoscopic">("");
@@ -79,22 +72,21 @@ function CheckInForm({ token, onRefused }: { token: string; onRefused?: () => vo
   const [showReview, setShowReview] = useState(false);
 
   useEffect(() => {
-    getCheckInContext(token)
+    getCheckInContext()
       .then((ctx) => {
         setContext(ctx);
         setStatus("ready");
       })
       .catch((err: unknown) => {
-        if (!token && err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-          onRefused?.(); // signed out elsewhere, or access changed: the gate decides
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+          onRefused(); // signed out elsewhere, or access changed: the gate decides
           return;
         }
-        if (err instanceof ApiError && err.status === 401) setLinkProblem("invalid");
-        else if (err instanceof ApiError && err.status === 410) setLinkProblem("closed");
+        if (err instanceof ApiError && err.status === 410) setLinkProblem("closed");
         setStatus("error");
         setError(err instanceof ApiError ? err.message : "Couldn't load this check-in link.");
       });
-  }, [token, onRefused]);
+  }, [onRefused]);
 
   // The procedure is the clinic's choice for this episode, so the symptom set is known up front.
   const procedure = context?.procedure ?? null;
@@ -149,7 +141,7 @@ function CheckInForm({ token, onRefused }: { token: string; onRefused?: () => vo
     }
     setStatus("submitting");
     try {
-      await submitCheckIn(token, { answers: buildAnswers() });
+      await submitCheckIn({ answers: buildAnswers() });
       setStatus("submitted");
     } catch (err) {
       if (err instanceof ApiError && err.status === 410) setLinkProblem("closed");
@@ -158,7 +150,6 @@ function CheckInForm({ token, onRefused }: { token: string; onRefused?: () => vo
     }
   }
 
-  if (linkProblem === "invalid") return <InvalidLinkScreen />;
   if (linkProblem === "closed") return <ClosedScreen />;
 
   if (status === "loading") {
@@ -170,10 +161,7 @@ function CheckInForm({ token, onRefused }: { token: string; onRefused?: () => vo
   }
 
   const messagesLink = (
-    <Link
-      href={token ? `/care?token=${encodeURIComponent(token)}` : "/care"}
-      className={`${buttonClass} mt-4`}
-    >
+    <Link href="/care" className={`${buttonClass} mt-4`}>
       Go to your messages
     </Link>
   );

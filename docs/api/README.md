@@ -9,8 +9,8 @@ Read this before touching `apps/api`. It's the product context a fresh thread ne
 Postgres directly and the only thing that calls out to an LLM. Concretely, it owns:
 
 - **Check-in intake.** Patients submit structured answers (procedure dropdown +
-  symptom checkboxes) via a signed link, no login. This service validates the link
-  token, writes the check-in, and runs it through the red-flag rules.
+  symptom checkboxes) as a signed-in patient (email and a code). This service resolves the
+  patient from their session, writes the check-in, and runs it through the red-flag rules.
 - **The red-flag rule engine.** Fixed rules a clinician writes, not model judgement —
   nothing decides on its own that a patient is fine. A check-in or message that
   matches a rule gets pulled to the top of the clinician's queue.
@@ -31,8 +31,8 @@ Postgres directly and the only thing that calls out to an LLM. Concretely, it ow
 HTTP API (OpenAPI schema at `/openapi.json`), and it authenticates end users through
 Supabase Auth directly for clinicians — this service uses the Supabase *service role*
 key, which bypasses row-level security by design. That means this service is what's
-responsible for authorization logic that RLS can't express (e.g. validating a
-patient's link token), not the database.
+responsible for authorization logic that RLS can't express (e.g. resolving a signed-in
+patient to their own account and care period), not the database.
 
 The one shared database client (`core/db.py`) talks **HTTP/1.1**, not the HTTP/2 that postgrest-py
 defaults to: the endpoints run on a thread pool, and many threads over one HTTP/2 connection
@@ -78,21 +78,22 @@ Built (on `main`):
   break (one scheduled message per interval, one reply per doctor message, nothing into a
   closed episode) through service-role functions (migration 9); the api decides which interval is
   open. `tests/db/` runs the api against a real Postgres end to end (not in CI yet).
-- **The patient's link** (`core/security.py`): ONE signed token per episode carrying the episode
-  id and `link_generation`. On every request the api loads the episode: a reset link (generation
-  bumped) is 401, a closed episode is 410. `GET /episode?token=` is the one patient route that
-  still answers once closed, and says only `closed` plus the clinic's `office_phone` (and an empty
+- **The signed-in patient** (`core/security.py`, `core/patient_auth.py`; the old per-episode link is
+  RETIRED, see [patient-accounts.md](patient-accounts.md)). On every request the api turns the
+  patient's session into one account, finds that patient's LATEST care period (the newest episode of
+  the chain: `episodes.resolve_tail`) and works out where it stands: a closed one is 410. A `?token=`
+  in a request means nothing; no session is 401. `GET /episode` is the one patient route that still
+  answers once closed, and says only `closed` plus the clinic's `office_phone` (and an empty
   `windows`). While open it also lists the patient's message periods as `windows`: each one's
   `number`, `status` (`used`, `open`, `upcoming`, `passed` = ended unused, `before_check_in` = ended
   before they did their check-in), `opens_at` and `closes_at`, next to the existing `next_opens_at`,
   `can_reply` and `episode_closes_at`. It is the clinic's window list reduced on purpose: no missed
   reason wording, no `locked` or `cut_short`, no schedule version, review state or red flags, and a
   period running by the clock before the check-in reads `upcoming`. Additive; an older client
-  ignores it. The token
-  has no short expiry (a 120-day backstop); `POST .../episodes/{eid}/link` returns the same URL
-  each time (`/care?token=`, the web page is stage 3), `.../link/reset` revokes it. The old
-  `checkin` / `messages` scopes, their separate expiries and `/dev/check-in-links` are gone
-  (dev: `POST /dev/episode-links`). Patient routes: `GET /episode`, `GET`/`POST /messages`
+  ignores it. The routes `POST .../episodes/{eid}/link` and `.../link/reset` and the dev route
+  `POST /dev/episode-links` are gone, along with `CHECKIN_LINK_SECRET`; the old audit events
+  (`link.issued`, `episode.link_rotated`) stay in the append-only log. (`episodes.link_generation`
+  stays as a column; nothing reads it.) Patient routes: `GET /episode`, `GET`/`POST /messages`
   (`kind` scheduled|reply, `category`), `GET /check-ins/context`, `POST /check-ins` (the
   post-op day is computed, the procedure is the clinic's), `/consents`.
 - Check-in intake: `POST /check-ins`, `GET /check-ins/context`, and `GET /check-ins/mine` (the patient reads
@@ -269,18 +270,17 @@ Built (on `main`):
   inserted `active = false`; `update message_schedules set active = true where version = 3` switches it on,
   `false` switches it off (requests already made keep the version they were made under).
   *Rules.* Only an episode that ended **by schedule** can ask: not a discharge, not while the term still
-  runs. The patient has `request_window_days` (30) after the end. Until then the link works in a limited
+  runs. The patient has `request_window_days` (30) after the end. Until then the patient's screen works in a limited
   "ended" mode (`GET /episode` answers phase `closed` plus an `extension` block and `ended_at`; every other
   patient route is still 410). The reason is required, 1-500 characters (`REASON_MAX`; also a table check).
   One request per ended episode: a pending request blocks a second and **a decline is final** for that
-  care period. A pending request keeps the link in ended mode however long the clinic takes; a decision
+  care period. A pending request keeps the screen in ended mode however long the clinic takes; a decision
   stays readable until the later of "end + 30 days" and "decision + 30 days" (so a late decision is still
-  seen). After that the link says only "closed" and the office phone, as before.
+  seen). After that the patient's screen says only "closed" and the office phone, as before.
   *Accepting* creates a **new episode** (`kind = 'extension'`, `extends_episode_id`, `started_at` = the
   acceptance instant) that continues the ended one: same patient, procedure and surgery date, the check-in
-  counts, same link generation. Closed episodes never change, so nothing is reopened. The patient's
-  original URL follows the chain (`episodes.resolve_tail`) to the newest episode; its generation is checked
-  against that episode, so resetting the link there revokes every older URL. Extension v1: window 1 opens
+  counts. Closed episodes never change, so nothing is reopened. The patient's
+  latest care period follows the chain (`episodes.resolve_tail`) to the newest episode. Extension v1: window 1 opens
   at the moment of acceptance; windows 2-6 open at 07:00 America/Toronto on days 7, 14, 21, 28, 35 after
   the acceptance **date** (wall-clock, so a clock change moves nothing); the extension ends on day 42.
   `offsets_days` of the row list windows 2-6 only. Everything else is the main period's rule: one message
@@ -374,9 +374,16 @@ Built (on `main`):
 - **Patient accounts, part 2 of 4: accounts and access** (migration 18; read
   [patient-accounts.md](patient-accounts.md)). Passwordless email sign-in for patients: invite, a
   6-digit code by email, a surgery-date check and consent on first sign-in, a 30-day session, turn
-  off / re-invite, and a single-use fallback link. The patient routes now accept either that session
-  or the old `?token=` link (the link half is deleted when links are retired); clinician routes
-  refuse patient tokens. Needs the Supabase dashboard changes and Railway variables in that doc.
+  off / re-invite, and a single-use fallback link. The patient routes take that session only;
+  clinician routes refuse patient tokens. Needs the Supabase dashboard changes and Railway variables
+  in that doc.
+- **Patient accounts, part 4 of 4: the old links retired.** `/care?token=` (and the other
+  `?token=` pages) open nothing and say "This link has been replaced. Your surgeon's office will
+  email you a sign-in invite." The link routes, the dev link route, `CHECKIN_LINK_SECRET` and the
+  `itsdangerous` dependency are gone. The seed gives synthetic patients an email and accounts in every
+  state (not invited, invited, active, locked, access turned off), and `--active-email` adds one active
+  patient under a real address for an SES test. Every migration now has a real-Postgres test
+  (`tests/db/test_migrations.py` names which module covers which).
 
 Not built: auto-refreshing ("rolling") summaries -- by decision, summaries are on demand only --
 and storing summaries (see above).

@@ -1,5 +1,4 @@
 import logging
-import secrets
 from functools import lru_cache
 
 from pydantic import model_validator
@@ -24,21 +23,10 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_service_role_key: str = ""
 
-    # Signs patient link tokens (itsdangerous). Left empty in development it
-    # becomes a random per-process secret (links die on restart, which is fine
-    # locally). Any other environment must set a real, stable value via
-    # Railway -- otherwise every issued link breaks on restart, and differs
-    # between instances. Enforced by `_require_secrets_outside_development`.
-    checkin_link_secret: str = ""
-    # A patient link lasts as long as its episode, and is revoked server-side (closing the
-    # episode, or rotating the link) -- see core/security.py. This is only a backstop for a
-    # token whose episode somehow never closed: longer than the longest schedule.
-    patient_link_backstop_max_age_seconds: int = 60 * 60 * 24 * 120  # 120 days
-
-    # Per-patient request budgets on link-token routes (see core/ratelimit.py).
+    # Per-patient request budgets for a signed-in patient (see core/ratelimit.py).
     # In-memory, so per instance; 0 or less turns a budget off.
-    patient_link_reads_per_minute: int = 60
-    patient_link_writes_per_minute: int = 10
+    patient_reads_per_minute: int = 60
+    patient_writes_per_minute: int = 10
 
     # Consent types (comma-separated slugs) that may be granted. Which consents
     # exist is a product/legal decision that isn't made yet, so empty means any
@@ -109,15 +97,8 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _require_secrets_outside_development(self) -> "Settings":
         if self.environment == "development":
-            if not self.checkin_link_secret:
-                self.checkin_link_secret = secrets.token_urlsafe(32)
-                logger.warning(
-                    "CHECKIN_LINK_SECRET not set: using a random per-process secret "
-                    "(issued links will stop working on restart)."
-                )
             return self
         required = {
-            "CHECKIN_LINK_SECRET": self.checkin_link_secret,
             "AUDIT_SIGNING_KEY": self.audit_signing_key,
             "SUPABASE_URL": self.supabase_url,
             "SUPABASE_SERVICE_ROLE_KEY": self.supabase_service_role_key,

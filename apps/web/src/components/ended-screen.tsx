@@ -10,18 +10,16 @@ const T = PATIENT_TEXT.extension;
 const buttonClass =
   "rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2.5 text-base font-medium text-white disabled:opacity-60";
 
-/** The care period ended by schedule, and the link is still in its limited "ended" mode: the ended
+/** The care period ended by schedule, and the patient's screen is still in its limited "ended" mode: the ended
  *  message, then what the patient can do about it. Nothing else opens. One of three states, all
  *  from the api: they may ask (a short reason), they asked and are waiting, or the care team said
  *  no (final). The urgent notice in the frame is the same as on every patient screen. */
 export function EndedScreen({
-  token,
   phone,
   timeZone,
   extension,
   onChanged,
 }: {
-  token: string;
   phone: string | null;
   timeZone: string | null;
   extension: PatientExtension;
@@ -31,7 +29,7 @@ export function EndedScreen({
     <PatientFrame title={T.endedTitle} phone={phone} noticeFirst>
       <p className="text-ink">{T.ended}</p>
       {extension.standing === "eligible" && (
-        <RequestForm token={token} timeZone={timeZone} extension={extension} onSent={onChanged} />
+        <RequestForm timeZone={timeZone} extension={extension} onSent={onChanged} />
       )}
       {extension.standing === "pending" && (
         <section aria-live="polite" className="mt-4 rounded-lg border border-info-border bg-info-bg p-4 text-info-text">
@@ -58,12 +56,10 @@ export function EndedScreen({
 }
 
 function RequestForm({
-  token,
   timeZone,
   extension,
   onSent,
 }: {
-  token: string;
   timeZone: string | null;
   extension: PatientExtension;
   onSent: () => void;
@@ -78,7 +74,7 @@ function RequestForm({
     setBusy(true);
     setError(null);
     try {
-      await requestExtension(token, reason.trim());
+      await requestExtension(reason.trim());
       onSent();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : T.couldntSend);

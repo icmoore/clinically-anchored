@@ -1,8 +1,9 @@
 # Patient accounts (passwordless email sign-in)
 
 A patient signs in with their email address and a 6-digit code, and stays signed in on that device
-for 30 days. No passwords. This replaces the patient link (`/care?token=...`), which keeps working
-until the "retire the old links" change ships.
+for 30 days. No passwords. This replaced the old per-episode patient link (`/care?token=...`):
+those links open nothing now (the web app says "This link has been replaced"), the routes that
+issued them are gone, and a `token` in a request is ignored.
 
 Parts: `core/mailer.py` + `docs/api/email.md` (sending), `core/gotrue.py` (Supabase Auth),
 `core/patient_auth.py` (who is signed in), `api/patient_auth.py` (public sign-in routes),
@@ -30,7 +31,7 @@ actions), `api/auth_hooks.py` (Supabase's email hook), migration 18.
    user, the session must be younger than 30 days, and the account's status is read from the
    database. The patient, clinic and care period come from the account alone; no path, query or body
    parameter can name another patient. A request that carries `Authorization` is never answered from
-   a `?token=` link.
+   a `?token=` link (which is ignored: a request with no session is refused).
 5. **Turn off** (owner/clinician): the status becomes `off` (the api refuses the patient on their
    next request), the user is banned and all their sessions are deleted. **Re-invite** starts the
    first sign-in again.

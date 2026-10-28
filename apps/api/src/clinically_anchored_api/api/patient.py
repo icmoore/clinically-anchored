@@ -8,8 +8,8 @@ from clinically_anchored_api.core import categories
 from clinically_anchored_api.core.db import get_supabase
 from clinically_anchored_api.core.schedule import MissedReason, WindowState, WindowStatus
 from clinically_anchored_api.core.security import (
-    PatientLink,
-    require_patient_link_even_if_closed,
+    PatientContext,
+    require_patient_even_if_closed,
 )
 from clinically_anchored_api.schemas import PatientStateOut, PatientWindowOut
 
@@ -23,31 +23,31 @@ def _office_phone(supabase, clinic_id: str) -> str | None:
 
 @router.get("/episode", response_model=PatientStateOut)
 def patient_state(
-    link: PatientLink = Depends(require_patient_link_even_if_closed),
+    ctx: PatientContext = Depends(require_patient_even_if_closed),
 ) -> PatientStateOut:
     """What the patient may do right now, and when the next message window opens. This is the
     one patient route that still answers once the episode has closed, and then it says only
-    "closed" and the office phone: the link no longer opens anything else."""
+    "closed" and the office phone: nothing else opens any more."""
     supabase = get_supabase()
-    phone = _office_phone(supabase, link.clinic_id)
-    state = link.state
+    phone = _office_phone(supabase, ctx.clinic_id)
+    state = ctx.state
     if state.closed:
         # Ended by schedule and still inside the limited "ended" mode: say what they may do. Any
         # other closed episode (or one whose time has passed) answers "closed" and the phone.
-        if link.extension.link_works:
+        if ctx.extension.ended_mode_open:
             return PatientStateOut(
                 phase=state.phase.value,
                 office_phone=phone,
                 ended_at=iso(state.closed_at),
-                timezone=_timezone(supabase, link.episode["schedule_version"]),
-                extension=patient_extension(supabase, link),
+                timezone=_timezone(supabase, ctx.episode["schedule_version"]),
+                extension=patient_extension(supabase, ctx),
             )
         return PatientStateOut(phase=state.phase.value, office_phone=phone)
-    schedule_tz = _timezone(supabase, link.episode["schedule_version"])
+    schedule_tz = _timezone(supabase, ctx.episode["schedule_version"])
     return PatientStateOut(
         phase=state.phase.value,
         office_phone=phone,
-        check_in_done=link.episode["checkin_completed_at"] is not None,
+        check_in_done=ctx.episode["checkin_completed_at"] is not None,
         categories=list(categories.OFFERED),
         post_op_day=state.post_op_day,
         interval_no=state.interval_no,
@@ -59,7 +59,7 @@ def patient_state(
         can_send_scheduled=state.can_send_scheduled,
         can_reply=state.can_reply,
         windows=patient_windows(state.windows),
-        extension=patient_extension(supabase, link),
+        extension=patient_extension(supabase, ctx),
     )
 
 
