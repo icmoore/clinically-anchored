@@ -77,9 +77,14 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   surgery), add patient (the clinic enters the **surgery date and procedure**, both required;
   they create the patient's care period), and all patients, each with where their care period
   stands ("Check-in pending", "Window 3 of 9 open", "Discharged", ...).
-- `/dashboard/patients/[id]`, top to bottom: **Patient links** (`components/patient-links.tsx`:
-  copy or reset the one link; once the care period has ended it says the link no longer works and
-  hides the buttons; no care period yet says so), **Physician Summary**
+- `/dashboard/patients/[id]`, top to bottom: **Patient account**
+  (`components/patient-account.tsx`: status (not invited / invited on a date / active since a date,
+  last sign-in / locked / access turned off), the email the invite goes to (change it, or add one;
+  refused while active), and the buttons for that state: Send invite, Resend invite, Turn off access
+  (with a confirmation), Re-invite. Turning off and re-inviting are owner/clinician only, and the box
+  says so to anyone else. "Patient has no email?" opens the single-use link: create it, copy it now
+  (it is shown once, works once, lasts 24 hours, and the patient is asked their surgery date), and
+  the latest invite email's fate: sent, saved in the Demo inbox, failed, or refused), **Physician Summary**
   (`components/physician-summary.tsx`: computed from the schedule and the record, never by AI, so the
   facts have no AI badge). From the top: the procedure, surgery date and "Post-op day N" in a neutral
   badge; then the **check-ins** (`components/check-ins.tsx`):
@@ -157,9 +162,24 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
     date is stored; dates are shown instead) and time measured inside the app (not tracked).
     Loads separately like drafts.
   Summary and Draft a reply with AI need AWS credentials set on the api (Bedrock); without them they show the api's error.
-- **Patient screens (Messaging v2).** A patient gets ONE link for their whole post-op period,
-  `/care?token=` (the api's `GET /episode` says where they stand; `/messages?token=` is the same
-  screen, and `/check-in?token=` is the check-in). Nothing here decides what is allowed: the api
+- **Patient sign-in (patient accounts).** A patient signs in at `/sign-in` with their email and a
+  code (`components/patient-sign-in.tsx`; no password; the answer to "send me a code" is the same
+  for every address). The session lives in its own Supabase client (`lib/patient-session.ts`, storage
+  key `ca-patient-auth`), so it never replaces a clinician's session in the same browser and signing
+  out of one never signs out the other. Every page a signed-in patient uses sits inside
+  `components/patient-gate.tsx`: no session goes to `/sign-in`; the first time, the **surgery-date
+  check** and then **consent** (`patient-first-sign-in.tsx`; a wrong date says how many tries are
+  left, the third locks the account); a locked or turned-off account gets a plain "call the office"
+  screen; then the care page. Every one of those screens has **Sign out**. `/sign-in/link#<secret>`
+  is the single-use link for a patient with no email: it asks the surgery date every time. All the
+  words are in `lib/patient-strings.ts` (placeholder wording; the consent wording has a version the
+  api stores with the answer). The clinician side: the **Demo inbox** (`/dashboard/demo-inbox`, linked
+  in the header only for an owner of a demo clinic) shows the emails a demo clinic did not send, with
+  the banner "Demo clinic: emails are not sent."
+- **Patient screens (Messaging v2).** The old per-episode link, `/care?token=` (the api's
+  `GET /episode` says where they stand; `/messages?token=` is the same
+  screen, and `/check-in?token=` is the check-in), still works until the links are retired; a
+  signed-in patient gets the same screens without `?token=`. Nothing here decides what is allowed: the api
   computes it from the schedule and the clock, and the page only shows it.
   - `/care` (`components/patient-home.tsx`), top to bottom: the **urgent notice first** (same words
     as everywhere; with no office phone it still says to call the office or go to the emergency
@@ -227,8 +247,8 @@ Env (see `.env.example`): `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SUPABASE_URL`,
 `NEXT_PUBLIC_SUPABASE_ANON_KEY` (public values; the anon key is safe in the browser).
 The build tolerates them being unset (sign-in then fails at runtime).
 
-Vercel: Root Directory `apps/web`. On the api side, set `WEB_BASE_URL` (patient link
-origin) and add the Vercel origin to `ALLOWED_ORIGINS`.
+Vercel: Root Directory `apps/web`. On the api side, set `WEB_BASE_URL` (the web app's origin: the invite email points at
+`<it>/sign-in`) and add the Vercel origin to `ALLOWED_ORIGINS`.
 
 ## Deploying (Vercel + Railway)
 

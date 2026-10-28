@@ -1,6 +1,7 @@
 // Every patient-facing word for the message-period screens lives in this one file: the "How this
-// works" panel, the main status sentence, the timeline and its labels, and the "follow-up ended"
-// text. The surgeon's wording changes, and later translation, touch only this file.
+// works" panel, the main status sentence, the timeline and its labels, the "follow-up ended"
+// text, and signing in (email and code, the surgery-date check, consent, a locked or turned-off
+// account, the single-use link). The surgeon's wording changes, and later translation, touch only this file.
 //
 // PLACEHOLDER WORDING -- pending clinical review. Do not treat as final.
 //
@@ -92,5 +93,83 @@ export const PATIENT_TEXT = {
       { mark: "○", text: "not yet" },
       { mark: "·", text: "ended" },
     ],
+  },
+
+  // Signing in: an email, then a code from that email. No password. The api answers the same way
+  // for every address, so nothing here may suggest the email "was not found".
+  signIn: {
+    title: "Sign in",
+    intro: "Enter the email address your surgeon's office has for you. We will email you a code.",
+    emailLabel: "Your email",
+    sendCode: "Send my code",
+    sending: "Sending...",
+    invalidEmail: "Please enter a valid email address.",
+    couldntSend: "Couldn't send the code. Please try again.",
+    tooMany: "Too many tries. Please wait a minute and try again.",
+    codeTitle: "Enter your code",
+    // The same words whether or not the email can sign in.
+    codeSent: "If this email can sign in, we have sent you a code. It can take a minute to arrive.",
+    codeValid: "The code works for 10 minutes.",
+    codeLabel: "Your code",
+    signIn: "Sign in",
+    signingIn: "Signing in...",
+    codeFailed: "That code did not work. Check it, or ask for a new one.",
+    newCode: "Send me a new code",
+    otherEmail: "Use a different email",
+    staySignedIn: "You will stay signed in on this device.",
+    noEmail: "No email? Your surgeon's office can give you a sign-in link.",
+    sessionEnded: "Please sign in again.",
+  },
+
+  // The first time only: confirm it is them, then agree. PLACEHOLDER wording; the consent wording
+  // has a version, which the api stores with the answer. Change the words and the version together
+  // (api: core/consent_wording.py).
+  identity: {
+    title: "Check it's you",
+    intro: "Please enter the date of your surgery. We ask this once, to make sure it is you.",
+    label: "Date of your surgery",
+    button: "Continue",
+    checking: "Checking...",
+    wrong: (left: number) =>
+      stop(`That date does not match. You have ${left} ${left === 1 ? "try" : "tries"} left`),
+    couldntCheck: "Couldn't check the date. Please try again.",
+  },
+  consent: {
+    version: "2026-10-v1",
+    title: "Before you start",
+    intro: "Please read and agree to both to use messages with your care team.",
+    items: [
+      {
+        key: "messaging",
+        text: "I agree to send and receive messages with my surgeon's office in this app.",
+      },
+      {
+        key: "ai_assisted_replies",
+        text: "I agree that my care team may use a computer program (AI) to help write replies. A person reads and approves every reply before it is sent.",
+      },
+    ],
+    button: "I agree",
+    saving: "Saving...",
+    couldntSave: "Couldn't save. Please try again.",
+    reload: "The wording has changed. Please reload this page.",
+  },
+  locked: {
+    title: "Your account is locked",
+    body: "The surgery date did not match too many times, so we locked your account to keep it safe. Please call your surgeon's office. They can unlock it.",
+  },
+  turnedOff: {
+    title: "Sign-in is turned off",
+    body: "Your surgeon's office has turned off sign-in for this account. Please call them if you have questions.",
+  },
+  signOut: "Sign out",
+
+  // The single-use link the office gives a patient who has no email.
+  link: {
+    title: "Sign in with your link",
+    intro: "Your surgeon's office gave you this link. Enter the date of your surgery to sign in.",
+    button: "Sign in",
+    incomplete: "This link is not complete. Please ask your surgeon's office for a new one.",
+    expired: "This link does not work any more. Please ask your surgeon's office for a new one.",
+    couldntSignIn: "Couldn't sign you in. Please try again.",
   },
 } as const;

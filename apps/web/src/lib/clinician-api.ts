@@ -7,6 +7,7 @@ export interface Clinic {
   id: string;
   name: string;
   role: string;
+  is_demo?: boolean; // a demo clinic sends no real email; its owners have a demo inbox
 }
 export interface Me {
   user_id: string;
@@ -100,6 +101,7 @@ export interface Patient {
   id: string;
   full_name: string;
   contact: string | null;
+  email: string | null; // where the sign-in invite and codes go
   created_at: string;
   episode: Episode | null; // the latest
 }
@@ -187,7 +189,13 @@ export const getQueue = (clinic: string) => authed<QueueItem[]>(`/clinics/${clin
 export const listPatients = (clinic: string) => authed<Patient[]>(`/clinics/${clinic}/patients`);
 export const createPatient = (
   clinic: string,
-  body: { full_name: string; contact: string | null; surgery_date: string; procedure_id: string },
+  body: {
+    full_name: string;
+    contact: string | null;
+    email: string | null;
+    surgery_date: string;
+    procedure_id: string;
+  },
 ) => post<Patient>(`/clinics/${clinic}/patients`, body);
 export const listProcedures = (clinic: string) => request<Procedure[]>(`/clinics/${clinic}/procedures`);
 
@@ -339,3 +347,69 @@ export const logTouchpoint = (
   patient: string,
   body: { kind: ManualTouchpointKind; duration_minutes?: number; note?: string },
 ) => post<Touchpoint>(`/clinics/${clinic}/patients/${patient}/touchpoints`, body);
+
+// Patient accounts: the patient signs in with their email and a code (docs/api/patient-accounts.md).
+// Any member can invite, resend and set the email; turning access off, re-inviting and a fallback
+// link are owner/clinician only at the api.
+export type AccountStatus = "none" | "invited" | "active" | "locked" | "off";
+/** The outbox status of the latest invite email: sent, failed, demo (a demo clinic sends none),
+ *  refused (a test address), queued. */
+export interface InviteEmail {
+  status: "sent" | "failed" | "demo" | "refused" | "queued";
+  at: string;
+}
+export interface FallbackLinkInfo {
+  issued_at: string;
+  expires_at: string;
+  used_at: string | null;
+  revoked_at: string | null;
+}
+export interface Account {
+  status: AccountStatus;
+  email: string | null;
+  invited_at: string | null;
+  activated_at: string | null;
+  turned_off_at: string | null;
+  locked_at: string | null;
+  last_sign_in_at: string | null;
+  last_invite_email: InviteEmail | null;
+  fallback_link: FallbackLinkInfo | null;
+}
+/** A single-use sign-in link. The url is shown once: only a hash of its secret is kept. */
+export interface FallbackLink {
+  url: string;
+  expires_at: string;
+}
+const accountPath = (clinic: string, patient: string) =>
+  `/clinics/${clinic}/patients/${patient}/account`;
+export const getAccount = (clinic: string, patient: string) =>
+  authed<Account>(accountPath(clinic, patient));
+export const inviteAccount = (clinic: string, patient: string) =>
+  post<Account>(`${accountPath(clinic, patient)}/invite`);
+export const resendInvite = (clinic: string, patient: string) =>
+  post<Account>(`${accountPath(clinic, patient)}/resend`);
+export const turnOffAccess = (clinic: string, patient: string) =>
+  post<Account>(`${accountPath(clinic, patient)}/turn-off`);
+export const reinviteAccount = (clinic: string, patient: string) =>
+  post<Account>(`${accountPath(clinic, patient)}/reinvite`);
+export const createFallbackLink = (clinic: string, patient: string) =>
+  post<FallbackLink>(`${accountPath(clinic, patient)}/fallback-link`);
+export const setPatientEmail = (clinic: string, patient: string, email: string | null) =>
+  authed<Account>(`/clinics/${clinic}/patients/${patient}/email`, {
+    method: "PUT",
+    body: JSON.stringify({ email }),
+  });
+
+/** An email a demo clinic did not send (owner-only demo inbox). */
+export interface DemoEmail {
+  id: string;
+  recipient: string;
+  template: "invite" | "sign_in_code";
+  patient_id: string | null;
+  subject: string;
+  text: string;
+  html: string;
+  created_at: string;
+}
+export const listDemoInbox = (clinic: string) =>
+  authed<DemoEmail[]>(`/clinics/${clinic}/demo-inbox`);

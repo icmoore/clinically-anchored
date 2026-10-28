@@ -1,5 +1,27 @@
+"use client";
+
+import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
 import { PATIENT_TEXT } from "@/lib/patient-strings";
+
+/** Set by the signed-in patient's wrapper (components/patient-gate.tsx): what "Sign out" does.
+ *  Screens reached by a legacy link are not inside it, so they show no button. */
+export const SignOutContext = createContext<(() => void) | null>(null);
+
+/** The patient's "Sign out", wherever a patient is signed in; nothing otherwise. */
+export function SignOutButton() {
+  const signOut = useContext(SignOutContext);
+  if (!signOut) return null;
+  return (
+    <button
+      type="button"
+      onClick={signOut}
+      className="shrink-0 rounded-md border border-primary px-3 py-1.5 text-sm text-primary hover:bg-primary-tint"
+    >
+      {PATIENT_TEXT.signOut}
+    </button>
+  );
+}
 
 /** Urgent problems are handled outside the app, and every patient screen says so (the locked and
  *  closed ones most of all). The wording is a first draft: rewrite it here, it is shown everywhere. */
@@ -49,7 +71,10 @@ export function PatientFrame({
 }) {
   return (
     <div className="mx-auto flex min-h-screen max-w-md flex-col px-4 py-6">
-      <h1 className="mb-4 text-xl font-semibold text-ink">{title}</h1>
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <h1 className="text-xl font-semibold text-ink">{title}</h1>
+        <SignOutButton />
+      </div>
       {noticeFirst && <UrgentNotice phone={phone} first />}
       <div className="flex-1">{children}</div>
       {!noticeFirst && <UrgentNotice phone={phone} />}

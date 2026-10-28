@@ -3,15 +3,20 @@
 // isn't wired up yet, but nothing here should be called with anything
 // other than the api's actual response shapes.
 
+import { getPatientAccessToken } from "./patient-session";
 import type { CheckInAnswers, ProcedureCategory } from "./symptoms";
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** The whole error body, for the few answers that carry more than a message
+   *  (`attempts_left` after a wrong surgery date, `locked`). */
+  body: Record<string, unknown>;
+  constructor(status: number, message: string, body: Record<string, unknown> = {}) {
     super(message);
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -22,9 +27,22 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new ApiError(response.status, body.detail ?? `Request failed (${response.status})`);
+    const detail = typeof body.detail === "string" ? body.detail : null;
+    throw new ApiError(response.status, detail ?? `Request failed (${response.status})`, body);
   }
   return response.json() as Promise<T>;
+}
+
+/** A call as a patient. `token` is the legacy patient link (sent as ?token=); with an empty token
+ *  it is the signed-in patient (lib/patient-session.ts), sent as a bearer token. The legacy half
+ *  goes when the links are retired. */
+async function patientRequest<T>(path: string, token: string, init?: RequestInit): Promise<T> {
+  if (token) return request<T>(`${path}?token=${encodeURIComponent(token)}`, init);
+  const access = await getPatientAccessToken();
+  return request<T>(path, {
+    ...init,
+    headers: { ...init?.headers, ...(access ? { Authorization: `Bearer ${access}` } : {}) },
+  });
 }
 
 export interface Procedure {
@@ -53,14 +71,12 @@ export interface CheckInOut {
   created_at: string;
 }
 
-const q = (token: string) => `?token=${encodeURIComponent(token)}`;
-
 export function getCheckInContext(token: string): Promise<CheckInContext> {
-  return request(`/check-ins/context${q(token)}`);
+  return patientRequest(`/check-ins/context`, token);
 }
 
 export function submitCheckIn(token: string, body: { answers: CheckInAnswers }): Promise<CheckInOut> {
-  return request(`/check-ins${q(token)}`, { method: "POST", body: JSON.stringify(body) });
+  return patientRequest(`/check-ins`, token, { method: "POST", body: JSON.stringify(body) });
 }
 
 // --- The patient's episode link (one link for the whole post-op period) -------------------
@@ -127,17 +143,74 @@ export interface MyCheckIn {
   procedure_name: string | null;
   answers: CheckInAnswers;
 }
-export const getMyCheckIn = (token: string) => request<MyCheckIn | null>(`/check-ins/mine${q(token)}`);
+export const getMyCheckIn = (token: string) => patientRequest<MyCheckIn | null>(`/check-ins/mine`, token);
 
 export const requestExtension = (token: string, reason: string) =>
-  request<PatientExtension>(`/extension-request${q(token)}`, {
+  patientRequest<PatientExtension>(`/extension-request`, token, {
     method: "POST",
     body: JSON.stringify({ reason }),
   });
 
-export const getPatientState = (token: string) => request<PatientState>(`/episode${q(token)}`);
-export const getPatientThread = (token: string) => request<PatientMessage[]>(`/messages${q(token)}`);
+export const getPatientState = (token: string) => patientRequest<PatientState>(`/episode`, token);
+export const getPatientThread = (token: string) => patientRequest<PatientMessage[]>(`/messages`, token);
 export const sendPatientMessage = (
   token: string,
   body: { body: string; kind: "scheduled" | "reply"; category?: string },
-) => request<PatientMessage>(`/messages${q(token)}`, { method: "POST", body: JSON.stringify(body) });
+) => patientRequest<PatientMessage>(`/messages`, token, { method: "POST", body: JSON.stringify(body) });
+
+// --- Patient accounts: sign in with an email and a code (api/patient_auth.py) --------------------
+
+/** A session the api issued after a good code or fallback link; give it to savePatientSession. */
+export interface IssuedPatientSession {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+  expires_at: number | null;
+}
+
+/** Asks for a code. The answer is the same for every address: it never says whether the email
+ *  has an account. */
+export const requestSignInCode = (email: string) =>
+  request<{ ok: true }>("/patient-auth/request-code", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+
+export const verifySignInCode = (email: string, code: string) =>
+  request<IssuedPatientSession>("/patient-auth/verify", {
+    method: "POST",
+    body: JSON.stringify({ email, code }),
+  });
+
+/** The single-use link the clinic gives a patient with no email. It asks for the surgery date
+ *  every time. A wrong date comes back as an ApiError with `body.attempts_left`; the account being
+ *  locked as one with `body.locked`. */
+export const redeemFallbackLink = (token: string, surgeryDate: string) =>
+  request<IssuedPatientSession>("/patient-auth/link", {
+    method: "POST",
+    body: JSON.stringify({ token, surgery_date: surgeryDate }),
+  });
+
+/** Where the signed-in patient's account stands: what is left of the first sign-in. */
+export interface PatientAccount {
+  status: "invited" | "active" | "locked" | "off";
+  needs_identity: boolean; // still to enter the surgery date
+  needs_consent: boolean; // still to agree
+  identity_attempts_left: number;
+  consent_version: string; // the wording version the api expects back
+  required_consents: string[];
+  clinic_name: string;
+  office_phone: string | null;
+}
+
+export const getPatientAccount = () => patientRequest<PatientAccount>("/patient/account", "");
+export const confirmSurgeryDate = (surgeryDate: string) =>
+  patientRequest<PatientAccount>("/patient/identity", "", {
+    method: "POST",
+    body: JSON.stringify({ surgery_date: surgeryDate }),
+  });
+export const acceptConsents = (consentTextVersion: string, consents: string[]) =>
+  patientRequest<PatientAccount>("/patient/consent", "", {
+    method: "POST",
+    body: JSON.stringify({ consent_text_version: consentTextVersion, consents }),
+  });

@@ -44,6 +44,11 @@ export function AppHeader({ clinician }: { clinician: ReadyClinician }) {
           </Link>
         </div>
         <div className="flex items-center gap-3">
+          {clinic.is_demo && clinic.role === "owner" && (
+            <Link href="/dashboard/demo-inbox" className="text-sm text-primary underline">
+              Demo inbox
+            </Link>
+          )}
           {email && <span className="hidden truncate text-xs text-muted sm:block">{email}</span>}
           <button
             onClick={async () => {
