@@ -124,7 +124,7 @@ export function Discharge({
         <div className="rounded-md border border-flag-border bg-flag-bg p-3 text-sm text-flag-text">
           <p className="font-medium">Discharge this patient?</p>
           <p className="mt-1">
-            Their link stops working at once and no more messages can be sent either way. This
+            Their messaging closes at once and no more messages can be sent either way. This
             can&apos;t be undone.
           </p>
           <div className="mt-2 flex gap-2">

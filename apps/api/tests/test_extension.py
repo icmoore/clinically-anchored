@@ -69,21 +69,21 @@ def test_nobody_can_ask_while_the_term_is_still_running():
     now = MAIN_END - timedelta(minutes=1)
     status = extension_status(state=main_state(now), request=None, extension=EXT, now=now)
     assert status.standing is Standing.NOT_APPLICABLE and not status.can_request
-    assert not status.link_works
+    assert not status.ended_mode_open
 
 
 def test_a_discharged_episode_cannot_ask():
     now = MAIN_END + timedelta(days=3)
     state = main_state(now, closed_at=local(2026, 9, 1), reason="discharged")
     status = extension_status(state=state, request=None, extension=EXT, now=now)
-    assert status.standing is Standing.NOT_APPLICABLE and not status.link_works
+    assert status.standing is Standing.NOT_APPLICABLE and not status.ended_mode_open
 
 
 def test_an_episode_that_ended_by_schedule_may_ask_from_the_first_minute():
     status = extension_status(
         state=main_state(MAIN_END), request=None, extension=EXT, now=MAIN_END
     )
-    assert status.standing is Standing.ELIGIBLE and status.can_request and status.link_works
+    assert status.standing is Standing.ELIGIBLE and status.can_request and status.ended_mode_open
     assert status.request_by == local(2026, 10, 29)  # 30 days later, 07:00
 
 
@@ -95,7 +95,7 @@ def test_the_request_window_is_30_days_and_closes_exactly_then():
     )
     after = extension_status(state=main_state(by), request=None, extension=EXT, now=by)
     assert before.standing is Standing.ELIGIBLE
-    assert after.standing is Standing.LAPSED and not after.can_request and not after.link_works
+    assert after.standing is Standing.LAPSED and not after.can_request and not after.ended_mode_open
 
 
 def test_the_request_window_follows_the_data_not_the_code():
@@ -131,7 +131,7 @@ def test_a_pending_request_keeps_the_link_in_ended_mode_however_long_it_takes():
     status = extension_status(
         state=main_state(now), request={"status": "pending"}, extension=EXT, now=now
     )
-    assert status.standing is Standing.PENDING and status.link_works
+    assert status.standing is Standing.PENDING and status.ended_mode_open
     assert not status.can_request  # one request at a time, and one per care period
 
 
@@ -145,7 +145,7 @@ def test_a_decline_is_final_and_its_outcome_stays_until_the_later_of_the_two_30_
 
     assert at(15).standing is Standing.DECLINED and not at(15).can_request
     assert at(39).standing is Standing.DECLINED  # inside day 40 (10 + 30)
-    assert at(41).standing is Standing.LAPSED and not at(41).link_works
+    assert at(41).standing is Standing.LAPSED and not at(41).ended_mode_open
     # A decision made after the request window still gets its 30 days of being readable.
     late = {"status": "declined", "decided_at": (MAIN_END + timedelta(days=45)).isoformat()}
     now = MAIN_END + timedelta(days=60)
@@ -280,7 +280,7 @@ def test_a_discharge_during_an_extension_ends_it_and_cannot_be_asked_about():
         w.status in (WindowStatus.CUT_SHORT, WindowStatus.MISSED) for w in state.windows
     )
     status = extension_status(state=state, request=None, extension=EXT, now=now)
-    assert status.standing is Standing.NOT_APPLICABLE and not status.link_works
+    assert status.standing is Standing.NOT_APPLICABLE and not status.ended_mode_open
 
 
 def test_after_an_extension_ends_the_patient_may_ask_again_with_a_new_30_days():

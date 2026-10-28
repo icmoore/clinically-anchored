@@ -15,7 +15,6 @@ from psycopg.types.json import Jsonb
 from clinically_anchored_api.core import audit, gotrue, patient_auth, reconcile
 from clinically_anchored_api.core import clock as clock_module
 from clinically_anchored_api.core.audit import AuditWriteError
-from clinically_anchored_api.core.security import create_episode_token
 from tests.db.accounts_env import Env
 from tests.db.conftest import check_in, clinician_msg, patient_msg
 
@@ -358,8 +357,8 @@ def test_each_patient_sees_only_their_own_thread(env):
 
 def test_nothing_in_the_request_can_name_another_patient(env):
     a, b, ha, hb, eps = two_active_patients(env)
-    # another patient's legacy link, ids in the query and in the body: all ignored
-    other_link = create_episode_token(episode_id=eps[b], generation=1)
+    # another patient's ids in the query and in the body, and an old-style token: all ignored
+    other_link = "token-of-the-retired-patient-links"
     r = env.client.get(f"/messages?token={other_link}&patient_id={b}&clinic_id={env.w.clinic_b}"
                        f"&episode_id={eps[b]}", headers=ha)
     assert bodies(r) == ["hello alpha"]
@@ -373,10 +372,11 @@ def test_nothing_in_the_request_can_name_another_patient(env):
     assert env.client.get(f"/episode?token={other_link}", headers=ha).status_code == 200
 
 
-def test_a_header_that_does_not_pass_is_never_replaced_by_a_link_in_the_url(env):
+def test_the_retired_patient_links_open_nothing_and_a_failed_header_gets_no_second_chance(env):
     a, b, ha, hb, eps = two_active_patients(env)
-    link = create_episode_token(episode_id=eps[a], generation=1)
-    assert env.client.get(f"/messages?token={link}").status_code == 200  # the old way still works
+    link = "token-of-the-retired-patient-links"
+    assert env.client.get(f"/messages?token={link}").status_code == 401  # no session: no way in
+    assert env.client.get(f"/episode?token={link}").status_code == 401
     for headers, status in (
         ({"Authorization": "Bearer garbage"}, 401),
         ({"Authorization": "Bearer user:" + env.w.user_a}, 403),  # a clinician's token

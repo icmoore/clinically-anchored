@@ -7,7 +7,6 @@ from pydantic import ValidationError
 from clinically_anchored_api.core.config import Settings
 
 FULL = {
-    "checkin_link_secret": "s",
     "audit_signing_key": "k",
     "supabase_url": "https://x.supabase.co",
     "supabase_service_role_key": "r",
@@ -18,18 +17,19 @@ def _settings(**kw) -> Settings:
     return Settings(_env_file=None, **kw)
 
 
-def test_development_generates_a_random_link_secret():
-    a, b = _settings(environment="development"), _settings(environment="development")
-    assert a.checkin_link_secret and a.checkin_link_secret != b.checkin_link_secret
+def test_development_needs_no_secrets():
+    s = _settings(environment="development")
+    assert s.audit_signing_key == "" and s.supabase_url == ""
 
 
-def test_development_keeps_an_explicit_link_secret():
-    s = _settings(environment="development", checkin_link_secret="fixed")
-    assert s.checkin_link_secret == "fixed"
+def test_the_retired_link_secret_is_neither_required_nor_read(monkeypatch):
+    monkeypatch.setenv("CHECKIN_LINK_SECRET", "left-over-in-railway")
+    s = _settings(environment="production", **FULL)  # fine without it, and fine with it set
+    assert not hasattr(s, "checkin_link_secret")
 
 
 def test_production_with_everything_set_is_fine():
-    assert _settings(environment="production", **FULL).checkin_link_secret == "s"
+    assert _settings(environment="production", **FULL).supabase_url == "https://x.supabase.co"
 
 
 @pytest.mark.parametrize("missing", list(FULL))

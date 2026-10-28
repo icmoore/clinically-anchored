@@ -47,7 +47,7 @@ export function ComposeBox({
   role: string;
   drafts: Draft[] | null; // null = not loaded or unavailable
   thread: Message[] | null;
-  episodeClosed: boolean; // discharged, or the schedule ran out: the patient's link is dead
+  episodeClosed: boolean; // discharged, or the schedule ran out: the patient's messaging has closed
   replyAvailable: boolean; // the patient already has a reply open to the latest clinic message
   onChanged: () => void;
 }) {
@@ -114,7 +114,7 @@ export function ComposeBox({
   if (episodeClosed) {
     return (
       <p className="text-sm text-muted">
-        This care period has ended, so the patient&apos;s link no longer works and messages can&apos;t
+        This care period has ended, so the patient can no longer send messages and yours can&apos;t
         be sent. Earlier messages stay above.
       </p>
     );

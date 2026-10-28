@@ -7,8 +7,10 @@ implementation of the database's functions: what those do is tested against a re
 in tests/db (including a full API walk-through). Unit tests here register canned handlers and
 check how the api maps their answers and errors.
 
-`patch_link` stands in for a patient's episode link in tests of routes that only need "a
-valid link for this patient": it patches the episode lookup so no episode tables are needed.
+`Links` stands in for a signed-in patient in tests of routes that only need "a valid patient with
+this care period": it patches the session and episode lookups so no account or episode tables are
+needed. `patient_headers` is the other way: a real active account in a FakeSupabase, so the real
+session path (core/patient_auth.py) runs.
 """
 
 import itertools
@@ -16,9 +18,13 @@ import sys
 import uuid
 from datetime import UTC, date, datetime, time
 
+from fastapi import HTTPException
+
 from clinically_anchored_api.core import episodes as episodes_core
 from clinically_anchored_api.core import security
 from clinically_anchored_api.core.extension import extension_status
+from clinically_anchored_api.core.gotrue import AuthUser
+from clinically_anchored_api.core.patient_auth import PatientSession
 from clinically_anchored_api.core.schedule import Schedule, episode_state
 
 CLINIC_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -171,7 +177,14 @@ class Rpc:
 
 
 class _Auth:
+    def __init__(self, db: "FakeSupabase"):
+        self.db = db
+
     def get_user(self, jwt):
+        if jwt in self.db.patient_tokens:  # a patient's session (see patient_headers)
+            user = type("U", (), {"id": self.db.patient_tokens[jwt], "email": "p@example.com",
+                                  "app_metadata": {"account_type": "patient"}})()
+            return type("UR", (), {"user": user})()
         if jwt != "good-jwt":
             raise ValueError("bad jwt")
         return type("UR", (), {"user": type("U", (), {"id": USER, "email": "u@example.com"})()})()
@@ -179,7 +192,8 @@ class _Auth:
 
 class FakeSupabase:
     def __init__(self, role: str = "clinician"):
-        self.auth = _Auth()
+        self.patient_tokens: dict[str, str] = {}  # access token -> patient Auth user id
+        self.auth = _Auth(self)
         self.rpc_handlers: dict = {}
         self.rpc_calls: list[tuple[str, dict]] = []
         self.fail_insert: dict = {}
@@ -187,10 +201,10 @@ class FakeSupabase:
         self.defaults = {
             "messages": {"read_at": None, "interval_no": None, "category": None,
                          "reply_to_message_id": None},
-            "episodes": {"link_generation": 1, "checkin_completed_at": None, "closed_at": None,
+            "episodes": {"checkin_completed_at": None, "closed_at": None,
                          "close_reason": None, "closed_by": None, "kind": "main",
                          "extends_episode_id": None, "started_at": None},
-            "patients": {"contact": None},
+            "patients": {"contact": None, "email": None},
         }
         self.tables: dict[str, list[dict]] = {
             "clinic_members": [{"clinic_id": CLINIC_A, "user_id": USER, "role": role}],
@@ -207,6 +221,7 @@ class FakeSupabase:
                             "category": "abdominal_bowel_resection", "active": True}],
             "message_schedules": [dict(V1_ROW), dict(V2_ROW), dict(EXT_ROW)],
             "extension_requests": [],
+            "patient_accounts": [],
             "email_outbox": [],
             "episodes": [],
             "messages": [],
@@ -273,38 +288,59 @@ def canned_episode(**overrides) -> dict:
     return {
         "id": EPISODE_A, "clinic_id": CLINIC_A, "patient_id": PATIENT_A, "procedure_id": PROC_A,
         "surgery_date": "2026-10-01", "schedule_version": 1, "checkin_completed_at": None,
-        "link_generation": 1, "closed_at": None, "close_reason": None, "closed_by": None,
+        "closed_at": None, "close_reason": None, "closed_by": None,
         "created_by": USER, "created_at": "2026-10-01T00:00:00+00:00", **overrides,
     }
 
 
-def token_for(episode: dict) -> str:
-    return security.create_episode_token(
-        episode_id=episode["id"], generation=episode["link_generation"]
-    )
+def patient_headers(fake: "FakeSupabase", *, patient: str = PATIENT_A, clinic: str = CLINIC_A,
+                    status: str = "active") -> dict:
+    """The headers of a signed-in patient, backed by a real account row in `fake`: the real session
+    path runs (token check, patient user, account status, budget, latest care period)."""
+    account_id, user_id, token = f"acct-{patient}", f"puser-{patient}", f"patient-token-{patient}"
+    if not any(a["id"] == account_id for a in fake.tables["patient_accounts"]):
+        fake.tables["patient_accounts"].append({
+            "id": account_id, "clinic_id": clinic, "patient_id": patient, "user_id": user_id,
+            "status": status, "created_at": "2026-10-01T00:00:00+00:00",
+        })
+    fake.patient_tokens[token] = user_id
+    return {"Authorization": f"Bearer {token}"}
 
 
 class Links:
-    """Valid patient links without episode tables: each `token(...)` registers an episode, and
-    the episode lookup is patched to find them by id. The state is computed for real by the
-    engine from the facts you pass."""
+    """Signed-in patients without account or episode tables: each `token(...)` registers a patient
+    with a care period, and the session and episode lookups are patched to find them. The state is
+    computed for real by the engine from the facts you pass."""
 
     def __init__(self, monkeypatch, now: datetime = NOW):
         self.episodes: dict[str, dict] = {}
         self.facts: dict[str, dict] = {}
         self.requests: dict[str, dict] = {}
+        self.tokens: dict[str, tuple[str, str]] = {}  # bearer token -> (clinic, patient)
+        self.latest: dict[tuple[str, str], str] = {}  # (clinic, patient) -> newest episode id
         self.now = now
         pin_clock(monkeypatch, now)
-        monkeypatch.setattr(security.episodes, "get_episode", self._get)
+        monkeypatch.setattr(security.patient_auth, "require_active_patient", self._session)
+        monkeypatch.setattr(security.episodes, "latest_episode", self._latest)
         monkeypatch.setattr(security.episodes, "current_state", self._state)
         monkeypatch.setattr(security.episodes, "resolve_tail", lambda _db, ep: ep)
         monkeypatch.setattr(security.episodes, "ended_context", self._ended)
         if hasattr(security, "get_supabase"):
             monkeypatch.setattr(security, "get_supabase", lambda: None)
 
-    def _get(self, _db, episode_id, **_k):
-        row = self.episodes.get(episode_id)
-        return dict(row) if row else None
+    def _session(self, request, authorization):
+        token = authorization[7:] if (authorization or "").lower().startswith("bearer ") else ""
+        if token not in self.tokens:
+            raise HTTPException(status_code=401, detail="Please sign in.")
+        clinic, patient = self.tokens[token]
+        account = {"id": f"acct-{patient}", "clinic_id": clinic, "patient_id": patient,
+                   "user_id": f"puser-{patient}", "status": "active"}
+        return PatientSession(user=AuthUser(account["user_id"], None, "patient", None),
+                              account=account)
+
+    def _latest(self, _db, clinic, patient):
+        episode_id = self.latest.get((clinic, patient))
+        return dict(self.episodes[episode_id]) if episode_id else None
 
     def _state(self, _db, ep, now_=None):
         f = self.facts[ep["id"]]
@@ -324,11 +360,11 @@ class Links:
         return request, extension_status(state=state, request=request, extension=EXT, now=now_)
 
     def token(self, *, clinic=CLINIC_A, patient=PATIENT_A, checked_in=True, used=(),
-              reply=False, closed=False, generation=1, ended=False) -> str:
-        """`closed`: discharged. `ended`: the schedule ran out (closed_at = the end of V1's last
-        window for the surgery date below)."""
+              reply=False, closed=False, ended=False) -> dict:
+        """The patient's headers. `closed`: discharged. `ended`: the schedule ran out (closed_at =
+        the end of V1's last window for the surgery date below)."""
         episode = canned_episode(
-            id=new_id(), clinic_id=clinic, patient_id=patient, link_generation=generation,
+            id=new_id(), clinic_id=clinic, patient_id=patient,
             checkin_completed_at="2026-10-02T12:00:00+00:00" if checked_in else None,
             closed_at="2026-10-02T13:00:00+00:00" if closed else None,
             close_reason="discharged" if closed else None, closed_by=USER if closed else None,
@@ -338,7 +374,10 @@ class Links:
                            closed_by=None)
         self.episodes[episode["id"]] = episode
         self.facts[episode["id"]] = {"used": used, "reply": reply}
-        return token_for(episode)
+        self.latest[(clinic, patient)] = episode["id"]
+        token = f"links-{episode['id']}"
+        self.tokens[token] = (clinic, patient)
+        return {"Authorization": f"Bearer {token}"}
 
 
 def send_rpcs(insert_message):

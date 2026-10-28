@@ -127,7 +127,7 @@ function Decide({
           </p>
           <p className="mt-1 text-xs text-muted">
             {choice === "accept"
-              ? "A new 6-week follow-up starts now and the patient's link works again. This can't be undone (you can discharge them later)."
+              ? "A new 6-week follow-up starts now and the patient can use their account again. This can't be undone (you can discharge them later)."
               : "This is final for this care period: the patient can't ask again in the app. They are shown your message, if any, and told to call the office if they need help."}
           </p>
           <div className="mt-2 flex gap-2">

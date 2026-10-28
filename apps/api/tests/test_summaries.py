@@ -366,9 +366,9 @@ def test_requires_membership_and_the_right_clinic_and_patient(client, thread):
 
 def test_new_messages_never_trigger_a_summary(client, fake, model, audit_calls, monkeypatch):
     # Messages arriving from either side must not call the model or write summary events.
-    token = Links(monkeypatch).token()
+    headers = Links(monkeypatch).token()
     r = client.post(
-        "/messages", params={"token": token}, json={"body": "new message", "category": "admin"}
+        "/messages", headers=headers, json={"body": "new message", "category": "admin"}
     )
     assert r.status_code == 200
     fake.tables["clinic_members"][0]["role"] = "clinician"

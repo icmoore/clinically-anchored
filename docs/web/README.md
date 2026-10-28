@@ -120,7 +120,7 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   summary first asks whether to replace the edited version on screen (the edit stays in the record).
   Then **Interaction Summary** (below), read and reply to the message thread (one compose box, below; each patient message shows its
   category and window, or "Reply"; once the care period has ended the box is replaced by a note,
-  because the patient's link no longer works and a message could never be seen; every message
+  because the patient can no longer send messages and one of yours could never be answered; every message
   you send lets the patient send one reply, and the box says so), plus an AI summary:
   - **Interaction Summary** (`components/summary-view.tsx`, badge "AI interaction summary"): opening a patient shows the newest saved summary
     (read back without calling the model; "Refresh summary" asks again). "Summarise"
@@ -176,10 +176,10 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   api stores with the answer). The clinician side: the **Demo inbox** (`/dashboard/demo-inbox`, linked
   in the header only for an owner of a demo clinic) shows the emails a demo clinic did not send, with
   the banner "Demo clinic: emails are not sent."
-- **Patient screens (Messaging v2).** The old per-episode link, `/care?token=` (the api's
-  `GET /episode` says where they stand; `/messages?token=` is the same
-  screen, and `/check-in?token=` is the check-in), still works until the links are retired; a
-  signed-in patient gets the same screens without `?token=`. Nothing here decides what is allowed: the api
+- **Patient screens (Messaging v2).** A signed-in patient's `/care` (the api's `GET /episode` says
+  where they stand; `/messages` is the same screen, and `/check-in` is the check-in). The old
+  per-episode links (`/care?token=` and the like) are retired: they show "This link has been
+  replaced" and nothing else. Nothing here decides what is allowed: the api
   computes it from the schedule and the clock, and the page only shows it.
   - `/care` (`components/patient-home.tsx`), top to bottom: the **urgent notice first** (same words
     as everywhere; with no office phone it still says to call the office or go to the emergency
@@ -233,7 +233,8 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   - `/check-in`: the procedure is the clinic's choice (from the episode), so the picker and the
     typed "days since surgery" are gone; the post-op day is worked out by the api. One check-in
     per episode: a second visit says it was already sent.
-  - A reset link is "This link doesn't work"; a closed episode (last window ended, or discharged)
+  - An old `?token=` link is "This link has been replaced. Your surgeon's office will email you a
+    sign-in invite." (`ReplacedLinkScreen`); a closed episode (last window ended, or discharged)
     is "Your follow-up has ended". Every patient screen, locked and closed ones included, ends
     with the urgent notice (call the office, with the clinic's number when the api has it, or go
     to the nearest emergency department): `components/patient-frame.tsx`. All of this wording is
@@ -259,7 +260,7 @@ Vercel: Root Directory `apps/web`. On the api side, set `WEB_BASE_URL` (the web 
    design (Vercel warns about it; keep the `NEXT_PUBLIC_` name and mark it as config). Never
    put the `service_role` key here.
 2. **Railway** (api service): set `WEB_BASE_URL` and `ALLOWED_ORIGINS` to the Vercel origin
-   (no trailing slash). Without `WEB_BASE_URL` the "copy link" buttons return 503; without
+   (no trailing slash). Without `WEB_BASE_URL` the single-use link button returns 503 and the invite email has no address to point at; without
    `ALLOWED_ORIGINS` the browser blocks every call to the api (CORS).
 3. Vercel builds every pushed branch as a Preview and `main` as Production. A preview's
    origin differs from production's, so it also needs adding to `ALLOWED_ORIGINS` to work

@@ -66,7 +66,7 @@ Like every migration it takes effect on the shared Supabase project only once ap
 Migration `00000000000009_messaging_v2.sql` (Messaging v2) adds **episodes** and the rules for
 scheduled patient messaging. Read its header first. In short:
 - `episodes`: one per patient surgery (`surgery_date` entered by the clinic, `procedure_id`,
-  `schedule_version`, `checkin_completed_at`, `link_generation` to revoke the patient link,
+  `schedule_version`, `checkin_completed_at`, `link_generation` (from the retired patient links; nothing reads it),
   `closed_at` / `close_reason` / `closed_by`). One open episode per patient; retained (a trigger
   blocks deletes, no `ON DELETE CASCADE`); closed episodes are frozen. The surgery date and
   procedure can be corrected only before the check-in.

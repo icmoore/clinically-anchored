@@ -48,7 +48,7 @@ class ExtensionStatus:
         return self.standing is Standing.ELIGIBLE
 
     @property
-    def link_works(self) -> bool:
+    def ended_mode_open(self) -> bool:
         """Does the patient link still open the limited "ended" screen?"""
         return self.standing in (
             Standing.ELIGIBLE,

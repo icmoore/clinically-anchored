@@ -243,7 +243,7 @@ def resolve_session(request: Request, authorization: str | None) -> PatientSessi
     account = account_for_user(supabase, user.id)
     if account is None:
         raise HTTPException(status_code=403, detail=NOT_A_PATIENT)
-    ratelimit.limit_patient_link(request, account["id"])
+    ratelimit.limit_patient(request, account["id"])
     return PatientSession(user=user, account=account)
 
 

@@ -51,7 +51,7 @@ export function CheckInsBlock({
     <div className="mt-3">
       {here !== null && here.length === 0 && (
         <p className="rounded-lg border border-dashed border-border-strong p-4 text-sm text-muted">
-          No check-in yet. Send this patient their link above: it opens the check-in first.
+          No check-in yet. Once the patient is invited (see Patient account above) and signs in, the check-in comes first.
         </p>
       )}
 

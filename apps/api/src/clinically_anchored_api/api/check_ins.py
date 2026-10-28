@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from clinically_anchored_api.core.audit import AuditWriteError, record_event
 from clinically_anchored_api.core.db import get_supabase
 from clinically_anchored_api.core.rules import evaluate_red_flags
-from clinically_anchored_api.core.security import PatientLink, require_patient_link
+from clinically_anchored_api.core.security import PatientContext, require_patient
 from clinically_anchored_api.schemas import (
     CheckInContext,
     CheckInCreate,
@@ -20,37 +20,38 @@ router = APIRouter(tags=["check-ins"])
 
 
 @router.get("/check-ins/context", response_model=CheckInContext)
-def check_in_context(link: PatientLink = Depends(require_patient_link)) -> CheckInContext:
+def check_in_context(ctx: PatientContext = Depends(require_patient)) -> CheckInContext:
     """What the check-in page needs to render: the procedure the clinic chose for this
-    episode (it picks the symptom set). The clinic comes from the link, never the URL."""
+    episode (it picks the symptom set). The clinic comes from the signed-in patient, never the
+    URL."""
     rows = (
         get_supabase()
         .table("procedures")
         .select("id, name, category")
-        .eq("id", link.episode["procedure_id"])
-        .eq("clinic_id", link.clinic_id)
+        .eq("id", ctx.episode["procedure_id"])
+        .eq("clinic_id", ctx.clinic_id)
         .execute()
         .data
     )
     if not rows:
         raise HTTPException(status_code=500, detail="This check-in is not set up correctly.")
     return CheckInContext(
-        clinic_id=link.clinic_id,
+        clinic_id=ctx.clinic_id,
         procedure=Procedure(**rows[0]),
-        post_op_day=link.state.post_op_day,
-        check_in_done=link.episode["checkin_completed_at"] is not None,
+        post_op_day=ctx.state.post_op_day,
+        check_in_done=ctx.episode["checkin_completed_at"] is not None,
     )
 
 
 @router.get("/check-ins/mine", response_model=PatientCheckInOut | None)
-def my_check_in(link: PatientLink = Depends(require_patient_link)) -> PatientCheckInOut | None:
+def my_check_in(ctx: PatientContext = Depends(require_patient)) -> PatientCheckInOut | None:
     """What the patient entered at their check-in, so they can look it up later (null until they
     have checked in). Only the answers and when; never the clinic's red flag or review state."""
     supabase = get_supabase()
     rows = (
         supabase.table("check_ins")
         .select("created_at, post_op_day, answers, procedure_id")
-        .eq("episode_id", link.episode_id)
+        .eq("episode_id", ctx.episode_id)
         .limit(1)
         .execute()
         .data
@@ -60,7 +61,7 @@ def my_check_in(link: PatientLink = Depends(require_patient_link)) -> PatientChe
     row = rows[0]
     names = (
         supabase.table("procedures").select("name").eq("id", row["procedure_id"])
-        .eq("clinic_id", link.clinic_id).execute().data
+        .eq("clinic_id", ctx.clinic_id).execute().data
         if row["procedure_id"]
         else []
     )
@@ -74,7 +75,7 @@ def my_check_in(link: PatientLink = Depends(require_patient_link)) -> PatientChe
 
 @router.post("/check-ins", response_model=CheckInOut)
 def submit_check_in(
-    body: CheckInCreate, link: PatientLink = Depends(require_patient_link)
+    body: CheckInCreate, ctx: PatientContext = Depends(require_patient)
 ) -> CheckInOut:
     """The patient's one check-in for this episode. Completing it unlocks messaging. The
     post-op day is worked out from the surgery date, not typed by the patient. If it comes
@@ -87,9 +88,9 @@ def submit_check_in(
             supabase.rpc(
                 "complete_check_in",
                 {
-                    "p_clinic_id": link.clinic_id,
-                    "p_episode_id": link.episode_id,
-                    "p_post_op_day": link.state.post_op_day,
+                    "p_clinic_id": ctx.clinic_id,
+                    "p_episode_id": ctx.episode_id,
+                    "p_post_op_day": ctx.state.post_op_day,
                     "p_answers": body.answers,
                     "p_is_red_flag": is_red_flag,
                 },
@@ -111,23 +112,23 @@ def submit_check_in(
     try:
         record_event(
             supabase,
-            clinic_id=link.clinic_id,
+            clinic_id=ctx.clinic_id,
             event_type="check_in.submitted",
             payload={
                 "check_in_id": row["id"],
-                "patient_id": link.patient_id,
-                "episode_id": link.episode_id,
+                "patient_id": ctx.patient_id,
+                "episode_id": ctx.episode_id,
                 "procedure_id": row["procedure_id"],
                 "post_op_day": row["post_op_day"],
                 "answers": row["answers"],
                 "is_red_flag": row["is_red_flag"],
-                "missed_intervals": list(link.state.missed),
+                "missed_intervals": list(ctx.state.missed),
             },
             metadata={
                 "ref_type": "check_in",
                 "ref_id": row["id"],
-                "episode_id": link.episode_id,
-                "actor": {"type": "patient", "id": link.patient_id},
+                "episode_id": ctx.episode_id,
+                "actor": {"type": "patient", "id": ctx.patient_id},
             },
         )
     except AuditWriteError as exc:

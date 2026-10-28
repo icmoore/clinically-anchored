@@ -355,9 +355,9 @@ def test_sending_a_message_auto_logs_a_touchpoint(client, fake, audit_calls):
 
 
 def test_a_patients_message_is_not_a_touchpoint(client, fake, monkeypatch):
-    token = Links(monkeypatch).token()
+    headers = Links(monkeypatch).token()
     r = client.post(
-        "/messages", params={"token": token}, json={"body": "Pain is worse", "category": "admin"}
+        "/messages", headers=headers, json={"body": "Pain is worse", "category": "admin"}
     )
     assert r.status_code == 200
     assert fake.tables["touchpoints"] == []

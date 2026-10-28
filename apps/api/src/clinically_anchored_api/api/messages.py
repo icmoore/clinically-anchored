@@ -19,7 +19,7 @@ from clinically_anchored_api.core.audit import AuditWriteError, record_event
 from clinically_anchored_api.core.auth import ClinicMember, require_clinic_member
 from clinically_anchored_api.core.db import get_supabase
 from clinically_anchored_api.core.schedule import Phase
-from clinically_anchored_api.core.security import PatientLink, require_patient_link
+from clinically_anchored_api.core.security import PatientContext, require_patient
 from clinically_anchored_api.core.touchpoints import log_message_sent
 from clinically_anchored_api.schemas import (
     ClinicianMessageCreate,
@@ -211,25 +211,25 @@ def mark_read(
     return MessageOut(**row)
 
 
-# --- Patient side: authenticated by the episode link, no account. -------------
+# --- Patient side: the signed-in patient (core/security.py). -----------------
 
 
 @router.get("/messages", response_model=list[MessageOut])
-def patient_list_thread(link: PatientLink = Depends(require_patient_link)) -> list[MessageOut]:
+def patient_list_thread(ctx: PatientContext = Depends(require_patient)) -> list[MessageOut]:
     result = (
         get_supabase()
         .table("messages")
         .select(_COLUMNS)
-        .eq("episode_id", link.episode_id)
+        .eq("episode_id", ctx.episode_id)
         .order("created_at")
         .execute()
     )
     return [MessageOut(**row) for row in result.data]
 
 
-def _refuse_scheduled(link: PatientLink) -> None:
+def _refuse_scheduled(ctx: PatientContext) -> None:
     """Why the patient can't send a scheduled message right now (403/409), or return."""
-    phase = link.state.phase
+    phase = ctx.state.phase
     if phase is Phase.LOCKED_CHECKIN:
         raise HTTPException(
             status_code=403, detail="Messaging opens after you complete your check-in."
@@ -244,14 +244,14 @@ def _refuse_scheduled(link: PatientLink) -> None:
 
 @router.post("/messages", response_model=MessageOut)
 def patient_send_message(
-    body: PatientMessageCreate, link: PatientLink = Depends(require_patient_link)
+    body: PatientMessageCreate, ctx: PatientContext = Depends(require_patient)
 ) -> MessageOut:
     """The patient writes to the clinic: either the one message for the interval that is open
     now (`kind` "scheduled", with a category), or the one reply to the care team's latest
     message (`kind` "reply"). The interval is never the client's choice: it is worked out here."""
-    state = link.state
+    state = ctx.state
     if body.kind == "scheduled":
-        _refuse_scheduled(link)
+        _refuse_scheduled(ctx)
         if not categories.is_offered(body.category):
             raise HTTPException(status_code=422, detail="Pick what your message is about.")
         params = {"p_origin": "scheduled", "p_interval_no": state.interval_no,
@@ -268,7 +268,7 @@ def patient_send_message(
             get_supabase()
             .rpc(
                 "send_patient_message",
-                {"p_clinic_id": link.clinic_id, "p_episode_id": link.episode_id,
+                {"p_clinic_id": ctx.clinic_id, "p_episode_id": ctx.episode_id,
                  "p_body": body.body, **params},
             )
             .execute()
@@ -288,7 +288,7 @@ def patient_send_message(
                 raise HTTPException(status_code=status, detail=detail) from exc
         raise
     _audit_or_500(
-        get_supabase(), clinic_id=link.clinic_id, row=row,
-        actor={"type": "patient", "id": link.patient_id},
+        get_supabase(), clinic_id=ctx.clinic_id, row=row,
+        actor={"type": "patient", "id": ctx.patient_id},
     )
     return MessageOut(**row)

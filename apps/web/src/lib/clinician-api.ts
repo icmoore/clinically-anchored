@@ -132,11 +132,6 @@ export interface Message {
   read_at: string | null;
   created_at: string;
 }
-/** The patient's one link for the whole episode: the same URL until it is reset. */
-export interface IssuedLink {
-  url: string;
-  generation: number;
-}
 
 export type DraftStatus = "pending" | "approved" | "edited" | "rejected";
 /** An AI-written reply to a patient message. Nothing is sent until a clinician decides. */
@@ -199,8 +194,8 @@ export const createPatient = (
 ) => post<Patient>(`/clinics/${clinic}/patients`, body);
 export const listProcedures = (clinic: string) => request<Procedure[]>(`/clinics/${clinic}/procedures`);
 
-// Episodes: the surgery date and procedure are the clinic's; discharge and link reset are
-// owner/clinician-only at the api (discharge) or open to any member (link).
+// Episodes: the surgery date and procedure are the clinic's; discharge is owner/clinician-only at
+// the api.
 export const getEpisode = (clinic: string, patient: string) =>
   authed<Episode>(`/clinics/${clinic}/patients/${patient}/episode`);
 export const correctEpisode = (
@@ -215,10 +210,6 @@ export const acceptExtension = (clinic: string, id: string, message: string | nu
   post<ExtensionRequest>(`/clinics/${clinic}/extension-requests/${id}/accept`, { message });
 export const declineExtension = (clinic: string, id: string, message: string | null) =>
   post<ExtensionRequest>(`/clinics/${clinic}/extension-requests/${id}/decline`, { message });
-export const issueLink = (clinic: string, episode: string) =>
-  post<IssuedLink>(`/clinics/${clinic}/episodes/${episode}/link`);
-export const resetLink = (clinic: string, episode: string) =>
-  post<IssuedLink>(`/clinics/${clinic}/episodes/${episode}/link/reset`);
 export const listCheckIns = (clinic: string, patient: string) =>
   authed<CheckInDetail[]>(`/clinics/${clinic}/check-ins?patient_id=${patient}&limit=50`);
 export const reviewCheckIn = (clinic: string, id: string) =>
