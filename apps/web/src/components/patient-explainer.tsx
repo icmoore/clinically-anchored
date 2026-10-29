@@ -65,6 +65,7 @@ export function PatientExplainer() {
           <li key={step}>{step}</li>
         ))}
       </ol>
+      <p className="mt-2 text-sm">{T.note}</p>
       <button
         type="button"
         onClick={dismiss}

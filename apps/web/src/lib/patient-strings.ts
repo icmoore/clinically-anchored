@@ -22,6 +22,8 @@ export const PATIENT_TEXT = {
       "Then you can send a message during set periods.",
       "For anything urgent, call the office or go to the emergency department.",
     ],
+    // How many messages a patient gets, in one place. PLACEHOLDER wording pending clinical review.
+    note: "You can send one message in each scheduled period. When your care team writes to you, you can send one reply.",
     gotIt: "Got it",
     reopen: "How this works",
   },
@@ -105,6 +107,8 @@ export const PATIENT_TEXT = {
     sending: "Sending...",
     invalidEmail: "Please enter a valid email address.",
     couldntSend: "Couldn't send the code. Please try again.",
+    // The api answers 503 when sign-in is not set up on the server (not something the patient did).
+    unavailable: "Sign-in isn't available right now. Please try again later, or call your surgeon's office.",
     tooMany: "Too many tries. Please wait a minute and try again.",
     codeTitle: "Enter your code",
     // The same words whether or not the email can sign in.

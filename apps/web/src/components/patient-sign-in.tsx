@@ -38,6 +38,7 @@ export function PatientSignIn() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 429) setError(T.tooMany);
       else if (err instanceof ApiError && err.status === 422) setError(T.invalidEmail);
+      else if (err instanceof ApiError && err.status === 503) setError(T.unavailable);
       else setError(T.couldntSend);
     } finally {
       setBusy(false);
@@ -55,6 +56,7 @@ export function PatientSignIn() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 429) setError(T.tooMany);
       else if (err instanceof ApiError && err.status === 401) setError(T.codeFailed);
+      else if (err instanceof ApiError && err.status === 503) setError(T.unavailable);
       else setError(T.couldntSend);
       setBusy(false);
     }

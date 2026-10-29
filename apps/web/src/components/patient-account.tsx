@@ -265,7 +265,7 @@ function EmailRow({
   }
   return (
     <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-      <span className="text-muted">The invite goes to</span>
+      <span className="text-muted">{locked ? "Sign-in codes go to" : "The invite goes to"}</span>
       {account.email ? (
         <span className="break-all font-medium text-ink">{account.email}</span>
       ) : (
