@@ -58,20 +58,26 @@ export function UrgentNotice({
 }
 
 /** The page every patient screen sits in: a narrow column, a title, and the urgent notice (at the
- *  bottom, or first under the title with `noticeFirst`: the message screens put it first). */
+ *  bottom, or first under the title with `noticeFirst`: the message screens put it first).
+ *  `underNav`: the page already has the site's top bar above it, in a full-height column, so the
+ *  frame fills what is left instead of a whole screen (which would push the notice off the bottom). */
 export function PatientFrame({
   title,
   phone,
   noticeFirst = false,
+  underNav = false,
   children,
 }: {
   title: string;
   phone?: string | null;
   noticeFirst?: boolean;
+  underNav?: boolean;
   children: ReactNode;
 }) {
   return (
-    <div className="mx-auto flex min-h-screen max-w-md flex-col px-4 py-6">
+    <div
+      className={`mx-auto flex w-full max-w-md flex-col px-4 py-6 ${underNav ? "flex-1" : "min-h-screen"}`}
+    >
       <div className="mb-4 flex items-start justify-between gap-3">
         <h1 className="text-xl font-semibold text-ink">{title}</h1>
         <SignOutButton />
