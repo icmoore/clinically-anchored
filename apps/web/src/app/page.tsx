@@ -4,6 +4,7 @@ import Link from "next/link";
 import { SignedInRedirect } from "@/components/signed-in-redirect";
 import { SiteNav } from "@/components/site-nav";
 import { StatusBadge } from "@/components/status-badge";
+import { PATIENT_TEXT } from "@/lib/patient-strings";
 
 export const metadata: Metadata = {
   title: "Clinically Anchored",
@@ -12,6 +13,8 @@ export const metadata: Metadata = {
 
 // Refresh the static page daily so the footer year doesn't go stale.
 export const revalidate = 86400;
+
+const T = PATIENT_TEXT.siteLinks;
 
 const buttonBase = `inline-flex items-center justify-center rounded-md px-5 py-2.5 text-sm font-medium`;
 const primaryButton = `${buttonBase} bg-primary text-on-primary hover:bg-primary-hover active:bg-primary-active`;
@@ -160,16 +163,26 @@ export default function Home() {
           </ul>
         </section>
 
-        <section aria-labelledby="cta-heading" className="border-t border-border bg-surface-subtle">
-          <div className="mx-auto max-w-5xl px-4 py-14 text-center">
-            <h2 id="cta-heading" className="text-2xl font-semibold tracking-tight">
-              Clinician sign-in
-            </h2>
-            <p className="mt-2 text-muted">Sign in to review your patients.</p>
-            <div className="mt-6">
-              <Link href="/login" className={primaryButton}>
-                Login
-              </Link>
+        <section aria-label="Sign in" className="border-t border-border bg-surface-subtle">
+          <div className="mx-auto grid max-w-3xl gap-4 px-4 py-14 sm:grid-cols-2">
+            {/* One card for each way in, patients first as in the top bar. */}
+            <div className="rounded-lg border border-border bg-surface p-6 text-center">
+              <h2 className="text-xl font-semibold tracking-tight">{T.patientCardTitle}</h2>
+              <p className="mt-2 text-muted">{T.patientCardBody}</p>
+              <div className="mt-6">
+                <Link href="/sign-in" className={primaryButton}>
+                  {T.patientSignIn}
+                </Link>
+              </div>
+            </div>
+            <div className="rounded-lg border border-border bg-surface p-6 text-center">
+              <h2 className="text-xl font-semibold tracking-tight">For the care team</h2>
+              <p className="mt-2 text-muted">Sign in to review your patients.</p>
+              <div className="mt-6">
+                <Link href="/login" className={primaryButton}>
+                  {T.careTeamLogin}
+                </Link>
+              </div>
             </div>
           </div>
         </section>

@@ -53,8 +53,8 @@ thumb: red/amber/green only mean clinical status, teal is the brand and every ac
 Reject use the flag text/border colors, metadata badges are neutral. Light scheme only (no dark
 mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globals.css`).
 
-- `/`: public landing page (`app/page.tsx`: hero, how it works, why it's different, sign-in
-  call to action; nav (`components/site-nav.tsx`, also on `/login` and `/sign-in`) with two buttons at far left: a filled
+- `/`: public landing page (`app/page.tsx`: hero, how it works, why it's different, and a sign-in band of
+  two cards, "For patients" (to `/sign-in`) and "For the care team" (to `/login`); nav (`components/site-nav.tsx`, also on `/login` and `/sign-in`) with two buttons at far left: a filled
   **Patient sign-in** (to `/sign-in`) and an outlined **Care team login** (to `/login`); the hero and
   closing "Login" buttons still go to `/login`). All copy is a draft, marked `COPY: DRAFT` at the
   top of that file. It used to redirect to `/dashboard`; a visitor who already has
