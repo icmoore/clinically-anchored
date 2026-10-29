@@ -278,7 +278,7 @@ function EmailRow({
             setEditing(true);
           }}
           disabled={disabled}
-          className="text-sm text-primary underline disabled:opacity-60"
+          className="text-sm text-link underline hover:text-link-hover disabled:opacity-60"
         >
           {account.email ? "Change" : "Add email"}
         </button>
@@ -332,7 +332,7 @@ function NoEmail({
 
   return (
     <details className="mt-4 border-t border-border pt-3">
-      <summary className="cursor-pointer text-sm text-primary underline">
+      <summary className="cursor-pointer text-sm text-link underline hover:text-link-hover">
         Patient has no email?
       </summary>
       <div className="mt-2 text-sm text-ink">

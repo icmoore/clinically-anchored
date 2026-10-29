@@ -143,7 +143,7 @@ const PANEL = {
 };
 
 const buttonClass =
-  "rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2.5 text-base font-medium text-white disabled:opacity-60";
+  "rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2.5 text-base font-medium text-on-primary disabled:opacity-60";
 
 /** The one plain sentence about what the patient can do now, the row of their message periods
  *  under it, and (when there is one) the care team's message they can reply to. All the words are
@@ -360,7 +360,7 @@ function ScheduledForm({
             <label
               key={key}
               className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-ink ${
-                category === key ? "border-primary bg-primary-tint" : "border-border"
+                category === key ? "border-link bg-primary-tint" : "border-border"
               }`}
             >
               <input

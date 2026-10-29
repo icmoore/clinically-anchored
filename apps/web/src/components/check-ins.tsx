@@ -156,7 +156,7 @@ function CheckInCard({
       id={`checkin-${checkIn.id}`}
       className={`rounded-lg border p-4 transition-shadow ${
         checkIn.is_red_flag && !reviewed ? "border-flag-border bg-flag-bg" : "border-border bg-surface"
-      } ${highlighted ? "ring-2 ring-primary" : ""}`}
+      } ${highlighted ? "ring-2 ring-focus" : ""}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted">
@@ -182,7 +182,7 @@ function CheckInCard({
         <button
           onClick={review}
           disabled={busy}
-          className="mt-3 rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+          className="mt-3 rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-3 py-1.5 text-sm font-medium text-on-primary disabled:opacity-60"
         >
           {busy ? "Saving..." : "Mark reviewed"}
         </button>

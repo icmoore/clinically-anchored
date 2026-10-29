@@ -73,7 +73,7 @@ export function SignedInPatient({ children }: { children: (gate: GateControls) =
         </p>
         <button
           onClick={recheck}
-          className="mt-3 rounded-md border border-primary bg-surface px-4 py-2 text-sm font-medium text-primary hover:bg-primary-tint"
+          className="mt-3 rounded-md border border-link bg-surface px-4 py-2 text-sm font-medium text-link hover:border-link-hover hover:text-link-hover hover:bg-primary-tint"
         >
           Try again
         </button>

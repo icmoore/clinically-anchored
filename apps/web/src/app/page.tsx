@@ -14,8 +14,8 @@ export const metadata: Metadata = {
 export const revalidate = 86400;
 
 const buttonBase = `inline-flex items-center justify-center rounded-md px-5 py-2.5 text-sm font-medium`;
-const primaryButton = `${buttonBase} bg-primary text-white hover:bg-primary-hover active:bg-primary-active`;
-const secondaryButton = `${buttonBase} border border-primary bg-surface text-primary hover:bg-primary-tint`;
+const primaryButton = `${buttonBase} bg-primary text-on-primary hover:bg-primary-hover active:bg-primary-active`;
+const secondaryButton = `${buttonBase} border border-link bg-surface text-link hover:border-link-hover hover:text-link-hover hover:bg-primary-tint`;
 
 const steps = [
   {
@@ -116,7 +116,7 @@ export default function Home() {
                 <li key={step.title} className="rounded-lg border border-border bg-surface p-5">
                   <span
                     aria-hidden="true"
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-semibold text-white"
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-semibold text-on-primary"
                   >
                     {i + 1}
                   </span>
@@ -147,7 +147,7 @@ export default function Home() {
                   strokeWidth="1.75"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  className="mt-0.5 h-6 w-6 shrink-0 text-primary"
+                  className="mt-0.5 h-6 w-6 shrink-0 text-link"
                 >
                   {f.icon}
                 </svg>

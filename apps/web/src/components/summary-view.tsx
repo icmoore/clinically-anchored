@@ -120,7 +120,7 @@ export function SummarySection({
       <button
         onClick={handleGenerate}
         disabled={busy || thread === null || thread.length === 0}
-        className="mt-3 rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+        className="mt-3 rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-on-primary disabled:opacity-60"
       >
         {busy ? "Summarising..." : summary ? "Refresh summary" : "Summarise"}
       </button>
@@ -158,7 +158,7 @@ function CitationLink({
         onJump(id);
       }}
       title={message.body.length > 120 ? `${message.body.slice(0, 120)}...` : message.body}
-      className="mr-1 inline-block rounded border border-border-strong px-1.5 py-0.5 text-xs text-primary hover:bg-primary-tint"
+      className="mr-1 inline-block rounded border border-border-strong px-1.5 py-0.5 text-xs text-link hover:text-link-hover hover:bg-primary-tint"
     >
       {who} &middot; {clock(message.created_at)}
     </a>

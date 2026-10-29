@@ -45,7 +45,7 @@ export function AppHeader({ clinician }: { clinician: ReadyClinician }) {
         </div>
         <div className="flex items-center gap-3">
           {clinic.is_demo && clinic.role === "owner" && (
-            <Link href="/dashboard/demo-inbox" className="text-sm text-primary underline">
+            <Link href="/dashboard/demo-inbox" className="text-sm text-link underline hover:text-link-hover">
               Demo inbox
             </Link>
           )}
@@ -55,7 +55,7 @@ export function AppHeader({ clinician }: { clinician: ReadyClinician }) {
               await supabase.auth.signOut();
               router.replace("/login");
             }}
-            className="rounded-md border border-primary px-3 py-1.5 text-sm text-primary hover:bg-primary-tint"
+            className="rounded-md border border-link px-3 py-1.5 text-sm text-link hover:border-link-hover hover:text-link-hover hover:bg-primary-tint"
           >
             Sign out
           </button>

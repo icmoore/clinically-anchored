@@ -275,7 +275,7 @@ function AddPatientForm({ clinicId }: { clinicId: string }) {
       <button
         type="submit"
         disabled={busy || !name.trim() || !surgeryDate || !procedureId}
-        className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-base font-medium text-white disabled:opacity-60 sm:col-span-2"
+        className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-base font-medium text-on-primary disabled:opacity-60 sm:col-span-2"
       >
         Add patient
       </button>

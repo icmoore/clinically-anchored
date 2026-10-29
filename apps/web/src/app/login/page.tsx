@@ -67,14 +67,14 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={busy}
-            className="w-full rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2.5 text-base font-medium text-white disabled:opacity-60"
+            className="w-full rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2.5 text-base font-medium text-on-primary disabled:opacity-60"
           >
             {busy ? "Signing in..." : "Sign in"}
           </button>
         </form>
         <p className="mt-6 text-sm text-muted">
           {PATIENT_TEXT.siteLinks.patientPrompt}{" "}
-          <Link href="/sign-in" className="text-primary underline">
+          <Link href="/sign-in" className="text-link underline hover:text-link-hover">
             {PATIENT_TEXT.siteLinks.patientLink}
           </Link>
         </p>
