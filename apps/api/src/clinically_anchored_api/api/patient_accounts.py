@@ -113,6 +113,22 @@ def _find_user(supabase, email: str) -> str | None:
     return found["id"] if found else None
 
 
+def _release_if_left_behind(supabase, holder: str, email: str, accounts: list[dict]) -> bool:
+    """A turned-off account whose patient's email has since been changed still has the old address
+    on its Auth login (it is brought in line at re-invite). Nobody uses that address any more, so
+    give the login a placeholder and let the address go. Never touches a live account, or one whose
+    patient still has this address."""
+    if any(a["status"] != "off" for a in accounts):
+        return False
+    rows = supabase.table("patients").select("email").in_(
+        "id", [str(a["patient_id"]) for a in accounts]
+    ).execute().data
+    if any(r["email"] == email for r in rows):
+        return False
+    gotrue.set_user_email(holder, gotrue.placeholder_email())
+    return True
+
+
 def _check_email_free(supabase, email: str, patient_id: str, account: dict | None) -> None:
     """409 (with a plain reason) if `email` cannot become this patient's sign-in: Supabase Auth
     allows one user per address, so an address already held by a staff login, or by another
@@ -130,6 +146,8 @@ def _check_email_free(supabase, email: str, patient_id: str, account: dict | Non
         "user_id", holder
     ).execute().data
     other_patient = [o for o in others if str(o["patient_id"]) != str(patient_id)]
+    if other_patient and _release_if_left_behind(supabase, holder, email, other_patient):
+        return
     if other_patient and (account is not None or any(o["status"] != "off" for o in other_patient)):
         raise HTTPException(
             status_code=409,
@@ -244,6 +262,10 @@ def set_email(
                     detail="Turn off this patient's access before changing the email.",
                 ) from exc
             raise
+        if account is not None:
+            # Not active (refused above), so renaming the login is safe, and it frees the old
+            # address: Supabase allows one login per address. Re-invite re-asserts it anyway.
+            gotrue.set_user_email(account["user_id"], email or gotrue.placeholder_email())
         patient = {**patient, "email": email}
     return _out(supabase, patient, account)
 

@@ -102,6 +102,11 @@ def ensure_patient_user(
     return admin.create_user(attributes).user.id
 
 
+def set_user_email(user_id: str, email: str) -> None:
+    """Rename a user's sign-in address. Leaves the ban as it is (a turned-off account stays off)."""
+    get_supabase().auth.admin.update_user_by_id(user_id, {"email": email, "email_confirm": True})
+
+
 def user_email(user_id: str) -> str | None:
     return get_supabase().auth.admin.get_user_by_id(user_id).user.email
 

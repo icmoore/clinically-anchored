@@ -671,6 +671,59 @@ def test_an_address_held_by_a_turned_off_patient_or_by_staff_is_refused_too(env)
                           json={"email": "free@mail.org"}).status_code == 200
 
 
+def test_changing_a_turned_off_patients_email_frees_the_old_address(env):
+    one = env.add_patient("One", "one@mail.org")
+    env.act(one, "invite")
+    env.act(one, "turn-off")
+    r = env.client.put(env.url(one, "/email"), headers=env.staff(), json={"email": "new@mail.org"})
+    assert r.status_code == 200
+    login = env.gt.users[str(env.account(one)["user_id"])]
+    assert login["email"] == "new@mail.org" and login["banned"]  # renamed, and still off
+
+    two = env.add_patient("Two", "two@mail.org")
+    env.act(two, "invite")
+    r = env.client.put(env.url(two, "/email"), headers=env.staff(), json={"email": "one@mail.org"})
+    assert r.status_code == 200
+    env.act(two, "turn-off")
+    assert env.act(two, "reinvite").status_code == 200
+    assert env.ses.last_to("one@mail.org") is not None
+
+
+def test_an_old_address_left_on_a_turned_off_login_is_released_when_someone_needs_it(env):
+    one = env.add_patient("One", "one@mail.org")
+    env.act(one, "invite")
+    env.act(one, "turn-off")
+    # An older change that did not rename the login: the patient has a new email, the login the old.
+    env.c.execute("update patients set email = 'new@mail.org' where id = %s", (one,))
+    stale = env.gt.users[str(env.account(one)["user_id"])]
+    assert stale["email"] == "one@mail.org"
+
+    two = env.add_patient("Two", "two@mail.org")
+    env.act(two, "invite")
+    env.act(two, "turn-off")
+    r = env.client.put(env.url(two, "/email"), headers=env.staff(), json={"email": "one@mail.org"})
+    assert r.status_code == 200
+    assert stale["email"].endswith("@no-email.invalid") and stale["banned"]
+    assert env.act(two, "reinvite").status_code == 200
+    assert env.gt.users[str(env.account(two)["user_id"])]["email"] == "one@mail.org"
+    # The first patient's own re-invite brings their login back to their own address.
+    assert env.act(one, "reinvite").status_code == 200
+    assert env.gt.users[str(env.account(one)["user_id"])]["email"] == "new@mail.org"
+
+
+def test_an_address_a_live_or_current_account_still_uses_is_not_released(env):
+    one = env.add_patient("One", "one@mail.org")
+    env.act(one, "invite")
+    two = env.add_patient("Two", "two@mail.org")
+    env.act(two, "invite")
+    r = env.client.put(env.url(two, "/email"), headers=env.staff(), json={"email": "one@mail.org"})
+    assert r.status_code == 409  # one is invited (live)
+    env.act(one, "turn-off")  # off, and the patient still has the address
+    r = env.client.put(env.url(two, "/email"), headers=env.staff(), json={"email": "one@mail.org"})
+    assert r.status_code == 409
+    assert env.gt.users[str(env.account(one)["user_id"])]["email"] == "one@mail.org"
+
+
 def test_the_account_view_shows_each_state(env):
     pid = env.add_patient()
     url = env.url(pid, "/account")
