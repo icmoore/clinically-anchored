@@ -19,10 +19,12 @@ function inEpisode(c: CheckInDetail, episode: Episode): boolean {
 }
 
 /** The check-in part of the Physician Summary: the check-in cards folded away behind a control.
- *  Inside it, above the cards: when the check-in was done, whether it was flagged and reviewed, and
- *  the red flags. The fold is closed on load, even with an unreviewed red flag; only the clinician,
- *  or a citation chip, opens it. With nothing to fold (no check-in yet, or still loading) those
- *  lines stand on their own under the block instead.
+ *  Inside it, above the cards: one line saying when the check-in was done, whether it was flagged
+ *  (in the flag colour if so) and whether it was reviewed. There is one check-in per care period, so
+ *  there is no separate list of red flags: it would only repeat that line and the card. The fold is
+ *  closed on load, even with an unreviewed red flag; only the clinician, or a citation chip, opens
+ *  it. With nothing to fold (still loading) the line stands on its own under the block instead; with
+ *  no check-in at all the "No check-in yet" note says so and there is no line.
  *
  *  Check-ins that are not this care period's (an earlier one, or none) are not listed with its
  *  facts: they are kept at the bottom of the cards, so they stay reachable and citable. */
@@ -43,22 +45,15 @@ export function CheckInsBlock({
 
   const here = checkIns === null ? null : checkIns.filter((c) => inEpisode(c, episode));
   const elsewhere = checkIns === null ? [] : checkIns.filter((c) => !inEpisode(c, episode));
-  const flagged = here === null ? null : here.filter((c) => c.is_red_flag);
-  const day = (iso: string) => zoneDate(iso, episode.timezone);
 
   const shown = (here?.length ?? 0) + elsewhere.length;
 
-  const facts = (
-    <ul className="space-y-0.5 text-xs text-muted">
-      <li>{latestCheckIn(episode, here)}</li>
-      {flagged !== null && flagged.length === 0 && <li>No red flags.</li>}
-      {flagged?.map((c) => (
-        <li key={c.id} className="text-flag-text">
-          Red flag: check-in {day(c.created_at)} &middot;{" "}
-          {c.reviewed_at ? `reviewed ${day(c.reviewed_at)}` : "not reviewed yet"}
-        </li>
-      ))}
-    </ul>
+  const latest = here?.[0] ?? null;
+  const noCheckIn = here !== null && here.length === 0 && !episode.checkin_completed_at;
+  const facts = noCheckIn ? null : (
+    <p className={`text-xs ${latest?.is_red_flag ? "text-flag-text" : "text-muted"}`}>
+      {latestCheckIn(episode, here)}
+    </p>
   );
 
   return (
@@ -76,7 +71,7 @@ export function CheckInsBlock({
           className=""
           onOpenChange={setOpen}
         >
-          <div className="mb-3">{facts}</div>
+          {facts && <div className="mb-3">{facts}</div>}
           <ul className="space-y-2">
             {here?.map((c) => (
               <CheckInCard
@@ -109,7 +104,7 @@ export function CheckInsBlock({
         </Disclosure>
       )}
 
-      {shown === 0 && <div className="mt-3">{facts}</div>}
+      {shown === 0 && facts && <div className="mt-3">{facts}</div>}
     </div>
   );
 }
