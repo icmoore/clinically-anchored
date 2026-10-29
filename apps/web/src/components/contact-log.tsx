@@ -212,7 +212,7 @@ export function ContactLogSection({
                 <button
                   type="submit"
                   disabled={busy}
-                  className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                  className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-on-primary disabled:opacity-60"
                 >
                   {busy ? "Saving..." : "Log contact"}
                 </button>
@@ -222,7 +222,7 @@ export function ContactLogSection({
                     setFormOpen(false);
                     setError(null);
                   }}
-                  className="rounded-md border border-primary bg-surface text-primary enabled:hover:bg-primary-tint px-4 py-2 text-sm font-medium"
+                  className="rounded-md border border-link bg-surface text-link enabled:hover:border-link-hover enabled:hover:text-link-hover enabled:hover:bg-primary-tint px-4 py-2 text-sm font-medium"
                 >
                   Cancel
                 </button>
@@ -231,7 +231,7 @@ export function ContactLogSection({
           ) : (
             <button
               onClick={() => setFormOpen(true)}
-              className="rounded-md border border-primary bg-surface text-primary enabled:hover:bg-primary-tint px-3 py-2 text-sm font-medium"
+              className="rounded-md border border-link bg-surface text-link enabled:hover:border-link-hover enabled:hover:text-link-hover enabled:hover:bg-primary-tint px-3 py-2 text-sm font-medium"
             >
               Log a call, visit or email
             </button>
@@ -251,7 +251,7 @@ export function ContactLogSection({
                   <li
                     key={t.id}
                     id={`touchpoint-${t.id}`}
-                    className={`py-2 ${highlighted === `touchpoint-${t.id}` ? "bg-primary-tint ring-2 ring-primary" : ""}`}
+                    className={`py-2 ${highlighted === `touchpoint-${t.id}` ? "bg-primary-tint ring-2 ring-focus" : ""}`}
                   >
                     <div className="flex flex-wrap items-center gap-2 text-sm">
                       <span className="font-medium text-ink">{KIND_LABEL[t.kind]}</span>

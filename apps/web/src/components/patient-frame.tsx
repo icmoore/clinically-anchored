@@ -17,7 +17,7 @@ export function SignOutButton() {
     <button
       type="button"
       onClick={signOut}
-      className="shrink-0 rounded-md border border-primary px-3 py-1.5 text-sm text-primary hover:bg-primary-tint"
+      className="shrink-0 rounded-md border border-link px-3 py-1.5 text-sm text-link hover:border-link-hover hover:text-link-hover hover:bg-primary-tint"
     >
       {PATIENT_TEXT.signOut}
     </button>
@@ -97,7 +97,7 @@ export function ReplacedLinkScreen() {
   return (
     <PatientFrame title={T.title}>
       <p className="text-ink">{T.body}</p>
-      <Link href="/sign-in" className="mt-4 inline-block text-sm text-primary underline">
+      <Link href="/sign-in" className="mt-4 inline-block text-sm text-link underline hover:text-link-hover">
         {T.signIn}
       </Link>
     </PatientFrame>

@@ -157,14 +157,14 @@ export function ComposeBox({
           type="button"
           onClick={handleDraft}
           disabled={draftDisabled}
-          className="rounded-md border border-primary bg-surface text-primary enabled:hover:bg-primary-tint px-4 py-2 text-sm font-medium disabled:opacity-60"
+          className="rounded-md border border-link bg-surface text-link enabled:hover:border-link-hover enabled:hover:text-link-hover enabled:hover:bg-primary-tint px-4 py-2 text-sm font-medium disabled:opacity-60"
         >
           {busy === "draft" ? "Drafting..." : "Draft a reply with AI"}
         </button>
         <button
           type="submit"
           disabled={busy !== null || !text.trim()}
-          className="ml-auto rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+          className="ml-auto rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-on-primary disabled:opacity-60"
         >
           {busy === "send" ? "Sending..." : "Send"}
         </button>
@@ -274,7 +274,7 @@ function PendingDraft({
                 <button
                   onClick={() => run(() => editDraft(clinicId, draft.id, text.trim()), "sent", "Couldn't send that edit.")}
                   disabled={busy || !edited}
-                  className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                  className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-on-primary disabled:opacity-60"
                 >
                   {busy ? "Sending..." : "Send edited reply"}
                 </button>
@@ -284,7 +284,7 @@ function PendingDraft({
                     setText(draft.draft_text);
                   }}
                   disabled={busy}
-                  className="rounded-md border border-primary bg-surface text-primary enabled:hover:bg-primary-tint px-3 py-2 text-sm disabled:opacity-60"
+                  className="rounded-md border border-link bg-surface text-link enabled:hover:border-link-hover enabled:hover:text-link-hover enabled:hover:bg-primary-tint px-3 py-2 text-sm disabled:opacity-60"
                 >
                   Cancel edit
                 </button>
@@ -299,14 +299,14 @@ function PendingDraft({
                 <button
                   onClick={() => run(() => approveDraft(clinicId, draft.id), "sent", "Couldn't send that reply.")}
                   disabled={busy}
-                  className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                  className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-on-primary disabled:opacity-60"
                 >
                   {busy ? "Sending..." : "Approve and send"}
                 </button>
                 <button
                   onClick={() => setEditing(true)}
                   disabled={busy}
-                  className="rounded-md border border-primary bg-surface text-primary enabled:hover:bg-primary-tint px-3 py-2 text-sm disabled:opacity-60"
+                  className="rounded-md border border-link bg-surface text-link enabled:hover:border-link-hover enabled:hover:text-link-hover enabled:hover:bg-primary-tint px-3 py-2 text-sm disabled:opacity-60"
                 >
                   Edit, then send
                 </button>
@@ -327,7 +327,7 @@ function PendingDraft({
             </p>
             <button
               onClick={onBack}
-              className="rounded-md border border-primary bg-surface text-primary enabled:hover:bg-primary-tint px-3 py-2 text-sm"
+              className="rounded-md border border-link bg-surface text-link enabled:hover:border-link-hover enabled:hover:text-link-hover enabled:hover:bg-primary-tint px-3 py-2 text-sm"
             >
               Back
             </button>

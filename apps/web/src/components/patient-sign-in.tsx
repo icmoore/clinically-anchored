@@ -93,7 +93,7 @@ export function PatientSignIn() {
         <p className="mt-4 text-sm text-muted">{T.noEmail}</p>
         <p className="mt-4 text-sm text-muted">
           {T.careTeamPrompt}{" "}
-          <Link href="/login" className="text-primary underline">
+          <Link href="/login" className="text-link underline hover:text-link-hover">
             {T.careTeamLink}
           </Link>
         </p>

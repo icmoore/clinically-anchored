@@ -13,7 +13,7 @@ const MARK: Record<PatientWindowStatus, { glyph: string; look: string }> = {
   used: { glyph: "✓", look: "border-clear-border bg-clear-bg text-clear-text" },
   open: {
     glyph: "●",
-    look: "border-primary bg-primary-tint text-primary ring-2 ring-primary",
+    look: "border-link bg-primary-tint text-link ring-2 ring-focus",
   },
   upcoming: { glyph: "○", look: "border-border-strong bg-surface text-muted" },
   passed: { glyph: "·", look: "border-transparent bg-surface-subtle text-muted" },

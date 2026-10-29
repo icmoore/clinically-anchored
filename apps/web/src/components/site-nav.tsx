@@ -20,21 +20,21 @@ export function SiteNav({ current }: { current?: "login" | "sign-in" }) {
           <Link
             href="/sign-in"
             aria-current={current === "sign-in" ? "page" : undefined}
-            className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-hover active:bg-primary-active"
+            className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-on-primary hover:bg-primary-hover active:bg-primary-active"
           >
             {T.patientSignIn}
           </Link>
           <Link
             href="/login"
             aria-current={current === "login" ? "page" : undefined}
-            className={`rounded-md border border-primary px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary-tint ${
+            className={`rounded-md border border-link px-3 py-1.5 text-sm font-medium text-link hover:border-link-hover hover:text-link-hover hover:bg-primary-tint ${
               current === "login" ? "bg-primary-tint" : ""
             }`}
           >
             {T.careTeamLogin}
           </Link>
         </div>
-        <Link href="/" className="rounded text-sm font-semibold text-primary">
+        <Link href="/" className="rounded text-sm font-semibold text-link hover:text-link-hover">
           Clinically Anchored
         </Link>
         <div className="ml-auto flex items-center gap-4">

@@ -4,16 +4,20 @@
    roles, usage rules). Change a color there first, then here. Light scheme only. */
 :root {
   --ink: #0C2340;
-  --primary: #0E7C7B;
-  --canvas: #F6F4EF;
+  --primary: #3EC5F7;
+  --primary-tint: #BAEBFC;
+  --canvas: #E7F8FE;
+  --link: #0F698A;
 
-  --primary-hover: #0C6969;
-  --primary-active: #0A5D5C;
-  --primary-tint: #ECF5F4;
+  --primary-hover: #1AACE3;
+  --primary-active: #139FD6;
+  --on-primary: #0C2340;
+  --link-hover: #0D5B77;
+  --focus: #0F698A;
 
   --surface: #FFFFFF;
-  --surface-subtle: #EEEDE8;
-  --border: #DADBDA;
+  --surface-subtle: #EEF2F6;
+  --border: #D5DEE5;
   --border-strong: #75818F;
   --text-muted: #526275;
   --text-disabled: #A4ABB2;
@@ -22,7 +26,7 @@
   --flag-text: #B42318;  --flag-bg: #FDECEA;  --flag-border: #F5C2BC;  --flag-solid: #D92D20;
   --watch-text: #92400E; --watch-bg: #FEF3C7; --watch-border: #F6D68A; --watch-solid: #D97706;
   --clear-text: #166534; --clear-bg: #E7F4EB; --clear-border: #B9DEC5; --clear-solid: #16A34A;
-  --info-text: #1E4FAF;  --info-bg: #EAF0FC;  --info-border: #C4D4F5;  --info-solid: #2563EB;
+  --info-text: #1C2B4A;  --info-bg: #EEF2F6;  --info-border: #CBD5E1;  --info-solid: #64748B;
 
   --ai-text: #5B21B6;    --ai-bg: #F1ECFD;    --ai-border: #D9CCF7;    --ai-solid: #7C3AED;
 }
@@ -32,10 +36,16 @@
   --color-ink-raised: var(--ink-raised);
   --color-canvas: var(--canvas);
 
+  /* Sky is a fill, never text: a filled button is bg-primary with text-on-primary (navy); links,
+     outline buttons and any blue text use link / link-hover; the focus ring is focus. */
   --color-primary: var(--primary);
   --color-primary-hover: var(--primary-hover);
   --color-primary-active: var(--primary-active);
   --color-primary-tint: var(--primary-tint);
+  --color-on-primary: var(--on-primary);
+  --color-link: var(--link);
+  --color-link-hover: var(--link-hover);
+  --color-focus: var(--focus);
 
   --color-surface: var(--surface);
   --color-surface-subtle: var(--surface-subtle);
@@ -87,10 +97,11 @@ body {
   opacity: 1;
 }
 
-/* One visible keyboard focus ring for every interactive element: 2px primary with offset.
-   :where() keeps specificity at zero so a component can still override it deliberately. */
+/* One visible keyboard focus ring for every interactive element: 2px --focus (not the sky
+   fill, which is too light to see) with offset. :where() keeps specificity at zero so a
+   component can still override it deliberately. */
 :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 

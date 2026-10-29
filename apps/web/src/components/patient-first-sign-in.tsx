@@ -111,7 +111,7 @@ export function ConsentScreen({
               <label
                 key={item.key}
                 className={`flex items-start gap-3 rounded-md border px-3 py-3 text-sm text-ink ${
-                  agreed[item.key] ? "border-primary bg-primary-tint" : "border-border bg-surface"
+                  agreed[item.key] ? "border-link bg-primary-tint" : "border-border bg-surface"
                 }`}
               >
                 <input

@@ -25,7 +25,7 @@ import {
 type Status = "loading" | "ready" | "submitting" | "submitted" | "error";
 
 const buttonClass =
-  "inline-block rounded-md bg-primary hover:bg-primary-hover active:bg-primary-active px-4 py-2 font-medium text-white";
+  "inline-block rounded-md bg-primary hover:bg-primary-hover active:bg-primary-active px-4 py-2 font-medium text-on-primary";
 
 /** The check-in page, inside the gate (the first sign-in steps come first). A `?token=` in the
  *  address is one of the retired per-episode links: it says so instead of opening anything. */
@@ -294,7 +294,7 @@ function CheckInForm({ onRefused }: { onRefused: () => void }) {
       <button
         type="submit"
         disabled={status === "submitting" || !procedure}
-        className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 font-medium text-white disabled:opacity-50"
+        className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 font-medium text-on-primary disabled:opacity-50"
       >
         {showReview
           ? status === "submitting"

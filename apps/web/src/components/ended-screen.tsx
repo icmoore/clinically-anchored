@@ -8,7 +8,7 @@ import { PatientFrame } from "./patient-frame";
 
 const T = PATIENT_TEXT.extension;
 const buttonClass =
-  "rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2.5 text-base font-medium text-white disabled:opacity-60";
+  "rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2.5 text-base font-medium text-on-primary disabled:opacity-60";
 
 /** The care period ended by schedule, and the patient's screen is still in its limited "ended" mode: the ended
  *  message, then what the patient can do about it. Nothing else opens. One of three states, all

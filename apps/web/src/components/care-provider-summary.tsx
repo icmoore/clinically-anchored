@@ -168,7 +168,7 @@ export function CareProviderSummarySection({
               onClick={handleCopy}
               aria-label="Copy the summary"
               title="Copy the summary"
-              className="absolute right-2 top-2 rounded-md p-1.5 text-muted hover:bg-primary-tint hover:text-primary"
+              className="absolute right-2 top-2 rounded-md p-1.5 text-muted hover:bg-primary-tint hover:text-link"
             >
               {copied === "yes" ? <CheckIcon /> : <CopyIcon />}
             </button>
@@ -198,13 +198,13 @@ export function CareProviderSummarySection({
           <div className="mt-2 flex flex-wrap gap-2">
             <button
               onClick={handleGenerate}
-              className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-3 py-1.5 text-sm font-medium text-white"
+              className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-3 py-1.5 text-sm font-medium text-on-primary"
             >
               Write a new summary
             </button>
             <button
               onClick={() => setConfirmRefresh(false)}
-              className="rounded-md border border-primary bg-surface text-primary enabled:hover:bg-primary-tint px-3 py-1.5 text-sm font-medium"
+              className="rounded-md border border-link bg-surface text-link enabled:hover:border-link-hover enabled:hover:text-link-hover enabled:hover:bg-primary-tint px-3 py-1.5 text-sm font-medium"
             >
               Keep my version
             </button>
@@ -218,7 +218,7 @@ export function CareProviderSummarySection({
             <button
               onClick={handleSave}
               disabled={saving || !changed}
-              className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+              className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-on-primary disabled:opacity-60"
             >
               {saving ? "Saving..." : "Save edit"}
             </button>
@@ -228,7 +228,7 @@ export function CareProviderSummarySection({
                 setError(null);
               }}
               disabled={saving}
-              className="rounded-md border border-primary bg-surface text-primary enabled:hover:bg-primary-tint px-4 py-2 text-sm font-medium disabled:opacity-60"
+              className="rounded-md border border-link bg-surface text-link enabled:hover:border-link-hover enabled:hover:text-link-hover enabled:hover:bg-primary-tint px-4 py-2 text-sm font-medium disabled:opacity-60"
             >
               Cancel
             </button>
@@ -238,7 +238,7 @@ export function CareProviderSummarySection({
             <button
               onClick={() => (summary?.edited_text ? setConfirmRefresh(true) : handleGenerate())}
               disabled={busy || !loaded || nothingYet || confirmRefresh}
-              className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+              className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-on-primary disabled:opacity-60"
             >
               {busy ? (summary ? "Refreshing..." : "Generating...") : summary ? "Refresh" : "Generate"}
             </button>
@@ -250,7 +250,7 @@ export function CareProviderSummarySection({
                   setConfirmRefresh(false);
                 }}
                 disabled={busy}
-                className="rounded-md border border-primary bg-surface text-primary enabled:hover:bg-primary-tint px-4 py-2 text-sm font-medium disabled:opacity-60"
+                className="rounded-md border border-link bg-surface text-link enabled:hover:border-link-hover enabled:hover:text-link-hover enabled:hover:bg-primary-tint px-4 py-2 text-sm font-medium disabled:opacity-60"
               >
                 Edit
               </button>

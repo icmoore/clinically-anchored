@@ -15,7 +15,7 @@ export function ClinicianProblem({
       {problem.retry && (
         <button
           onClick={problem.retry}
-          className="mt-3 rounded-md border border-primary bg-surface text-primary enabled:hover:bg-primary-tint px-4 py-2 text-sm font-medium"
+          className="mt-3 rounded-md border border-link bg-surface text-link enabled:hover:border-link-hover enabled:hover:text-link-hover enabled:hover:bg-primary-tint px-4 py-2 text-sm font-medium"
         >
           Retry
         </button>

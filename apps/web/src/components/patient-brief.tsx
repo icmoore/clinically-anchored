@@ -125,7 +125,7 @@ export function PatientBriefSection({
       <button
         onClick={handleGenerate}
         disabled={busy || !loaded || nothingYet}
-        className="mt-3 rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+        className="mt-3 rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-sm font-medium text-on-primary disabled:opacity-60"
       >
         {busy ? (brief ? "Refreshing..." : "Generating...") : brief ? "Refresh" : "Generate"}
       </button>
