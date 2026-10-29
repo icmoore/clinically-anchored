@@ -480,6 +480,9 @@ class PatientOut(BaseModel):
     full_name: str
     contact: str | None
     email: str | None = None
+    # The patient's sign-in account: none / invited / active / locked / off. The list needs it for
+    # the "Account locked" tag; `None` where it was not looked up (a patient just created).
+    account_status: str | None = None
     created_at: str
     episode: EpisodeOut | None = None  # the latest episode
 

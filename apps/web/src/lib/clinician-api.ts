@@ -102,6 +102,8 @@ export interface Patient {
   full_name: string;
   contact: string | null;
   email: string | null; // where the sign-in invite and codes go
+  // The sign-in account's state; absent from an older api. Only "locked" is shown (a tag).
+  account_status?: "none" | "invited" | "active" | "locked" | "off" | null;
   created_at: string;
   episode: Episode | null; // the latest
 }

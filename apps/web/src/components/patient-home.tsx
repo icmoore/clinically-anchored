@@ -95,6 +95,8 @@ function PatientMessages({ onRefused }: { onRefused: () => void }) {
       {state.extension?.standing === "accepted" && <AcceptedCard extension={state.extension} state={state} />}
       {checkIn && <CheckInCard checkIn={checkIn} timeZone={state.timezone} />}
       <Thread thread={thread} timeZone={state.timezone} />
+      {/* Always shown, directly above the message boxes (the same words as in "How this works"). */}
+      <p className="mb-3 text-sm text-muted">{PATIENT_TEXT.explainer.note}</p>
       {/* The notice sits just above the box it is about: the message window's form when there is
           one (a reply box, if any, comes before it), otherwise above the reply box, otherwise at
           the end of the thread. */}

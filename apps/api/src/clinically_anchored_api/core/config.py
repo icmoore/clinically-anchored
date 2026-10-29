@@ -35,7 +35,9 @@ class Settings(BaseSettings):
     # typos and invented types into 422s.
     consent_types: str = ""
 
-    # AI (core/ai.py): Bedrock model and the per-clinic daily call cap. Credentials
+    # AI (core/ai.py): Bedrock model and the per-clinic daily call cap. The endpoint is in
+    # ca-central-1, but the model's inference profile can process outside Canada: synthetic data
+    # only (core/ai.py, docs/api/README.md). Credentials
     # are not settings -- boto3 reads AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY from
     # the real process environment. The cap is a cost guard, so 0 means "no AI calls
     # at all" (a kill switch), never "unlimited".

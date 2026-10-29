@@ -18,6 +18,7 @@ import {
 import { Procedure } from "@/lib/api";
 import { categoryLabel } from "@/lib/categories";
 import { dayLabel, episodeSummary } from "@/lib/episode";
+import { LockedTag } from "@/components/locked-tag";
 import { contactLine, timeAgo } from "@/lib/format";
 import { useClinician } from "@/lib/use-clinician";
 import { usePolling } from "@/lib/use-polling";
@@ -129,12 +130,17 @@ function Dashboard({ clinicId }: { clinicId: string }) {
         ) : (
           <ul className="mt-3 divide-y divide-border rounded-lg border border-border bg-surface">
             {patients.map((p) => (
-              <li key={p.id}>
-                <Link
-                  href={`/dashboard/patients/${p.id}`}
-                  className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-surface-subtle"
-                >
-                  <span className="min-w-0">
+              <li
+                key={p.id}
+                className="relative flex items-center justify-between gap-3 px-4 py-3 hover:bg-surface-subtle"
+              >
+                {/* The link covers the whole row (the ::after); the locked tag sits above it, so a
+                    tap on the tag shows its reason instead of opening the patient. */}
+                <div className="min-w-0">
+                  <Link
+                    href={`/dashboard/patients/${p.id}`}
+                    className="block after:absolute after:inset-0"
+                  >
                     <span
                       className={`block font-medium ${
                         p.episode?.state.phase === "closed" ? "text-muted" : "text-ink"
@@ -145,9 +151,14 @@ function Dashboard({ clinicId }: { clinicId: string }) {
                     {contactLine(p) && (
                       <span className="block truncate text-sm text-muted">{contactLine(p)}</span>
                     )}
-                  </span>
-                  <EpisodeTag patient={p} />
-                </Link>
+                  </Link>
+                  {p.account_status === "locked" && (
+                    <div className="mt-1">
+                      <LockedTag />
+                    </div>
+                  )}
+                </div>
+                <EpisodeTag patient={p} />
               </li>
             ))}
           </ul>

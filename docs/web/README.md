@@ -76,8 +76,13 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   ordering: each card also shows a chip per unread message category, and today's day after
   surgery), add patient (the clinic enters the **surgery date and procedure**, both required;
   they create the patient's care period), and all patients, each with where their care period
-  stands ("Check-in pending", "Window 3 of 9 open", "Discharged", ...).
-- `/dashboard/patients/[id]`, top to bottom: **Physician Summary**
+  stands ("Check-in pending", "Window 3 of 9 open", "Discharged", ...). A patient whose sign-in the
+  surgery-date check locked also has an amber **"Account locked"** tag (`components/locked-tag.tsx`,
+  from the list's `account_status`) under their contact line; hovering shows why and tapping shows
+  the same words under the tag ("Locked after 3 wrong surgery dates. Re-invite the patient from
+  Patient account."), while a tap elsewhere on the row still opens the patient.
+- `/dashboard/patients/[id]`, under the name and before the sections, the same **"Account locked"**
+  tag when the account is locked; top to bottom: **Physician Summary**
   (`components/physician-summary.tsx`: computed from the schedule and the record, never by AI, so the
   facts have no AI badge). From the top: the procedure, surgery date and "Post-op day N" in a neutral
   badge; then the **check-ins** (`components/check-ins.tsx`):
@@ -187,7 +192,8 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
     many messages there are ("one message in each scheduled period, and one reply when your care team
     writes"; placeholder wording), and "Got it", remembered per browser in localStorage inside try/catch, so if storage fails it simply
     shows again; a small "How this works" link brings it back), the thread (patient messages carry
-    their category, replies say "Reply"), then **one plain status sentence** just above the box it is
+    their category, replies say "Reply"), then, **always shown**, the one-line allowance reminder
+    above the boxes (`PATIENT_TEXT.explainer.note`, the same words as in the panel), then **one plain status sentence** just above the box it is
     about ("Please complete your check-in first...", "You can send your first message from ...", "You
     can send a message now, until ...", "Thanks, your message was sent. You can send your next one from
     ...", plus "You can reply to your care team's latest message." whenever a reply is open), the

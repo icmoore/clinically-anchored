@@ -151,7 +151,8 @@ Built (on `main`):
   Migration 4 adds `check_ins.reviewed_at/by`. Queue reads cap at 1000 rows per query.
 - Clinic/patient management for the web app: `GET /me`, `GET`/`POST /clinics/{id}/patients`
   (audited `patient.created` and `episode.created`; the list carries each patient's latest
-  episode and its computed state), and the episode routes above. Link issuance (audited
+  episode and its computed state, and `account_status`: none / invited / active / locked / off,
+  which the web uses for the "Account locked" tag), and the episode routes above. Link issuance (audited
   `link.issued`, token never logged) stands in for SMS/email delivery during trials; needs
   `WEB_BASE_URL` outside development.
   Patients stay link-only (no patient sign-in) -- decision for the trial; revisit with Sarah.
@@ -179,9 +180,12 @@ Built (on `main`):
   was audited) show as unaudited -- scope with `--since`.
 
 - AI wrapper (`core/ai.py`, used only by the drafts routes below): thin AWS Bedrock Converse client
-  (boto3, standard credential chain), always `ca-central-1` (fixed in code; `AWS_REGION` is ignored
-  so inference can't drift out of Canada), model from `BEDROCK_MODEL_ID` (default Claude Haiku
-  4.5). `generate()` takes the caller's `prompt_version`, sends it to Bedrock as request metadata
+  (boto3, standard credential chain). Requests go to the Bedrock endpoint in `ca-central-1` (fixed
+  in code; `AWS_REGION` is ignored, so the endpoint can't drift). **That does not keep processing in
+  Canada:** the Claude model is reached through a cross-region inference profile whose regions
+  include US regions, so Bedrock can run a request outside Canada. Until that is resolved (the
+  project's decision 10; the decision log is not in this repo), AI features are limited to
+  synthetic data. Model from `BEDROCK_MODEL_ID` (default Claude Haiku 4.5). `generate()` takes the caller's `prompt_version`, sends it to Bedrock as request metadata
   and returns it with the model id and token usage, so the *caller* logs all three to the audit
   trail (this module writes no audit events). Per-clinic daily call cap
   (`AI_DAILY_CALL_CAP_PER_CLINIC`, default 200; 0 blocks everything) is checked before Bedrock
@@ -190,8 +194,8 @@ Built (on `main`):
   `clinically_anchored_api/templates/<name>_<version>.md` (`## System` + `## User`, `{{vars}}`),
   loaded with `load_template(name, "v1")`; the shipped ones (`draft_reply_v1`-`v4`, `summary_v1`-`v4`; the newest of each is in use) are
   **placeholder wording pending clinical review**. A wording change is a new version file.
-  Inference location remains a product decision (see the hard constraints below): this wrapper
-  assumes Bedrock in ca-central-1.
+  Inference location remains an open product decision (decision 10; see above and the hard
+  constraints below): the wrapper only fixes the endpoint region, not where the model runs.
 - Thread summaries (`api/summaries.py`, `core/citations.py`): `POST
   /clinics/{id}/patients/{pid}/summaries` -- on demand only, any clinic member, nothing automatic.
   The model (template `summary_v4`) is shown the patient's last 50 messages as `[M1] speaker: text`
@@ -346,7 +350,8 @@ Built (on `main`):
   sent message id on approve/edit), and an ordinary `message.sent` for the message itself. Drafts
   are kept forever: no delete route, and the database refuses deletes and changes to a decided
   draft or to the original text. **Data flow:** generating a draft sends the last 20 messages of
-  that patient's thread to Bedrock (ca-central-1). It stays inert until `AWS_ACCESS_KEY_ID` /
+  that patient's thread to Bedrock (endpoint in ca-central-1; processing may happen outside Canada,
+  see the AI wrapper above). It stays inert until `AWS_ACCESS_KEY_ID` /
   `AWS_SECRET_ACCESS_KEY` are set on Railway (no credentials -> 502), and the synthetic-data-only
   rule still applies. Clinic protocol notes (D13) aren't modelled, so that template variable is
   a fixed placeholder, and the template wording is still pending clinical review.
@@ -401,9 +406,10 @@ Tests and lint (`pytest`, `ruff`) run in CI.
 - **AI never auto-sends.** Drafts are reviewed and approved by the clinician; the
   audit log records who approved what, when, from which protocol/template version.
 - **Inference location is still an open question** (local vs. Canadian-region
-  zero-retention vs. minimal-fact cloud) — see data-catalogue.md's open items. Don't
-  wire up a specific LLM vendor without checking whether that decision has been made
-  since this doc was written.
+  zero-retention vs. minimal-fact cloud) — see data-catalogue.md's open items. Bedrock is
+  already wired up, but only its endpoint is in Canada: the model runs through a cross-region
+  inference profile that includes US regions, so processing can happen outside Canada
+  (decision 10, open). Don't point it at real patient data until that is settled.
 - **Synthetic data only** until the privacy review is done. Nothing in this service
   should be pointed at a real patient yet.
 

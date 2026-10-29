@@ -78,8 +78,8 @@ While the request is pending, keep using verified test addresses.
 
 Canada is the default and the rule: nothing here depends on it, but data residency was the
 reason. If SES cannot be used in `ca-central-1` yet (for example the account's organization blocks
-the region), set `SES_REGION=us-east-2` (or another region) on Railway. Only EMAIL moves: Bedrock
-stays fixed to Canada. The api logs a warning when it sends from another region. To go back, delete
+the region), set `SES_REGION=us-east-2` (or another region) on Railway. Only EMAIL moves: the Bedrock
+endpoint stays fixed in `ca-central-1` (AI processing itself is not Canada-only; see `docs/api/README.md`). The api logs a warning when it sends from another region. To go back, delete
 the variable. Then redo, in Canada: verify the identities again (they are per region) and request
 production access again if you had in the other region. The IAM permission is not per region.
 Emails carry the clinic's name, its office phone and a code, no clinical content.

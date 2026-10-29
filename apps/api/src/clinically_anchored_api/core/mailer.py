@@ -3,9 +3,9 @@ records every attempt.
 
 What every send does, and nothing more:
   * runs in SES `ca-central-1` by default, and only the SES_REGION setting can change that -- never
-    the ambient AWS_REGION, as with the Bedrock wrapper (core/ai.py), which stays in Canada. A
-    different region is a deliberate, logged override. Credentials come from boto3's standard
-    chain (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY in the process environment);
+    the ambient AWS_REGION, as with the Bedrock wrapper (core/ai.py), which fixes its endpoint the
+    same way. A different region is a deliberate, logged override. Credentials come from boto3's
+    standard chain (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY in the process environment);
   * writes an `email_outbox` row first (status 'queued'), sends, then settles the row ('sent' with
     SES's message id, or 'failed' with an error CODE -- never a provider message, never the body);
   * for a DEMO clinic (clinics.is_demo) sends nothing: the rendered email, sign-in code included,
