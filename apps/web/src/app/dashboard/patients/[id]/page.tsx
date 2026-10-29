@@ -147,8 +147,6 @@ function PatientView({
         {error && <p className="mt-1 text-sm text-flag-text">{error}</p>}
       </div>
 
-      <PatientAccountSection clinicId={clinicId} patientId={patientId} role={role} onChanged={load} />
-
       <PhysicianSummarySection
         clinicId={clinicId}
         role={role}
@@ -193,6 +191,9 @@ function PatientView({
         highlighted={highlighted}
         onChanged={load}
       />
+
+      {/* Set up once and seldom touched again, so it sits last. */}
+      <PatientAccountSection clinicId={clinicId} patientId={patientId} role={role} onChanged={load} />
     </main>
   );
 }
