@@ -77,14 +77,7 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   surgery), add patient (the clinic enters the **surgery date and procedure**, both required;
   they create the patient's care period), and all patients, each with where their care period
   stands ("Check-in pending", "Window 3 of 9 open", "Discharged", ...).
-- `/dashboard/patients/[id]`, top to bottom: **Patient account**
-  (`components/patient-account.tsx`: status (not invited / invited on a date / active since a date,
-  last sign-in / locked / access turned off), the email the invite goes to (change it, or add one;
-  refused while active), and the buttons for that state: Send invite, Resend invite, Turn off access
-  (with a confirmation), Re-invite. Turning off and re-inviting are owner/clinician only, and the box
-  says so to anyone else. "Patient has no email?" opens the single-use link: create it, copy it now
-  (it is shown once, works once, lasts 24 hours, and the patient is asked their surgery date), and
-  the latest invite email's fate: sent, saved in the Demo inbox, failed, or refused), **Physician Summary**
+- `/dashboard/patients/[id]`, top to bottom: **Physician Summary**
   (`components/physician-summary.tsx`: computed from the schedule and the record, never by AI, so the
   facts have no AI badge). From the top: the procedure, surgery date and "Post-op day N" in a neutral
   badge; then the **check-ins** (`components/check-ins.tsx`):
@@ -161,6 +154,13 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
     Not shown yet because the data doesn't exist: post-op day on each contact (no procedure
     date is stored; dates are shown instead) and time measured inside the app (not tracked).
     Loads separately like drafts.
+  - **Patient account**, last on the page, since it is set up once and seldom touched again (`components/patient-account.tsx`: status (not invited / invited on a date / active since a date,
+    last sign-in / locked / access turned off), the email the invite goes to (change it, or add one;
+    refused while active), and the buttons for that state: Send invite, Resend invite, Turn off access
+    (with a confirmation), Re-invite. Turning off and re-inviting are owner/clinician only, and the box
+    says so to anyone else. "Patient has no email?" opens the single-use link: create it, copy it now
+    (it is shown once, works once, lasts 24 hours, and the patient is asked their surgery date), and
+    the latest invite email's fate: sent, saved in the Demo inbox, failed, or refused).
   Summary and Draft a reply with AI need AWS credentials set on the api (Bedrock); without them they show the api's error.
 - **Patient sign-in (patient accounts).** A patient signs in at `/sign-in` with their email and a
   code (`components/patient-sign-in.tsx`; no password; the answer to "send me a code" is the same
