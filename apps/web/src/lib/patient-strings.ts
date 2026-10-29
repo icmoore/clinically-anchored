@@ -97,13 +97,16 @@ export const PATIENT_TEXT = {
     ],
   },
 
-  // The two ways in from the public website, side by side in its top bar, and the "wrong page?" line
-  // on the clinician login. A patient reads all of these to pick the right one. PLACEHOLDER wording.
+  // The two ways in from the public website (its top bar, and the two sign-in cards at the bottom of
+  // the landing page), and the "wrong page?" line on the clinician login. A patient reads all of these to pick the right one. PLACEHOLDER wording.
   siteLinks: {
     patientSignIn: "Patient sign-in",
     careTeamLogin: "Care team login",
     patientPrompt: "Are you a patient?",
     patientLink: "Sign in here",
+    // The patient's card in the sign-in band at the bottom of the landing page.
+    patientCardTitle: "For patients",
+    patientCardBody: "Enter your email and we will send you a code.",
   },
 
   // Signing in: an email, then a code from that email. No password. The api answers the same way
