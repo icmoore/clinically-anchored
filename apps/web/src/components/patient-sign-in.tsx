@@ -6,8 +6,9 @@ import { useEffect, useState } from "react";
 import { ApiError, requestSignInCode, verifySignInCode } from "@/lib/api";
 import { PATIENT_TEXT } from "@/lib/patient-strings";
 import { savePatientSession, usePatientSignIn } from "@/lib/patient-session";
-import { FormError, buttonClass, inputClass, linkButtonClass } from "./patient-form";
-import { PatientFrame } from "./patient-frame";
+import { AuthPage } from "./auth-page";
+import { FormError, buttonClass, inputClass, labelClass, linkButtonClass } from "./auth-form";
+import { UrgentNotice } from "./patient-frame";
 
 const T = PATIENT_TEXT.signIn;
 
@@ -64,15 +65,19 @@ export function PatientSignIn() {
   }
 
   if (signedIn !== "signed-out") {
-    return <p className="p-6 text-muted">Loading...</p>;
+    return (
+      <AuthPage current="sign-in" subtitle={T.title} footer={<UrgentNotice />}>
+        <p className="text-muted">Loading...</p>
+      </AuthPage>
+    );
   }
 
   if (step === "email") {
     return (
-      <PatientFrame title={T.title} underNav>
-        <p className="text-ink">{T.intro}</p>
-        <form onSubmit={sendCode} className="mt-4">
-          <label htmlFor="email" className="block text-sm font-medium text-ink">
+      <AuthPage current="sign-in" subtitle={T.title} footer={<UrgentNotice />}>
+        <p className="mb-4 text-ink">{T.intro}</p>
+        <form onSubmit={sendCode}>
+          <label htmlFor="email" className={labelClass}>
             {T.emailLabel}
           </label>
           <input
@@ -97,16 +102,16 @@ export function PatientSignIn() {
             {T.careTeamLink}
           </Link>
         </p>
-      </PatientFrame>
+      </AuthPage>
     );
   }
 
   return (
-    <PatientFrame title={T.codeTitle} underNav>
+    <AuthPage current="sign-in" subtitle={T.codeTitle} footer={<UrgentNotice />}>
       <p className="text-ink">{T.codeSent}</p>
       <p className="mt-1 text-sm text-muted">{T.codeValid}</p>
       <form onSubmit={signIn} className="mt-4">
-        <label htmlFor="code" className="block text-sm font-medium text-ink">
+        <label htmlFor="code" className={labelClass}>
           {T.codeLabel}
         </label>
         <input
@@ -144,6 +149,6 @@ export function PatientSignIn() {
           {T.otherEmail}
         </button>
       </div>
-    </PatientFrame>
+    </AuthPage>
   );
 }

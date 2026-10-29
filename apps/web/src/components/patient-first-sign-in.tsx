@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ApiError, PatientAccount, acceptConsents, confirmSurgeryDate } from "@/lib/api";
 import { PATIENT_TEXT } from "@/lib/patient-strings";
-import { FormError, buttonClass, inputClass } from "./patient-form";
+import { FormError, buttonClass, inputClass } from "./auth-form";
 import { PatientFrame } from "./patient-frame";
 
 /** Today as YYYY-MM-DD on this device: a surgery date cannot be in the future for a patient who
