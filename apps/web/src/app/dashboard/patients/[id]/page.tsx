@@ -28,6 +28,7 @@ import {
 } from "@/lib/clinician-api";
 import { categoryLabel } from "@/lib/categories";
 import { isExtensionEntry } from "@/lib/contact-stats";
+import { LockedTag } from "@/components/locked-tag";
 import { clock, contactLine } from "@/lib/format";
 import { useClinician } from "@/lib/use-clinician";
 import { usePolling } from "@/lib/use-polling";
@@ -144,6 +145,11 @@ function PatientView({
         </Link>
         <h1 className="mt-1 text-xl font-semibold text-ink">{patient.full_name}</h1>
         {contactLine(patient) && <p className="text-sm text-muted">{contactLine(patient)}</p>}
+        {patient.account_status === "locked" && (
+          <div className="mt-2">
+            <LockedTag />
+          </div>
+        )}
         {error && <p className="mt-1 text-sm text-flag-text">{error}</p>}
       </div>
 

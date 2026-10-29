@@ -102,8 +102,17 @@ def list_patients(
     ):
         latest.setdefault(ep["patient_id"], ep)
     outs = episode_outs(supabase, list(latest.values()))
+    status = {
+        a["patient_id"]: a["status"]
+        for a in supabase.table("patient_accounts").select("patient_id, status")
+        .eq("clinic_id", clinic_id).execute().data
+    }
     return [
-        PatientOut(**r, episode=outs[latest[r["id"]]["id"]] if r["id"] in latest else None)
+        PatientOut(
+            **r,
+            account_status=status.get(r["id"], "none"),
+            episode=outs[latest[r["id"]]["id"]] if r["id"] in latest else None,
+        )
         for r in rows
     ]
 

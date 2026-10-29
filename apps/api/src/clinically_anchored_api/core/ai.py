@@ -2,9 +2,12 @@
 for the versioned prompt templates in `templates/`.
 
 What every call does, and nothing more:
-  * runs in Bedrock `ca-central-1` -- fixed here rather than read from AWS_REGION,
-    because keeping inference in Canada is a data-residency requirement and an
-    ambient AWS_REGION must not be able to move it;
+  * calls the Bedrock endpoint in `ca-central-1` -- fixed here rather than read from
+    AWS_REGION, so an ambient AWS_REGION cannot move it. This does NOT keep
+    processing in Canada: the Claude model is reached through a cross-region
+    inference profile whose regions include US regions, so a request can be
+    processed outside Canada. Until that is resolved (decision 10, open) AI
+    features are for synthetic data only;
   * takes the caller's prompt-version string, sends it to Bedrock as request
     metadata, and returns it with the model id, so the caller can put both in the
     audit trail (this module does not write audit events or touch the database);
@@ -33,6 +36,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from clinically_anchored_api.core.config import get_settings
 
+# The endpoint region only; the model's cross-region inference profile can run elsewhere.
 BEDROCK_REGION = "ca-central-1"
 
 # Bedrock accepts only a restricted character set in request metadata values.

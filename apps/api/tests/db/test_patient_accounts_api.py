@@ -740,6 +740,22 @@ def test_the_account_view_shows_each_state(env):
     assert env.client.get(env.url(other, "/account"), headers=env.staff()).status_code != 200
 
 
+def test_the_patient_list_carries_each_accounts_status_for_the_locked_tag(env):
+    env.add_patient("Plain", "plain@mail.org")
+    invited = env.add_patient("Invited", "invited@mail.org")
+    locked = env.add_patient("Locked", "locked@mail.org")
+    env.add_patient("Elsewhere", "e@mail.org", clinic=env.w.clinic_b)
+    env.act(invited, "invite")
+    env.act(locked, "invite")
+    env.c.execute("update patient_accounts set status = 'locked', locked_at = now() "
+                  "where patient_id = %s", (locked,))
+    rows = env.client.get(f"/clinics/{env.w.clinic_a}/patients", headers=env.staff()).json()
+    status = {r["full_name"]: r["account_status"] for r in rows}
+    assert {k: status[k] for k in ("Plain", "Invited", "Locked")} == {
+        "Plain": "none", "Invited": "invited", "Locked": "locked"}
+    assert "Elsewhere" not in status  # only this clinic's patients
+
+
 def test_a_patient_of_another_clinic_cannot_be_reached(env):
     other = env.add_patient("Elsewhere", "e@mail.org", clinic=env.w.clinic_b)
     r = env.client.post(env.url(other, "/account/invite", env.w.clinic_a), headers=env.staff())
