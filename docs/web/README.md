@@ -155,7 +155,7 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
     date is stored; dates are shown instead) and time measured inside the app (not tracked).
     Loads separately like drafts.
   - **Patient account**, last on the page, since it is set up once and seldom touched again (`components/patient-account.tsx`: status (not invited / invited on a date / active since a date,
-    last sign-in / locked / access turned off), the email the invite goes to (change it, or add one;
+    last sign-in / locked / access turned off), the email the invite goes to ("Sign-in codes go to" once the patient is active; change it, or add one;
     refused while active), and the buttons for that state: Send invite, Resend invite, Turn off access
     (with a confirmation), Re-invite. Turning off and re-inviting are owner/clinician only, and the box
     says so to anyone else. "Patient has no email?" opens the single-use link: create it, copy it now
@@ -164,7 +164,7 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   Summary and Draft a reply with AI need AWS credentials set on the api (Bedrock); without them they show the api's error.
 - **Patient sign-in (patient accounts).** A patient signs in at `/sign-in` with their email and a
   code (`components/patient-sign-in.tsx`; no password; the answer to "send me a code" is the same
-  for every address). The session lives in its own Supabase client (`lib/patient-session.ts`, storage
+  for every address; a 503 from the api, meaning sign-in is not set up on the server, says "Sign-in isn't available right now" and to call the office). The session lives in its own Supabase client (`lib/patient-session.ts`, storage
   key `ca-patient-auth`), so it never replaces a clinician's session in the same browser and signing
   out of one never signs out the other. Every page a signed-in patient uses sits inside
   `components/patient-gate.tsx`: no session goes to `/sign-in`; the first time, the **surgery-date
@@ -183,8 +183,9 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   computes it from the schedule and the clock, and the page only shows it.
   - `/care` (`components/patient-home.tsx`), top to bottom: the **urgent notice first** (same words
     as everywhere; with no office phone it still says to call the office or go to the emergency
-    department), the first-visit **"How this works"** panel (`patient-explainer.tsx`: three steps and
-    "Got it", remembered per browser in localStorage inside try/catch, so if storage fails it simply
+    department), the first-visit **"How this works"** panel (`patient-explainer.tsx`: three steps, a note on how
+    many messages there are ("one message in each scheduled period, and one reply when your care team
+    writes"; placeholder wording), and "Got it", remembered per browser in localStorage inside try/catch, so if storage fails it simply
     shows again; a small "How this works" link brings it back), the thread (patient messages carry
     their category, replies say "Reply"), then **one plain status sentence** just above the box it is
     about ("Please complete your check-in first...", "You can send your first message from ...", "You

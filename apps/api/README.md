@@ -44,6 +44,16 @@ They create and drop scratch databases, and also need `psql` and `pg_dump` on PA
   `CHECKIN_LINK_SECRET` is no longer read; it can be deleted from Railway.) Use fresh secrets, not the dev ones, and keep `AUDIT_SIGNING_KEY` stable (change
   `AUDIT_KEY_ID` if you rotate it).
 
+### Email region (`SES_REGION`)
+
+Email goes through Amazon SES in `ca-central-1` unless `SES_REGION` is set, so for normal use leave it
+unset (Railway has it unset today). It is still read: `core/mailer.py` takes the region from it, and
+the api logs a warning whenever it sends from anywhere but Canada. It exists for the case where SES
+cannot be used in Canada yet; set it to a region name such as `us-east-2`, and delete it to go back.
+Sender identities and production access are per region, so redo them when you switch. It moves email
+only: Bedrock stays fixed. Setup steps and the switch-back checklist are in
+[`docs/api/email.md`](../../docs/api/email.md).
+
 ### If Railway keeps serving old code
 
 Symptom: new routes 404 on the deployed api, variables seem ignored, and "Redeploy" changes
