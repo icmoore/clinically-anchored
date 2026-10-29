@@ -18,7 +18,7 @@ import {
 import { Procedure } from "@/lib/api";
 import { categoryLabel } from "@/lib/categories";
 import { dayLabel, episodeSummary } from "@/lib/episode";
-import { timeAgo } from "@/lib/format";
+import { contactLine, timeAgo } from "@/lib/format";
 import { useClinician } from "@/lib/use-clinician";
 import { usePolling } from "@/lib/use-polling";
 
@@ -142,8 +142,8 @@ function Dashboard({ clinicId }: { clinicId: string }) {
                     >
                       {p.full_name}
                     </span>
-                    {(p.contact || p.email) && (
-                      <span className="block truncate text-sm text-muted">{p.contact ?? p.email}</span>
+                    {contactLine(p) && (
+                      <span className="block truncate text-sm text-muted">{contactLine(p)}</span>
                     )}
                   </span>
                   <EpisodeTag patient={p} />

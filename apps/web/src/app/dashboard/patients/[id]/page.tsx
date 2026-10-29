@@ -28,7 +28,7 @@ import {
 } from "@/lib/clinician-api";
 import { categoryLabel } from "@/lib/categories";
 import { isExtensionEntry } from "@/lib/contact-stats";
-import { clock } from "@/lib/format";
+import { clock, contactLine } from "@/lib/format";
 import { useClinician } from "@/lib/use-clinician";
 import { usePolling } from "@/lib/use-polling";
 
@@ -143,13 +143,11 @@ function PatientView({
           &larr; Dashboard
         </Link>
         <h1 className="mt-1 text-xl font-semibold text-ink">{patient.full_name}</h1>
-        {(patient.contact || patient.email) && (
-          <p className="text-sm text-muted">{patient.contact ?? patient.email}</p>
-        )}
+        {contactLine(patient) && <p className="text-sm text-muted">{contactLine(patient)}</p>}
         {error && <p className="mt-1 text-sm text-flag-text">{error}</p>}
       </div>
 
-      <PatientAccountSection clinicId={clinicId} patientId={patientId} role={role} />
+      <PatientAccountSection clinicId={clinicId} patientId={patientId} role={role} onChanged={load} />
 
       <PhysicianSummarySection
         clinicId={clinicId}
