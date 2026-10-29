@@ -5,7 +5,7 @@ import { useState, useSyncExternalStore } from "react";
 import { ApiError, redeemFallbackLink } from "@/lib/api";
 import { PATIENT_TEXT } from "@/lib/patient-strings";
 import { savePatientSession } from "@/lib/patient-session";
-import { FormError, buttonClass, inputClass } from "./patient-form";
+import { FormError, buttonClass, inputClass } from "./auth-form";
 import { LockedScreen } from "./patient-first-sign-in";
 import { PatientFrame } from "./patient-frame";
 

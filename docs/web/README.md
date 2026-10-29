@@ -60,7 +60,8 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   top of that file. It used to redirect to `/dashboard`; a visitor who already has
   a clinician session is still sent there (`components/signed-in-redirect.tsx`, client side,
   since the session lives in the browser). No middleware is involved.
-- `/login`: clinician email + password via Supabase Auth, with an "Are you a patient? Sign in here" link to
+- `/login`: clinician email + password via Supabase Auth, on the shared sign-in page (top bar, then one
+  centred column: the brand name, "Clinician sign-in", the form; the patient sign-in below mirrors it), with an "Are you a patient? Sign in here" link to
   `/sign-in` under the form (words in `lib/patient-strings.ts`; `/sign-in` has the matching "Are you on
   the care team? Log in here" link, on its email step) (session handling only; all data
   goes through `apps/api`).
@@ -172,8 +173,9 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
     (it is shown once, works once, lasts 24 hours, and the patient is asked their surgery date), and
     the latest invite email's fate: sent, saved in the Demo inbox, failed, or refused).
   Summary and Draft a reply with AI need AWS credentials set on the api (Bedrock); without them they show the api's error.
-- **Patient sign-in (patient accounts).** A patient signs in at `/sign-in` (under the site's top bar, like `/login`, so
-  `PatientFrame` takes `underNav` there and fills what is left of the screen) with their email and a
+- **Patient sign-in (patient accounts).** A patient signs in at `/sign-in` (on the same page as `/login`: `components/auth-page.tsx`,
+  and the same label, input, button and error styles in `components/auth-form.tsx`, so the two mirror each
+  other; the patient page adds an intro line and keeps the urgent notice at the bottom) with their email and a
   code (`components/patient-sign-in.tsx`; no password; the answer to "send me a code" is the same
   for every address; a 503 from the api, meaning sign-in is not set up on the server, says "Sign-in isn't available right now" and to call the office). The session lives in its own Supabase client (`lib/patient-session.ts`, storage
   key `ca-patient-auth`), so it never replaces a clinician's session in the same browser and signing

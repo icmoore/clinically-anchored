@@ -112,7 +112,7 @@ export const PATIENT_TEXT = {
   // Signing in: an email, then a code from that email. No password. The api answers the same way
   // for every address, so nothing here may suggest the email "was not found".
   signIn: {
-    title: "Sign in",
+    title: "Patient sign-in",
     intro: "Enter the email address your surgeon's office has for you. We will email you a code.",
     emailLabel: "Your email",
     sendCode: "Send my code",

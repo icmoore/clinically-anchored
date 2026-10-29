@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { SiteNav } from "@/components/site-nav";
+import { AuthPage } from "@/components/auth-page";
+import { FormError, buttonClass, inputClass, labelClass } from "@/components/auth-form";
 import { PATIENT_TEXT } from "@/lib/patient-strings";
 import { supabase } from "@/lib/supabase";
 
@@ -35,50 +36,47 @@ export default function LoginPage() {
   }
 
   return (
-    <>
-      <SiteNav current="login" />
-      <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center px-6 py-12">
-        <h1 className="text-xl font-semibold text-ink">Clinically Anchored</h1>
-        <p className="mb-6 mt-1 text-sm text-muted">Clinician sign-in</p>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <label className="block text-sm text-muted">
+    <AuthPage current="login" subtitle="Clinician sign-in">
+      <form onSubmit={handleSubmit}>
+        <div>
+          <label htmlFor="email" className={labelClass}>
             Email
-            <input
-              type="email"
-              required
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-base"
-            />
           </label>
-          <label className="block text-sm text-muted">
+          <input
+            id="email"
+            type="email"
+            required
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className={inputClass}
+          />
+        </div>
+        <div className="mt-4">
+          <label htmlFor="password" className={labelClass}>
             Password
-            <input
-              type="password"
-              required
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-base"
-            />
           </label>
-          {error && <p className="text-sm text-flag-text">{error}</p>}
-          <button
-            type="submit"
-            disabled={busy}
-            className="w-full rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2.5 text-base font-medium text-on-primary disabled:opacity-60"
-          >
-            {busy ? "Signing in..." : "Sign in"}
-          </button>
-        </form>
-        <p className="mt-6 text-sm text-muted">
-          {PATIENT_TEXT.siteLinks.patientPrompt}{" "}
-          <Link href="/sign-in" className="text-link underline hover:text-link-hover">
-            {PATIENT_TEXT.siteLinks.patientLink}
-          </Link>
-        </p>
-      </div>
-    </>
+          <input
+            id="password"
+            type="password"
+            required
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className={inputClass}
+          />
+        </div>
+        {error && <FormError>{error}</FormError>}
+        <button type="submit" disabled={busy} className={`${buttonClass} mt-4`}>
+          {busy ? "Signing in..." : "Sign in"}
+        </button>
+      </form>
+      <p className="mt-4 text-sm text-muted">
+        {PATIENT_TEXT.siteLinks.patientPrompt}{" "}
+        <Link href="/sign-in" className="text-link underline hover:text-link-hover">
+          {PATIENT_TEXT.siteLinks.patientLink}
+        </Link>
+      </p>
+    </AuthPage>
   );
 }
