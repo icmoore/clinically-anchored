@@ -108,6 +108,9 @@ class _Admin:
         self.gt.calls.append("update_user_by_id")
         u = self.gt.users[uid]
         if "email" in attrs:
+            holder = self.gt.by_email(attrs["email"])
+            if holder not in (None, uid):  # as GoTrue: one user per email
+                raise Exception("email_exists")
             u["email"] = attrs["email"]
             self.gt.conn.execute("update auth.users set email = %s where id = %s",
                                  (attrs["email"], uid))

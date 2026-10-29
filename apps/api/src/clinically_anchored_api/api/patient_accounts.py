@@ -113,21 +113,49 @@ def _find_user(supabase, email: str) -> str | None:
     return found["id"] if found else None
 
 
+def _check_email_free(supabase, email: str, patient_id: str, account: dict | None) -> None:
+    """409 (with a plain reason) if `email` cannot become this patient's sign-in: Supabase Auth
+    allows one user per address, so an address already held by a staff login, or by another
+    patient's account, cannot be used -- and finding out at Resend would be an unexplained 500.
+
+    A patient with NO account yet may take an address whose only holder is a turned-off patient
+    (the sign-in is reused). One who already has an account is changing it, so any other holder
+    blocks it."""
+    holder = _find_user(supabase, email)
+    if holder is None or (account is not None and str(holder) == str(account["user_id"])):
+        return
+    if supabase.table("clinic_members").select("id").eq("user_id", holder).execute().data:
+        raise HTTPException(status_code=409, detail="That email belongs to a staff account.")
+    others = supabase.table("patient_accounts").select("patient_id, status").eq(
+        "user_id", holder
+    ).execute().data
+    other_patient = [o for o in others if str(o["patient_id"]) != str(patient_id)]
+    if other_patient and (account is not None or any(o["status"] != "off" for o in other_patient)):
+        raise HTTPException(
+            status_code=409,
+            detail="That email already belongs to another patient's account "
+            "(even one whose access is turned off). Use a different email.",
+        )
+    if account is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="That email is already used by another sign-in. Use a different email.",
+        )
+
+
 def _ensure_user(supabase, patient: dict, account: dict | None) -> str:
     """The Auth user behind this patient's account: made if new, brought in line with the patient's
-    email, marked as a patient and un-banned. Refuses an address that belongs to staff."""
+    email, marked as a patient and un-banned. Refuses an address another login already holds."""
     email = patient["email"]
     if account is not None:
         user_id = account["user_id"]
+        if email:
+            _check_email_free(supabase, email, patient["id"], account)
         return gotrue.ensure_patient_user(email or gotrue.user_email(user_id), user_id=user_id)
     if email is None:
         return gotrue.ensure_patient_user(gotrue.placeholder_email())
-    existing = _find_user(supabase, email)
-    if existing is not None:
-        staff = supabase.table("clinic_members").select("id").eq("user_id", existing).execute().data
-        if staff:
-            raise HTTPException(status_code=409, detail="That email belongs to a staff account.")
-    return gotrue.ensure_patient_user(email, user_id=existing)
+    _check_email_free(supabase, email, patient["id"], None)
+    return gotrue.ensure_patient_user(email, user_id=_find_user(supabase, email))
 
 
 def _conflict(exc: Exception) -> HTTPException:
@@ -191,6 +219,8 @@ def set_email(
     patient = _patient(supabase, clinic_id, patient_id)
     email = mailer.clean_email(body.email)
     account = patient_auth.account_for_patient(supabase, patient_id)
+    if email and email != patient["email"]:
+        _check_email_free(supabase, email, patient_id, account)
     if account is not None and account["status"] == "active" and email != patient["email"]:
         raise HTTPException(
             status_code=409,
@@ -252,6 +282,7 @@ def resend(
         raise HTTPException(status_code=409, detail="Only a patient who is invited can be re-sent.")
     if not patient["email"]:
         raise HTTPException(status_code=422, detail="Add the patient's email first.")
+    _check_email_free(supabase, patient["email"], patient_id, account)  # before anything is audited
     _audit(supabase, member, "patient_account.invited", account["id"], patient_id,
            {"email": patient["email"], "resend": True})
     _ensure_user(supabase, patient, account)
@@ -281,6 +312,8 @@ def reinvite(
             status_code=409,
             detail="Only an account that is locked or turned off can be re-invited.",
         )
+    if patient["email"]:
+        _check_email_free(supabase, patient["email"], patient_id, account)
     _audit(supabase, member, "patient_account.invited", account["id"], patient_id,
            {"email": patient["email"], "reinvite": True, "was": account["status"]})
     _ensure_user(supabase, patient, account)
