@@ -84,14 +84,24 @@ def is_reserved_domain(address: str) -> bool:
     return any(domain == d or domain.endswith("." + d) for d in _RESERVED_DOMAINS)
 
 
-def patient_sign_in_url() -> str | None:
-    """Where the invite points: the web app's patient sign-in page. None if the web app's address
-    is not configured (development falls back to localhost)."""
+def _web_page(path: str) -> str | None:
     settings = get_settings()
     base = settings.web_base_url or (
         "http://localhost:3000" if settings.environment == "development" else ""
     )
-    return f"{base.rstrip('/')}/sign-in" if base else None
+    return f"{base.rstrip('/')}{path}" if base else None
+
+
+def patient_sign_in_url() -> str | None:
+    """Where the invite points: the web app's patient sign-in page. None if the web app's address
+    is not configured (development falls back to localhost)."""
+    return _web_page("/sign-in")
+
+
+def patient_guide_url() -> str | None:
+    """The public patient guide, linked from both emails. None if the web app's address is not
+    configured: the emails then leave the guide lines out."""
+    return _web_page("/guide")
 
 
 def ses_region() -> str:
@@ -207,6 +217,7 @@ def send_email(
         office_phone=clinic.get("office_phone"),
         sign_in_url=sign_in_url,
         code=code,
+        guide_url=patient_guide_url(),
     )
 
     if clinic.get("is_demo"):
@@ -260,6 +271,7 @@ def main(argv: list[str] | None = None) -> int:
         clinic_name="SES test",
         office_phone=None,
         sign_in_url=patient_sign_in_url() or "https://example.org/sign-in",
+        guide_url=patient_guide_url(),
     )
     email = RenderedEmail(f"[TEST] {base.subject}", base.text, base.html)
     if args.dry_run:

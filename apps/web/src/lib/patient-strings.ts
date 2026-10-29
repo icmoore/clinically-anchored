@@ -26,6 +26,8 @@ export const PATIENT_TEXT = {
     note: "You can send one message in each scheduled period. When your care team writes to you, you can send one reply.",
     gotIt: "Got it",
     reopen: "How this works",
+    // A link to the public patient guide (/guide), inside the panel.
+    guideLink: "Read the full patient guide",
   },
 
   // The one main sentence about what the patient can do now.
@@ -102,6 +104,7 @@ export const PATIENT_TEXT = {
   siteLinks: {
     patientSignIn: "Patient sign-in",
     careTeamLogin: "Care team login",
+    patientGuide: "Patient guide",
     patientPrompt: "Are you a patient?",
     patientLink: "Sign in here",
     // The patient's card in the sign-in band at the bottom of the landing page.
@@ -134,6 +137,9 @@ export const PATIENT_TEXT = {
     otherEmail: "Use a different email",
     staySignedIn: "You will stay signed in on this device.",
     noEmail: "No email? Your surgeon's office can give you a sign-in link.",
+    // A link to the public patient guide (/guide), on both steps.
+    guidePrompt: "New to this?",
+    guideLink: "Read the patient guide",
     // For a clinician who opened this page by mistake.
     careTeamPrompt: "Are you on the care team?",
     careTeamLink: "Log in here",

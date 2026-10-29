@@ -7,9 +7,9 @@ const navLink = "rounded px-1 py-1 text-sm text-muted hover:text-ink";
 
 /** The public top bar, shared by the landing page and both sign-in pages so each
  *  always has a way back. The anchors are root-relative so they work from /login too. */
-export function SiteNav({ current }: { current?: "login" | "sign-in" }) {
+export function SiteNav({ current }: { current?: "login" | "sign-in" | "guide" }) {
   return (
-    <header className="site-nav sticky top-0 z-10 border-b border-border bg-canvas/90 backdrop-blur">
+    <header className="site-nav sticky top-0 z-10 border-b border-border bg-canvas/90 backdrop-blur print:hidden">
       <nav
         aria-label="Main"
         className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-5 gap-y-1 px-4 py-3"
@@ -34,6 +34,13 @@ export function SiteNav({ current }: { current?: "login" | "sign-in" }) {
             {T.careTeamLogin}
           </Link>
         </div>
+        <Link
+          href="/guide"
+          aria-current={current === "guide" ? "page" : undefined}
+          className={`${navLink} ${current === "guide" ? "font-medium text-ink" : ""}`}
+        >
+          {T.patientGuide}
+        </Link>
         <Link href="/" className="rounded text-sm font-semibold text-link hover:text-link-hover">
           Clinically Anchored
         </Link>

@@ -135,6 +135,23 @@ def test_invite_points_at_the_sign_in_page(ses, db):
     assert "https://app.clinic.example.org/sign-in" in text
 
 
+def test_both_emails_link_the_patient_guide_on_the_web_apps_address(ses, db):
+    send(db, template="invite")
+    send(db, template="sign_in_code", code="123456")
+    for sent in ses.sent:
+        text = sent["Content"]["Simple"]["Body"]["Text"]["Data"]
+        assert "New to this? Read the patient guide:" in text
+        assert "https://app.clinic.example.org/guide" in text
+
+
+def test_a_code_email_with_no_web_address_just_leaves_the_guide_line_out(ses, db, monkeypatch):
+    monkeypatch.setattr(get_settings(), "web_base_url", "")
+    monkeypatch.setattr(get_settings(), "environment", "production")
+    send(db, template="sign_in_code", code="123456")
+    text = ses.sent[0]["Content"]["Simple"]["Body"]["Text"]["Data"]
+    assert "123456" in text and "guide" not in text.lower()
+
+
 # --- the outbox row ----------------------------------------------------------------
 
 

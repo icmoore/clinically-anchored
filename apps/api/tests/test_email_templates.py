@@ -40,6 +40,26 @@ def test_sign_in_code_email_has_the_code_and_how_long_it_works():
                     code_valid_minutes=5).text.count("5 minutes") == 1
 
 
+GUIDE = "https://app.example.org/guide"
+
+
+@pytest.mark.parametrize("make", [invite, code_email])
+def test_both_emails_point_at_the_patient_guide_when_there_is_an_address_for_it(make):
+    e = make(guide_url=GUIDE)
+    for body in (e.text, e.html):
+        assert "New to this? Read the patient guide:" in body
+        assert GUIDE in body
+    assert f'<a href="{GUIDE}">' in e.html
+    assert GUIDE not in e.subject
+
+
+@pytest.mark.parametrize("make", [invite, code_email])
+def test_without_a_guide_address_the_guide_lines_are_left_out_without_a_hole(make):
+    e = make()
+    assert "guide" not in e.text.lower() and "guide" not in e.html.lower()
+    assert "\n\n\n" not in e.text and "None" not in e.text
+
+
 def test_no_phone_on_file_leaves_the_phone_line_out_without_a_hole():
     e = t.render(t.INVITE, clinic_name="C", office_phone=None, sign_in_url=URL)
     assert "call the office" not in e.text and "None" not in e.text

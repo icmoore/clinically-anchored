@@ -1,0 +1,7 @@
+{
+  "codeDigits": 6,
+  "codeValidMinutes": 10,
+  "sessionDays": 30,
+  "wrongDatesBeforeLock": 3,
+  "linkValidHours": 24
+}

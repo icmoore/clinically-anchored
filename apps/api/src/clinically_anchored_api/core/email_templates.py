@@ -39,7 +39,8 @@ _SUBJECT = {
     SIGN_IN_CODE: "Your {clinic} sign-in code",
 }
 
-# Paragraphs, in order. A paragraph with an empty result (no phone on file) is left out.
+# Paragraphs, in order. A paragraph with an empty result (no phone on file, no web address for the
+# guide) is left out.
 _PARAGRAPHS = {
     INVITE: [
         "Hello,",
@@ -48,6 +49,8 @@ _PARAGRAPHS = {
         "{url}",
         "We will email you a code to sign in. You do not need a password.",
         "If you were not expecting this, you can ignore this email.",
+        "{guide_intro}",
+        "{guide_url}",
         "{phone_line}",
     ],
     SIGN_IN_CODE: [
@@ -56,11 +59,15 @@ _PARAGRAPHS = {
         "{code}",
         "It works for {minutes} minutes. Do not share it with anyone.",
         "If you did not ask for this code, you can ignore this email.",
+        "{guide_intro}",
+        "{guide_url}",
         "{phone_line}",
     ],
 }
 
 _PHONE_LINE = "If you have questions, call the office at {phone}."
+# Points at the public patient guide (the web app's /guide page). Left out when there is no address.
+_GUIDE_INTRO = "New to this? Read the patient guide:"
 
 
 def _clean(value: str) -> str:
@@ -76,8 +83,10 @@ def render(
     sign_in_url: str | None = None,
     code: str | None = None,
     code_valid_minutes: int = CODE_VALID_MINUTES,
+    guide_url: str | None = None,
 ) -> RenderedEmail:
-    """Fill `template`. The invite needs `sign_in_url`; the sign-in code needs `code`."""
+    """Fill `template`. The invite needs `sign_in_url`; the sign-in code needs `code`. `guide_url`
+    (the patient guide page) is optional: without it the guide lines are left out."""
     if template not in TEMPLATES:
         raise ValueError(f"unknown email template {template!r}")
     if template == INVITE and not sign_in_url:
@@ -92,6 +101,8 @@ def render(
         "url": sign_in_url or "",
         "code": code or "",
         "minutes": str(code_valid_minutes),
+        "guide_intro": _GUIDE_INTRO if guide_url else "",
+        "guide_url": guide_url or "",
         "phone_line": _PHONE_LINE.format(phone=phone) if phone else "",
     }
 
@@ -111,7 +122,9 @@ def _html(template: str, paragraphs: list[str], values: dict[str, str]) -> str:
     body = []
     for p in paragraphs:
         safe = escape(p)
-        if template == INVITE and p == values["url"]:
+        if (template == INVITE and p == values["url"]) or (
+            values["guide_url"] and p == values["guide_url"]
+        ):
             body.append(f'<p><a href="{escape(p, quote=True)}">{safe}</a></p>')
         elif template == SIGN_IN_CODE and p == values["code"]:
             body.append(

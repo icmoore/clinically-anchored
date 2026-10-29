@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useSyncExternalStore } from "react";
 import { PATIENT_TEXT } from "@/lib/patient-strings";
 
@@ -66,6 +67,11 @@ export function PatientExplainer() {
         ))}
       </ol>
       <p className="mt-2 text-sm">{T.note}</p>
+      <p className="mt-2 text-sm">
+        <Link href="/guide" className="text-link underline hover:text-link-hover">
+          {T.guideLink}
+        </Link>
+      </p>
       <button
         type="button"
         onClick={dismiss}
