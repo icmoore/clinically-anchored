@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { PATIENT_TEXT } from "@/lib/patient-strings";
+
+const T = PATIENT_TEXT.siteLinks;
 
 const navLink = "rounded px-1 py-1 text-sm text-muted hover:text-ink";
 
@@ -11,15 +14,25 @@ export function SiteNav({ current }: { current?: "login" }) {
         aria-label="Main"
         className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-5 gap-y-1 px-4 py-3"
       >
-        <Link
-          href="/login"
-          aria-current={current === "login" ? "page" : undefined}
-          className={`rounded-md border border-primary px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary-tint ${
-            current === "login" ? "bg-primary-tint" : ""
-          }`}
-        >
-          Login
-        </Link>
+        {/* The two ways in, side by side where "Login" used to be. The patient one is the filled
+            button and the care team one the outlined one, so a patient picks the right one. */}
+        <div className="flex items-center gap-2">
+          <Link
+            href="/sign-in"
+            className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-hover active:bg-primary-active"
+          >
+            {T.patientSignIn}
+          </Link>
+          <Link
+            href="/login"
+            aria-current={current === "login" ? "page" : undefined}
+            className={`rounded-md border border-primary px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary-tint ${
+              current === "login" ? "bg-primary-tint" : ""
+            }`}
+          >
+            {T.careTeamLogin}
+          </Link>
+        </div>
         <Link href="/" className="rounded text-sm font-semibold text-primary">
           Clinically Anchored
         </Link>

@@ -54,11 +54,15 @@ Reject use the flag text/border colors, metadata badges are neutral. Light schem
 mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globals.css`).
 
 - `/`: public landing page (`app/page.tsx`: hero, how it works, why it's different, sign-in
-  call to action; nav with Login at far left). All copy is a draft, marked `COPY: DRAFT` at the
+  call to action; nav (`components/site-nav.tsx`, also on `/login`) with two buttons at far left: a filled
+  **Patient sign-in** (to `/sign-in`) and an outlined **Care team login** (to `/login`); the hero and
+  closing "Login" buttons still go to `/login`). All copy is a draft, marked `COPY: DRAFT` at the
   top of that file. It used to redirect to `/dashboard`; a visitor who already has
   a clinician session is still sent there (`components/signed-in-redirect.tsx`, client side,
   since the session lives in the browser). No middleware is involved.
-- `/login`: clinician email + password via Supabase Auth (session handling only; all data
+- `/login`: clinician email + password via Supabase Auth, with an "Are you a patient? Sign in here" link to
+  `/sign-in` under the form (words in `lib/patient-strings.ts`; `/sign-in` has the matching "Are you on
+  the care team? Log in here" link, on its email step) (session handling only; all data
   goes through `apps/api`).
 - **Signed-in clinician** (`lib/use-clinician.ts`, used by the dashboard and the patient page): checks the
   session, then asks the api `/me`. If that has not finished after 15 seconds it stops showing

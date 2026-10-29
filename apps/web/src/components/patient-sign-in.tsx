@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ApiError, requestSignInCode, verifySignInCode } from "@/lib/api";
@@ -90,6 +91,12 @@ export function PatientSignIn() {
           </button>
         </form>
         <p className="mt-4 text-sm text-muted">{T.noEmail}</p>
+        <p className="mt-4 text-sm text-muted">
+          {T.careTeamPrompt}{" "}
+          <Link href="/login" className="text-primary underline">
+            {T.careTeamLink}
+          </Link>
+        </p>
       </PatientFrame>
     );
   }
