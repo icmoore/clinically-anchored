@@ -54,7 +54,7 @@ Reject use the flag text/border colors, metadata badges are neutral. Light schem
 mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globals.css`).
 
 - `/`: public landing page (`app/page.tsx`: hero, how it works, why it's different, sign-in
-  call to action; nav (`components/site-nav.tsx`, also on `/login`) with two buttons at far left: a filled
+  call to action; nav (`components/site-nav.tsx`, also on `/login` and `/sign-in`) with two buttons at far left: a filled
   **Patient sign-in** (to `/sign-in`) and an outlined **Care team login** (to `/login`); the hero and
   closing "Login" buttons still go to `/login`). All copy is a draft, marked `COPY: DRAFT` at the
   top of that file. It used to redirect to `/dashboard`; a visitor who already has
@@ -171,7 +171,8 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
     (it is shown once, works once, lasts 24 hours, and the patient is asked their surgery date), and
     the latest invite email's fate: sent, saved in the Demo inbox, failed, or refused).
   Summary and Draft a reply with AI need AWS credentials set on the api (Bedrock); without them they show the api's error.
-- **Patient sign-in (patient accounts).** A patient signs in at `/sign-in` with their email and a
+- **Patient sign-in (patient accounts).** A patient signs in at `/sign-in` (under the site's top bar, like `/login`, so
+  `PatientFrame` takes `underNav` there and fills what is left of the screen) with their email and a
   code (`components/patient-sign-in.tsx`; no password; the answer to "send me a code" is the same
   for every address; a 503 from the api, meaning sign-in is not set up on the server, says "Sign-in isn't available right now" and to call the office). The session lives in its own Supabase client (`lib/patient-session.ts`, storage
   key `ca-patient-auth`), so it never replaces a clinician's session in the same browser and signing

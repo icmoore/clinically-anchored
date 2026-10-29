@@ -5,9 +5,9 @@ const T = PATIENT_TEXT.siteLinks;
 
 const navLink = "rounded px-1 py-1 text-sm text-muted hover:text-ink";
 
-/** The public top bar, shared by the landing page and /login so the sign-in page
+/** The public top bar, shared by the landing page and both sign-in pages so each
  *  always has a way back. The anchors are root-relative so they work from /login too. */
-export function SiteNav({ current }: { current?: "login" }) {
+export function SiteNav({ current }: { current?: "login" | "sign-in" }) {
   return (
     <header className="site-nav sticky top-0 z-10 border-b border-border bg-canvas/90 backdrop-blur">
       <nav
@@ -19,6 +19,7 @@ export function SiteNav({ current }: { current?: "login" }) {
         <div className="flex items-center gap-2">
           <Link
             href="/sign-in"
+            aria-current={current === "sign-in" ? "page" : undefined}
             className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-hover active:bg-primary-active"
           >
             {T.patientSignIn}

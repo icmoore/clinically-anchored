@@ -69,7 +69,7 @@ export function PatientSignIn() {
 
   if (step === "email") {
     return (
-      <PatientFrame title={T.title}>
+      <PatientFrame title={T.title} underNav>
         <p className="text-ink">{T.intro}</p>
         <form onSubmit={sendCode} className="mt-4">
           <label htmlFor="email" className="block text-sm font-medium text-ink">
@@ -102,7 +102,7 @@ export function PatientSignIn() {
   }
 
   return (
-    <PatientFrame title={T.codeTitle}>
+    <PatientFrame title={T.codeTitle} underNav>
       <p className="text-ink">{T.codeSent}</p>
       <p className="mt-1 text-sm text-muted">{T.codeValid}</p>
       <form onSubmit={signIn} className="mt-4">
