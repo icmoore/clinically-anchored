@@ -634,6 +634,43 @@ def test_an_email_that_belongs_to_staff_cannot_become_a_patient_account(env):
     assert "create_user" not in env.gt.calls
 
 
+def test_an_email_another_account_holds_is_refused_clearly_on_save_and_on_resend(env):
+    one = env.add_patient("One", "one@mail.org")
+    two = env.add_patient("Two", "two@mail.org")
+    env.act(one, "invite")
+    env.act(two, "invite")
+
+    # Saving the other patient's address (live account) is refused up front, and nothing changes.
+    r = env.client.put(env.url(two, "/email"), headers=env.staff(), json={"email": "one@mail.org"})
+    assert r.status_code == 409 and "another patient" in r.json()["detail"]
+    assert env.c.execute("select email from patients where id = %s", (two,)).fetchone()[
+        "email"] == "two@mail.org"
+
+    # Even if the address was changed behind the api's back, Resend says so instead of failing.
+    env.c.execute("update patients set email = 'one@mail.org' where id = %s", (two,))
+    r = env.act(two, "resend")
+    assert r.status_code == 409 and "already" in r.json()["detail"]
+    assert env.gt.users[str(env.account(two)["user_id"])]["email"] == "two@mail.org"
+    assert env.audit_types().count("patient_account.invited") == 2  # nothing was audited for it
+
+
+def test_an_address_held_by_a_turned_off_patient_or_by_staff_is_refused_too(env):
+    one = env.add_patient("One", "one@mail.org")
+    two = env.add_patient("Two", "two@mail.org")
+    env.act(one, "invite")
+    env.act(one, "turn-off")  # the address stays with that sign-in
+    env.act(two, "invite")
+    r = env.client.put(env.url(two, "/email"), headers=env.staff(), json={"email": "one@mail.org"})
+    assert r.status_code == 409
+    staff_email = env.c.execute("select email from auth.users where id = %s", (env.w.user_a,)
+                                ).fetchone()["email"]
+    r = env.client.put(env.url(two, "/email"), headers=env.staff(), json={"email": staff_email})
+    assert r.status_code == 409 and "staff" in r.json()["detail"]
+    # An address nobody holds is fine.
+    assert env.client.put(env.url(two, "/email"), headers=env.staff(),
+                          json={"email": "free@mail.org"}).status_code == 200
+
+
 def test_the_account_view_shows_each_state(env):
     pid = env.add_patient()
     url = env.url(pid, "/account")
