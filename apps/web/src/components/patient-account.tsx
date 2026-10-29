@@ -29,10 +29,12 @@ export function PatientAccountSection({
   clinicId,
   patientId,
   role,
+  onChanged,
 }: {
   clinicId: string;
   patientId: string;
   role: string;
+  onChanged?: () => void; // the page's own copy of the patient (name, email) is now stale
 }) {
   const fetchAccount = useCallback(() => getAccount(clinicId, patientId), [clinicId, patientId]);
   const { data: account, failed, reload } = usePolling(fetchAccount, REFRESH_MS);
@@ -48,6 +50,7 @@ export function PatientAccountSection({
       await action();
       setConfirmOff(false);
       reload();
+      onChanged?.();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "That didn't work. Please try again.");
     } finally {

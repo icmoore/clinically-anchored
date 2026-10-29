@@ -69,3 +69,11 @@ export function shortDay(iso: string, timeZone: string | null): string {
     day: "numeric",
   });
 }
+
+/** The line under a patient's name: the sign-in email first, then the phone. `contact` is the
+ *  older free-text field (some rows hold an email there), so it only shows when it isn't an
+ *  email, otherwise it would sit beside, or in front of, the address the clinic just changed. */
+export function contactLine(patient: { email: string | null; contact: string | null }): string | null {
+  const phone = patient.contact && !patient.contact.includes("@") ? patient.contact : null;
+  return [patient.email, phone].filter(Boolean).join(" · ") || null;
+}
