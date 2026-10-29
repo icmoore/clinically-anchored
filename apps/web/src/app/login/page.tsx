@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { SiteNav } from "@/components/site-nav";
+import { PATIENT_TEXT } from "@/lib/patient-strings";
 import { supabase } from "@/lib/supabase";
 
 export default function LoginPage() {
@@ -70,6 +72,12 @@ export default function LoginPage() {
             {busy ? "Signing in..." : "Sign in"}
           </button>
         </form>
+        <p className="mt-6 text-sm text-muted">
+          {PATIENT_TEXT.siteLinks.patientPrompt}{" "}
+          <Link href="/sign-in" className="text-primary underline">
+            {PATIENT_TEXT.siteLinks.patientLink}
+          </Link>
+        </p>
       </div>
     </>
   );

@@ -97,6 +97,15 @@ export const PATIENT_TEXT = {
     ],
   },
 
+  // The two ways in from the public website, side by side in its top bar, and the "wrong page?" line
+  // on the clinician login. A patient reads all of these to pick the right one. PLACEHOLDER wording.
+  siteLinks: {
+    patientSignIn: "Patient sign-in",
+    careTeamLogin: "Care team login",
+    patientPrompt: "Are you a patient?",
+    patientLink: "Sign in here",
+  },
+
   // Signing in: an email, then a code from that email. No password. The api answers the same way
   // for every address, so nothing here may suggest the email "was not found".
   signIn: {
@@ -122,6 +131,9 @@ export const PATIENT_TEXT = {
     otherEmail: "Use a different email",
     staySignedIn: "You will stay signed in on this device.",
     noEmail: "No email? Your surgeon's office can give you a sign-in link.",
+    // For a clinician who opened this page by mistake.
+    careTeamPrompt: "Are you on the care team?",
+    careTeamLink: "Log in here",
     sessionEnded: "Please sign in again.",
   },
 
