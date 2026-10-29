@@ -38,6 +38,13 @@ actions), `api/auth_hooks.py` (Supabase's email hook), migration 18.
 6. **Fallback link** (owner/clinician; for a patient with no email): single use, 24 hours, shown once
    (only its hash is stored), and it asks for the surgery date every time it is opened.
 
+Supabase Auth allows one login per address, so an address stays with the login that has it. Changing
+a patient's email (only while access is off, invited or locked) renames that patient's own login too,
+which frees the old address. A turned-off login that still has an address its patient no longer uses
+(from before this rename existed) is given a placeholder address the moment someone else needs it;
+re-inviting that patient puts their own address back. An address held by a staff login, a live
+account, or a patient who still has that address is refused with a plain reason.
+
 Clinician routes refuse a patient token, and patient routes refuse a clinician token.
 
 ## What you set up
