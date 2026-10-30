@@ -215,7 +215,11 @@ def test_no_function_that_changes_anything_is_callable_by_a_signed_in_user(db):
         "has_function_privilege('authenticated', p.oid, 'execute') as auth_ok, "
         "has_function_privilege('anon', p.oid, 'execute') as anon_ok "
         "from pg_proc p join pg_namespace n on n.oid = p.pronamespace "
-        "where n.nspname = 'public' and p.prorettype <> 'trigger'::regtype").fetchall()
+        "where n.nspname = 'public' and p.prorettype <> 'trigger'::regtype "
+        # not an extension's own functions (pgcrypto's land in public on a plain Postgres; on
+        # Supabase they live in the `extensions` schema)
+        "and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')"
+    ).fetchall()
     harmless = {"is_clinic_member", "is_any_clinic_member", "schedule_offsets_ok"}
     callable_ = sorted(r["proname"] for r in rows if (r["auth_ok"] or r["anon_ok"])
                        and r["proname"] not in harmless)
