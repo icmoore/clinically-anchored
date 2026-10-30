@@ -59,6 +59,12 @@ export default function PatientPage() {
   );
 }
 
+/** A 404 from the api as `null`, so a patient that is not in this clinic is a state, not an error. */
+function nullOnNotFound(err: unknown): null {
+  if (err instanceof ApiError && err.status === 404) return null;
+  throw err;
+}
+
 function PatientView({
   clinicId,
   role,
@@ -91,20 +97,21 @@ function PatientView({
 
   const fetchAll = useCallback(async () => {
     const [patient, episode, checkIns, thread, drafts, touchpoints] = await Promise.all([
-      // This one patient (a 404 means they are not in this clinic: "Patient not found").
-      getPatient(clinicId, patientId).catch((err: unknown) => {
-        if (err instanceof ApiError && err.status === 404) return null;
-        throw err;
-      }),
+      // This one patient. A 404 (here or on the thread) means there is no such patient in this
+      // clinic: the page says "Patient not found" rather than waiting for the rest.
+      getPatient(clinicId, patientId).catch(nullOnNotFound),
       // The latest episode, settled if its schedule has run out. No episode: the card says so.
       getEpisode(clinicId, patientId).catch(() => null),
       listCheckIns(clinicId, patientId),
-      listThread(clinicId, patientId),
+      listThread(clinicId, patientId).catch(nullOnNotFound),
       // Drafts are an add-on: if they fail to load, the rest of the page still works.
       listDrafts(clinicId, patientId).catch(() => null),
       // Likewise the contact log.
       listTouchpoints(clinicId, patientId).catch(() => null),
     ]);
+    if (patient === null || thread === null) {
+      return { patient: null, episode: null, checkIns: null, thread: null, drafts: null, touchpoints: null };
+    }
     // Viewing the thread counts as reading the patient's new messages.
     for (const m of thread) {
       // An extension request is answered by deciding it; it is never "unread".
@@ -133,17 +140,38 @@ function PatientView({
   const error = failed ? "Couldn't refresh. Retrying..." : null;
   const load = reload;
 
-  if (patient === undefined) return <p className="p-6 text-muted">Loading...</p>;
+  if (patient === undefined) {
+    return failed ? (
+      <p className="p-6 text-flag-text">
+        Couldn&apos;t load this patient.{" "}
+        <button
+          type="button"
+          onClick={load}
+          className="font-medium text-link underline hover:text-link-hover"
+        >
+          Try again
+        </button>
+      </p>
+    ) : (
+      <p className="p-6 text-muted">Loading...</p>
+    );
+  }
   if (patient === null) {
     return (
       <p className="p-6 text-muted">
-        Patient not found. <Link href="/dashboard" className="underline">Back to dashboard</Link>
+        Patient not found.{" "}
+        <Link
+          href="/dashboard"
+          className="inline-block py-3 font-medium text-link underline hover:text-link-hover"
+        >
+          Back to dashboard
+        </Link>
       </p>
     );
   }
 
   return (
-    <main className="mx-auto max-w-3xl space-y-8 px-4 py-6">
+    <main className="mx-auto w-full max-w-3xl space-y-8 px-4 py-6">
       <div>
         <Link href="/dashboard" className="text-sm text-muted hover:underline">
           &larr; Dashboard

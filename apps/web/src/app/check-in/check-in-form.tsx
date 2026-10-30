@@ -45,7 +45,7 @@ export function CheckInPageContent() {
 
 function CheckInLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mx-auto flex min-h-screen max-w-md flex-col px-6 py-12">
+    <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-6 py-12">
       <div className="mb-6 flex items-start justify-between gap-3">
         <h1 className="text-xl font-semibold text-ink">Post-op check-in</h1>
         <SignOutButton />
