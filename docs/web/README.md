@@ -94,11 +94,20 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   no longer one of theirs, or storage is blocked, the first clinic from `/me` opens. Switching does a
   full page load of `/dashboard`, so the queue is the new clinic's and no patient from the old one stays
   open. It is a convenience, not a permission: the api checks membership on every request.
-- `/dashboard`: "Needs attention" queue (red flags first, then latest activity; unchanged
-  ordering: each card also shows a chip per unread message category, and today's day after
-  surgery), add patient (the clinic enters the **surgery date and procedure**, both required;
-  they create the patient's care period), and all patients, each with where their care period
-  stands ("Check-in pending", "Window 3 of 9 open", "Discharged", ...). A patient whose sign-in the
+- `/dashboard`: three sections. **Needs attention**: the queue (red flags first, then latest
+  activity; each card also shows a chip per unread message category, and today's day after
+  surgery); never paged or filtered, refreshed every 15 s. **All patients**
+  (`components/patient-list.tsx`, `lib/patient-filters.ts`): one page of patients, each with where
+  their care period stands ("Check-in pending", "Window 3 of 9 open", "Discharged", ...); a
+  **Filters** button opens a panel (Status: Active / Ended / All, Surgery date: Any / This week /
+  Last week / This month / Last month / Pick a month, Show: 5 / 10 / 20), next to a name search
+  (debounced 300 ms); active filters show as removable chips with **Clear filters**; "1-5 of 48" and
+  Previous / Next sit below the list. The view lives in the address (`?status=ended&surgery=this_week&show=10&q=ann&page=2`;
+  defaults are left out), a filter or search change goes back to page 1, and the list reloads when the
+  view changes, after a patient is added, and otherwise every 60 s. **Patient management** (bottom):
+  "+ Add patient" opens the form (the clinic enters the **surgery date and procedure**, both
+  required; they create the patient's care period); after adding, the list reloads and the form stays
+  open and empty for the next patient. A patient whose sign-in the
   surgery-date check locked also has an amber **"Account locked"** tag (`components/locked-tag.tsx`,
   from the list's `account_status`) under their contact line; hovering shows why and tapping shows
   the same words under the tag ("Locked after 3 wrong surgery dates. Re-invite the patient from

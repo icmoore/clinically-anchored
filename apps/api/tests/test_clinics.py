@@ -4,11 +4,13 @@ their episode too (the clinic enters the surgery date and procedure)."""
 import pytest
 from fastapi.testclient import TestClient
 
+from clinically_anchored_api.core import episodes as episodes_core
 from clinically_anchored_api.main import app
 from tests.fakes import (
     AUTH,
     CLINIC_A,
     CLINIC_B,
+    NOW,
     PROC_A,
     USER,
     V2_ROW,
@@ -55,28 +57,145 @@ def test_me_requires_auth(client):
 
 def test_patient_endpoints_are_tenant_scoped(client):
     assert client.get(f"/clinics/{B}/patients", headers=AUTH).status_code == 403
+    assert client.get(f"/clinics/{B}/patients/pb", headers=AUTH).status_code == 403
     assert client.post(f"/clinics/{B}/patients", headers=AUTH, json=NEW).status_code == 403
 
 
-def test_list_patients_sorted_by_name_and_clinic_only(client):
-    names = [p["full_name"] for p in client.get(f"/clinics/{A}/patients", headers=AUTH).json()]
-    assert names == ["Amy", "Zed"]
+def _page(fake, items=(), total=None):
+    """Register a canned `list_patients_page` (what the database does is tested in
+    tests/db/test_patient_list.py); returns the list the api's calls are recorded in."""
+    calls = []
+
+    def handler(params):
+        calls.append(params)
+        return {"items": list(items), "total": len(items) if total is None else total}
+
+    fake.rpc_handlers["list_patients_page"] = handler
+    return calls
 
 
-def test_list_patients_carries_each_patients_latest_episode_and_where_it_stands(client, fake):
+def _row(patient, episode=None, account_status="none"):
+    return {"id": patient["id"], "full_name": patient["full_name"], "contact": patient["contact"],
+            "email": patient.get("email"), "created_at": patient["created_at"],
+            "account_status": account_status, "episode": episode}
+
+
+def test_the_list_is_one_database_page_with_state_computed_only_for_that_page(
+    client, fake, monkeypatch
+):
+    mine = fake.add_episode(id="e-new", patient="p0", surgery_date="2026-10-01",
+                            checkin_completed_at="2026-10-02T12:00:00+00:00")
+    fake.add_episode(id="e-other", patient="p1", surgery_date="2026-09-01")  # not on the page
+    page = [_row(fake.tables["patients"][1], mine, "locked")]
+    calls = _page(fake, page, total=48)
+    seen = []
+    real = episodes_core.states_for
+    monkeypatch.setattr(
+        episodes_core, "states_for",
+        lambda sb, eps, *a, **k: seen.append([e["id"] for e in eps]) or real(sb, eps, *a, **k),
+    )
+
+    body = client.get(f"/clinics/{A}/patients", headers=AUTH).json()
+
+    assert (body["total"], body["limit"], body["offset"]) == (48, 5, 0)
+    (item,) = body["items"]
+    assert (item["full_name"], item["account_status"]) == ("Amy", "locked")
+    ep = item["episode"]
+    assert ep["id"] == "e-new" and ep["timezone"] == "America/Toronto"
+    assert (ep["state"]["phase"], ep["state"]["interval_no"], ep["state"]["post_op_day"]) == (
+        "open", 1, 2,
+    )
+    assert seen == [["e-new"]]
+    assert calls == [{
+        "p_clinic_id": A, "p_now": NOW.isoformat(), "p_status": "active", "p_surgery_from": None,
+        "p_surgery_to": None, "p_q": None, "p_limit": 5, "p_offset": 0,
+    }]
+
+
+def test_a_patient_with_no_care_period_comes_back_without_an_episode(client, fake):
+    _page(fake, [_row(fake.tables["patients"][0])])
+    (item,) = client.get(f"/clinics/{A}/patients?status=all", headers=AUTH).json()["items"]
+    assert item["episode"] is None and item["email"] is None
+
+
+def test_filters_are_passed_to_the_database(client, fake):
+    calls = _page(fake)
+    r = client.get(
+        f"/clinics/{A}/patients?status=ended&surgery_from=2026-09-01&surgery_to=2026-09-30"
+        "&q=%20%20am%20%20&limit=50&offset=100", headers=AUTH)
+    assert r.status_code == 200
+    (params,) = calls
+    assert (params["p_status"], params["p_surgery_from"], params["p_surgery_to"], params["p_q"],
+            params["p_limit"], params["p_offset"]) == (
+        "ended", "2026-09-01", "2026-09-30", "am", 50, 100)
+    assert (r.json()["surgery_from"], r.json()["surgery_to"]) == ("2026-09-01", "2026-09-30")
+
+
+@pytest.mark.parametrize(
+    "query, from_, to",
+    [
+        ("surgery_range=this_week", "2026-09-28", "2026-10-04"),  # NOW is Saturday 3 Oct, Toronto
+        ("surgery_range=last_week", "2026-09-21", "2026-09-27"),
+        ("surgery_range=this_month", "2026-10-01", "2026-10-31"),
+        ("surgery_range=last_month", "2026-09-01", "2026-09-30"),
+        ("surgery_month=2026-02", "2026-02-01", "2026-02-28"),
+        ("surgery_month=2028-02", "2028-02-01", "2028-02-29"),
+        ("surgery_from=2026-09-01", "2026-09-01", None),
+        ("surgery_to=2026-09-30", None, "2026-09-30"),
+    ],
+)
+def test_the_surgery_filter_resolves_to_inclusive_dates(client, fake, query, from_, to):
+    calls = _page(fake)
+    assert client.get(f"/clinics/{A}/patients?{query}", headers=AUTH).status_code == 200
+    assert (calls[0]["p_surgery_from"], calls[0]["p_surgery_to"]) == (from_, to)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "limit=51", "limit=0", "limit=-1", "limit=abc", "offset=-1", "offset=abc",
+        "status=bogus", "status=", "surgery_range=next_week", "surgery_month=2026-13",
+        "surgery_month=2026-00", "surgery_month=0000-01", "surgery_month=2026-1",
+        "surgery_from=yesterday", "surgery_to=2026-02-30", "q=" + "x" * 101,
+        "surgery_range=this_week&surgery_month=2026-02",
+        "surgery_range=this_week&surgery_from=2026-09-01",
+        "surgery_month=2026-02&surgery_to=2026-09-01",
+        "surgery_from=2026-10-02&surgery_to=2026-10-01",
+    ],
+)
+def test_a_bad_parameter_is_refused_before_the_database_is_asked(client, fake, query):
+    calls = _page(fake)
+    assert client.get(f"/clinics/{A}/patients?{query}", headers=AUTH).status_code == 422
+    assert calls == []
+
+
+def test_a_blank_search_means_no_search(client, fake):
+    calls = _page(fake)
+    client.get(f"/clinics/{A}/patients?q=%20%20", headers=AUTH)
+    assert calls[0]["p_q"] is None
+
+
+def test_get_one_patient_carries_the_latest_episode_and_account_status(client, fake):
     fake.add_episode(id="e-old", patient="p0", surgery_date="2026-08-01",
                      created_at="2026-08-01T00:00:00+00:00",
                      closed_at="2026-09-20T12:00:00+00:00", close_reason="schedule_complete")
     fake.add_episode(id="e-new", patient="p0", surgery_date="2026-10-01",
                      checkin_completed_at="2026-10-02T12:00:00+00:00",
                      created_at="2026-10-01T00:00:00+00:00")
-    by_name = {p["full_name"]: p for p in client.get(f"/clinics/{A}/patients", headers=AUTH).json()}
-    assert by_name["Zed"]["episode"] is None
-    ep = by_name["Amy"]["episode"]
-    assert ep["id"] == "e-new" and ep["timezone"] == "America/Toronto"
-    assert (ep["state"]["phase"], ep["state"]["interval_no"], ep["state"]["post_op_day"]) == (
-        "open", 1, 2,
-    )
+    fake.tables["patients"][1]["email"] = "amy@mail.org"
+    fake.tables["patient_accounts"].append(
+        {"id": "a1", "clinic_id": A, "patient_id": "p0", "user_id": USER, "status": "locked"})
+    body = client.get(f"/clinics/{A}/patients/p0", headers=AUTH).json()
+    assert (body["full_name"], body["email"], body["account_status"]) == (
+        "Amy", "amy@mail.org", "locked")
+    assert body["episode"]["id"] == "e-new" and body["episode"]["state"]["phase"] == "open"
+    zed = client.get(f"/clinics/{A}/patients/p1", headers=AUTH).json()
+    assert zed["episode"] is None and zed["account_status"] == "none"
+
+
+def test_get_one_patient_of_another_clinic_is_not_found(client):
+    assert client.get(f"/clinics/{A}/patients/pb", headers=AUTH).status_code == 404
+    assert client.get(f"/clinics/{A}/patients/nobody", headers=AUTH).status_code == 404
 
 
 def test_create_patient_also_creates_the_episode_and_audits_both(client, fake):
@@ -143,10 +262,9 @@ def test_an_existing_episode_keeps_the_version_it_recorded(client, fake):
     # A v1 episode made before v2 existed, and a patient added now (v2), side by side.
     fake.add_episode(id="e-v1", patient="p0", surgery_date="2026-10-01", schedule_version=1,
                      checkin_completed_at="2026-10-02T12:00:00+00:00")
-    client.post(f"/clinics/{A}/patients", headers=AUTH, json=NEW)
-    listed = {p["full_name"]: p["episode"] for p in
-              client.get(f"/clinics/{A}/patients", headers=AUTH).json()}
-    old, new = listed["Amy"], listed["Test Person"]
+    created = client.post(f"/clinics/{A}/patients", headers=AUTH, json=NEW).json()
+    old = client.get(f"/clinics/{A}/patients/p0", headers=AUTH).json()["episode"]
+    new = client.get(f"/clinics/{A}/patients/{created['id']}", headers=AUTH).json()["episode"]
     assert (old["schedule_version"], new["schedule_version"]) == (1, 2)
     # NOW is Saturday 3 Oct 07:30 Toronto, day 2 after Thursday 1 Oct surgery. Under v1 that is
     # window 1 (opened 3 Oct 07:00, closes 4 Oct); under v2 window 1 runs to day 5, 6 Oct.
@@ -220,10 +338,10 @@ def test_a_malformed_patient_email_is_refused_before_anything_is_written(client,
     assert len(fake.tables["patients"]) == 3 and fake.audits == []
 
 
-def test_the_patient_list_carries_each_patients_email(client, fake):
+def test_a_patient_carries_the_email_their_account_invite_goes_to(client, fake):
     fake.tables["patients"][1]["email"] = "amy@mail.org"
-    by_id = {p["id"]: p["email"] for p in client.get(f"/clinics/{A}/patients", headers=AUTH).json()}
-    assert by_id == {"p1": None, "p0": "amy@mail.org"}
+    assert client.get(f"/clinics/{A}/patients/p0", headers=AUTH).json()["email"] == "amy@mail.org"
+    assert client.get(f"/clinics/{A}/patients/p1", headers=AUTH).json()["email"] is None
 
 
 def test_me_says_which_clinic_is_a_demo_clinic(client, fake):

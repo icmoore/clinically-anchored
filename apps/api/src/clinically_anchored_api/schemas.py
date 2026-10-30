@@ -487,6 +487,18 @@ class PatientOut(BaseModel):
     episode: EpisodeOut | None = None  # the latest episode
 
 
+class PatientPage(BaseModel):
+    """One page of the clinic's patient list. `total` counts every match, not just this page;
+    `surgery_from` / `surgery_to` echo the dates the surgery filter resolved to (clinic time)."""
+
+    items: list[PatientOut]
+    total: int
+    limit: int
+    offset: int
+    surgery_from: str | None = None
+    surgery_to: str | None = None
+
+
 # Consent types are slugs and wording versions are opaque labels: which ones
 # exist, and what they say, is decided outside this service (see
 # core/config.py `consent_types`). The shapes here only keep them well-formed.

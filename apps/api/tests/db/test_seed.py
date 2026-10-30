@@ -225,8 +225,9 @@ def test_the_api_shows_the_seeded_patients(env):
     )
     client = TestClient(app)
     headers = {"Authorization": f"Bearer user:{env.user_id}"}
-    listed = client.get(f"/clinics/{clinic_id}/patients", headers=headers).json()
-    assert len(listed) == 17
+    page = client.get(f"/clinics/{clinic_id}/patients?status=all&limit=50", headers=headers).json()
+    listed = page["items"]
+    assert len(listed) == page["total"] == 17
     phases = {p["full_name"]: p["episode"]["state"]["phase"] for p in listed}
     for plan in plans:
         # The latest episode is shown: patient 16's is the follow-up extension.
