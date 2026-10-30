@@ -9,6 +9,7 @@ import select
 import shutil
 import subprocess
 import time
+from urllib.parse import quote
 
 import pytest
 
@@ -356,7 +357,15 @@ def test_verify_passes_before_migration_9_too(db_pre9, tmp_path):
 # --- the real shell scripts, driven through a terminal -------------------------------------------
 
 def url_for(db) -> str:
-    return f"postgresql://{db.info.get('user', 'postgres')}:@/{db.name}?host={db.info['host']}"
+    """The scratch database as the scripts' DATABASE_URL: through the socket directory, or over TCP
+    with the user and password the test server needs (CI's Postgres service asks for one)."""
+    user = quote(db.info.get("user", "postgres"), safe="")
+    password = quote(db.info.get("password", ""), safe="")
+    host = db.info["host"]
+    if host.startswith("/"):
+        return f"postgresql://{user}:{password}@/{db.name}?host={host}"
+    port = f":{db.info['port']}" if db.info.get("port") else ""
+    return f"postgresql://{user}:{password}@{host}{port}/{db.name}"
 
 
 def run_in_terminal(cmd, env, answers, timeout=60):
