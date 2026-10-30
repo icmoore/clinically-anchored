@@ -56,7 +56,8 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
 - `/`: public landing page (`app/page.tsx`: hero, how it works, why it's different, and a sign-in band of
   two cards, "For patients" (to `/sign-in`) and "For the care team" (to `/login`); top bar (`components/site-nav.tsx`, also on `/login`, `/sign-in` and `/guide`): the brand name on the
   left and "Patient guide", "How it works" and "Why it's different" on the right, with no sign-in buttons
-  (the two cards and the hero "Login" button, which goes to `/login`, are the ways in from here; the two
+  (the hero has both buttons, "Care team login" and "Patient sign-in", next to "How it works", and the
+  two cards at the bottom are the same two ways in; the two
   sign-in pages link to each other, and the guide links to patient sign-in)). All copy is a draft, marked `COPY: DRAFT` at the
   top of that file. It used to redirect to `/dashboard`; a visitor who already has
   a clinician session is still sent there (`components/signed-in-redirect.tsx`, client side,

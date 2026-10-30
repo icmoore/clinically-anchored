@@ -77,7 +77,10 @@ export default function Home() {
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link href="/login" className={primaryButton}>
-                Login
+                {T.careTeamLogin}
+              </Link>
+              <Link href="/sign-in" className={primaryButton}>
+                {T.patientSignIn}
               </Link>
               <a href="#how-it-works" className={secondaryButton}>
                 How it works
