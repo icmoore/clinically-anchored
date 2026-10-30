@@ -34,17 +34,17 @@ export function SiteNav({ current }: { current?: "login" | "sign-in" | "guide" }
             {T.careTeamLogin}
           </Link>
         </div>
-        <Link
-          href="/guide"
-          aria-current={current === "guide" ? "page" : undefined}
-          className={`${navLink} ${current === "guide" ? "font-medium text-ink" : ""}`}
-        >
-          {T.patientGuide}
-        </Link>
         <Link href="/" className="rounded text-sm font-semibold text-link hover:text-link-hover">
           Clinically Anchored
         </Link>
         <div className="ml-auto flex items-center gap-4">
+          <Link
+            href="/guide"
+            aria-current={current === "guide" ? "page" : undefined}
+            className={`${navLink} ${current === "guide" ? "text-ink" : ""}`}
+          >
+            {T.patientGuide}
+          </Link>
           <Link href="/#how-it-works" className={navLink}>
             How it works
           </Link>
