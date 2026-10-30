@@ -6,19 +6,17 @@ import { SiteNav } from "./site-nav";
  *  saying which sign-in this is, then the form), and an optional footer under it (the patient
  *  page's urgent notice). */
 export function AuthPage({
-  current,
   subtitle,
   footer,
   children,
 }: {
-  current: "login" | "sign-in";
   subtitle: string;
   footer?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <div className="flex min-h-screen flex-col">
-      <SiteNav current={current} />
+      <SiteNav />
       <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center px-6 py-12">
         <h1 className="text-xl font-semibold text-ink">Clinically Anchored</h1>
         <p className="mb-6 mt-1 text-sm text-muted">{subtitle}</p>

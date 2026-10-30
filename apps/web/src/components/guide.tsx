@@ -108,7 +108,7 @@ function Heading({ id, level, children }: { id: string; level: 2 | 3; children: 
   return (
     <Tag
       id={id}
-      className={`group scroll-mt-36 break-after-avoid lg:scroll-mt-24 ${
+      className={`group scroll-mt-24 break-after-avoid ${
         level === 2 ? "text-2xl font-semibold tracking-tight" : "mt-8 text-lg font-semibold"
       }`}
     >

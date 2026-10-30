@@ -78,7 +78,7 @@ export function PatientSignIn() {
 
   if (signedIn !== "signed-out") {
     return (
-      <AuthPage current="sign-in" subtitle={T.title} footer={<UrgentNotice />}>
+      <AuthPage subtitle={T.title} footer={<UrgentNotice />}>
         <p className="text-muted">Loading...</p>
       </AuthPage>
     );
@@ -86,7 +86,7 @@ export function PatientSignIn() {
 
   if (step === "email") {
     return (
-      <AuthPage current="sign-in" subtitle={T.title} footer={<UrgentNotice />}>
+      <AuthPage subtitle={T.title} footer={<UrgentNotice />}>
         <p className="mb-4 text-ink">{T.intro}</p>
         <form onSubmit={sendCode}>
           <label htmlFor="email" className={labelClass}>
@@ -120,7 +120,7 @@ export function PatientSignIn() {
   }
 
   return (
-    <AuthPage current="sign-in" subtitle={T.codeTitle} footer={<UrgentNotice />}>
+    <AuthPage subtitle={T.codeTitle} footer={<UrgentNotice />}>
       <p className="text-ink">{T.codeSent}</p>
       <p className="mt-1 text-sm text-muted">{T.codeValid}</p>
       <form onSubmit={signIn} className="mt-4">

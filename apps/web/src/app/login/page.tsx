@@ -36,7 +36,7 @@ export default function LoginPage() {
   }
 
   return (
-    <AuthPage current="login" subtitle="Clinician sign-in">
+    <AuthPage subtitle="Clinician sign-in">
       <form onSubmit={handleSubmit}>
         <div>
           <label htmlFor="email" className={labelClass}>
