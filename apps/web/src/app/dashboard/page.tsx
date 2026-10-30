@@ -38,7 +38,7 @@ function Dashboard({ clinicId }: { clinicId: string }) {
   const error = failed ? "Couldn't refresh. Retrying..." : null;
 
   return (
-    <main className="mx-auto max-w-3xl space-y-8 px-4 py-6">
+    <main className="mx-auto w-full max-w-3xl space-y-8 px-4 py-6">
       {error && <p className="text-sm text-flag-text">{error}</p>}
 
       <section>
