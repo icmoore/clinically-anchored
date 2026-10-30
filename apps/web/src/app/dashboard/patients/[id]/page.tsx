@@ -19,13 +19,14 @@ import {
   Patient,
   Touchpoint,
   getEpisode,
+  getPatient,
   listCheckIns,
   listDrafts,
-  listPatients,
   listThread,
   listTouchpoints,
   markRead,
 } from "@/lib/clinician-api";
+import { ApiError } from "@/lib/api";
 import { categoryLabel } from "@/lib/categories";
 import { isExtensionEntry } from "@/lib/contact-stats";
 import { LockedTag } from "@/components/locked-tag";
@@ -89,8 +90,12 @@ function PatientView({
   );
 
   const fetchAll = useCallback(async () => {
-    const [patients, episode, checkIns, thread, drafts, touchpoints] = await Promise.all([
-      listPatients(clinicId),
+    const [patient, episode, checkIns, thread, drafts, touchpoints] = await Promise.all([
+      // This one patient (a 404 means they are not in this clinic: "Patient not found").
+      getPatient(clinicId, patientId).catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 404) return null;
+        throw err;
+      }),
       // The latest episode, settled if its schedule has run out. No episode: the card says so.
       getEpisode(clinicId, patientId).catch(() => null),
       listCheckIns(clinicId, patientId),
@@ -109,7 +114,7 @@ function PatientView({
       }
     }
     return {
-      patient: patients.find((p) => p.id === patientId) ?? null,
+      patient,
       episode,
       checkIns,
       thread,

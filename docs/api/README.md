@@ -150,9 +150,23 @@ Built (on `main`):
   `POST /clinics/{id}/check-ins/{id}/review` (idempotent, audited as `check_in.reviewed`).
   Migration 4 adds `check_ins.reviewed_at/by`. Queue reads cap at 1000 rows per query.
 - Clinic/patient management for the web app: `GET /me`, `GET`/`POST /clinics/{id}/patients`
-  (audited `patient.created` and `episode.created`; the list carries each patient's latest
-  episode and its computed state, and `account_status`: none / invited / active / locked / off,
-  which the web uses for the "Account locked" tag), and the episode routes above. Link issuance (audited
+  (audited `patient.created` and `episode.created`), `GET /clinics/{id}/patients/{pid}` (one
+  patient, same shape as a list row), and the episode routes above. Each patient carries their
+  latest episode and its computed state, and `account_status`: none / invited / active / locked /
+  off, which the web uses for the "Account locked" tag.
+  **The list is paged** (migration 19, `core/patient_list.py`): `status` (`active` default = the
+  latest care period is still running, `ended` = discharged or run out, `all` = also patients with
+  no care period), `surgery_range` (`this_week` / `last_week` / `this_month` / `last_month`, Monday
+  to Sunday and calendar months in America/Toronto) or `surgery_month=YYYY-MM` or
+  `surgery_from` / `surgery_to` (inclusive dates; give one of the three ways), `q` (name,
+  case-insensitive, partial), `limit` (1-50, default 5; more is a 422) and `offset`. It answers
+  `{items, total, limit, offset, surgery_from, surgery_to}`, newest surgery first then name, patients
+  with no care period last. Filtering, search, sort, count and paging run in the database
+  (`list_patients_page`); episode state is computed only for the page's patients. Active vs ended
+  is decided in SQL by `episode_is_ended` / `episode_schedule_end`, which restate
+  `core/schedule.py`'s episode end (tests/db/test_patient_list.py holds them to it for every seeded
+  state and one second either side of each end). The old unpaged array is gone: the dashboard and
+  the patient page (which now calls `GET .../patients/{pid}`) were its only callers. Link issuance (audited
   `link.issued`, token never logged) stands in for SMS/email delivery during trials; needs
   `WEB_BASE_URL` outside development.
   Patients stay link-only (no patient sign-in) -- decision for the trial; revisit with Sarah.

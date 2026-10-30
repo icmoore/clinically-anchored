@@ -183,7 +183,20 @@ const post = <T>(path: string, body?: unknown) =>
 
 export const getMe = (signal?: AbortSignal) => authed<Me>("/me", { signal });
 export const getQueue = (clinic: string) => authed<QueueItem[]>(`/clinics/${clinic}/queue`);
-export const listPatients = (clinic: string) => authed<Patient[]>(`/clinics/${clinic}/patients`);
+/** One page of the clinic's patients. `query` is the api's query string (lib/patient-filters.ts
+ *  `apiQuery`); the database filters, sorts, counts and pages. */
+export interface PatientPage {
+  items: Patient[];
+  total: number; // every match, not just this page
+  limit: number;
+  offset: number;
+  surgery_from: string | null; // the dates the surgery filter resolved to, in clinic time
+  surgery_to: string | null;
+}
+export const listPatients = (clinic: string, query: string, signal?: AbortSignal) =>
+  authed<PatientPage>(`/clinics/${clinic}/patients?${query}`, { signal });
+export const getPatient = (clinic: string, patient: string) =>
+  authed<Patient>(`/clinics/${clinic}/patients/${patient}`);
 export const createPatient = (
   clinic: string,
   body: {

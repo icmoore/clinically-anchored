@@ -1,25 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useState } from "react";
+import { PatientManagement } from "@/components/add-patient";
 import { AppHeader } from "@/components/app-header";
 import { ClinicianProblem } from "@/components/clinician-problem";
+import { AllPatients } from "@/components/patient-list";
 import { StatusBadge } from "@/components/status-badge";
-import { ApiError } from "@/lib/api";
-import {
-  Patient,
-  QueueItem,
-  createPatient,
-  getQueue,
-  listPatients,
-  listProcedures,
-} from "@/lib/clinician-api";
-import { Procedure } from "@/lib/api";
+import { getQueue } from "@/lib/clinician-api";
 import { categoryLabel } from "@/lib/categories";
-import { dayLabel, episodeSummary } from "@/lib/episode";
-import { LockedTag } from "@/components/locked-tag";
-import { contactLine, timeAgo } from "@/lib/format";
+import { dayLabel } from "@/lib/episode";
+import { timeAgo } from "@/lib/format";
 import { useClinician } from "@/lib/use-clinician";
 import { usePolling } from "@/lib/use-polling";
 
@@ -38,16 +29,12 @@ export default function DashboardPage() {
 }
 
 function Dashboard({ clinicId }: { clinicId: string }) {
-  const fetchAll = useCallback(
-    async () => {
-      const [queue, patients] = await Promise.all([getQueue(clinicId), listPatients(clinicId)]);
-      return { queue, patients };
-    },
-    [clinicId],
-  );
-  const { data, failed } = usePolling(fetchAll, REFRESH_MS);
-  const queue: QueueItem[] | null = data?.queue ?? null;
-  const patients: Patient[] | null = data?.patients ?? null;
+  // "Needs attention" is never paged or filtered and refreshes every 15 s. The patient list below
+  // it loads and refreshes on its own (components/patient-list.tsx); `listVersion` makes it
+  // reload when a patient has just been added.
+  const fetchQueue = useCallback(() => getQueue(clinicId), [clinicId]);
+  const { data: queue, failed } = usePolling(fetchQueue, REFRESH_MS);
+  const [listVersion, setListVersion] = useState(0);
   const error = failed ? "Couldn't refresh. Retrying..." : null;
 
   return (
@@ -120,166 +107,11 @@ function Dashboard({ clinicId }: { clinicId: string }) {
         )}
       </section>
 
-      <section>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted">
-          All patients
-        </h2>
-        <AddPatientForm clinicId={clinicId} />
-        {patients === null ? null : patients.length === 0 ? (
-          <p className="mt-3 text-muted">No patients yet. Add one above.</p>
-        ) : (
-          <ul className="mt-3 divide-y divide-border rounded-lg border border-border bg-surface">
-            {patients.map((p) => (
-              <li
-                key={p.id}
-                className="relative flex items-center justify-between gap-3 px-4 py-3 hover:bg-surface-subtle"
-              >
-                {/* The link covers the whole row (the ::after); the locked tag sits above it, so a
-                    tap on the tag shows its reason instead of opening the patient. */}
-                <div className="min-w-0">
-                  <Link
-                    href={`/dashboard/patients/${p.id}`}
-                    className="block after:absolute after:inset-0"
-                  >
-                    <span
-                      className={`block font-medium ${
-                        p.episode?.state.phase === "closed" ? "text-muted" : "text-ink"
-                      }`}
-                    >
-                      {p.full_name}
-                    </span>
-                    {contactLine(p) && (
-                      <span className="block truncate text-sm text-muted">{contactLine(p)}</span>
-                    )}
-                  </Link>
-                  {p.account_status === "locked" && (
-                    <div className="mt-1">
-                      <LockedTag />
-                    </div>
-                  )}
-                </div>
-                <EpisodeTag patient={p} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <Suspense fallback={<p className="text-muted">Loading...</p>}>
+        <AllPatients clinicId={clinicId} version={listVersion} />
+      </Suspense>
+
+      <PatientManagement clinicId={clinicId} onAdded={() => setListVersion((v) => v + 1)} />
     </main>
-  );
-}
-
-/** The patient's care-period status on the list: the phase, and how many days since surgery. */
-function EpisodeTag({ patient }: { patient: Patient }) {
-  if (!patient.episode) return null;
-  const { label, tone } = episodeSummary(patient.episode);
-  const closed = patient.episode.state.phase === "closed";
-  const variant = tone === "quiet" ? null : tone;
-  return (
-    <span className="flex shrink-0 flex-col items-end gap-1 text-xs text-muted">
-      {variant ? <StatusBadge variant={variant}>{label}</StatusBadge> : <span>{label}</span>}
-      {!closed && <span>{dayLabel(patient.episode.state.post_op_day)}</span>}
-    </span>
-  );
-}
-
-function AddPatientForm({ clinicId }: { clinicId: string }) {
-  const router = useRouter();
-  const [name, setName] = useState("");
-  const [contact, setContact] = useState("");
-  const [email, setEmail] = useState("");
-  const [surgeryDate, setSurgeryDate] = useState("");
-  const [procedureId, setProcedureId] = useState("");
-  const [procedures, setProcedures] = useState<Procedure[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    listProcedures(clinicId)
-      .then(setProcedures)
-      .catch(() => setProcedures([]));
-  }, [clinicId]);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      const patient = await createPatient(clinicId, {
-        full_name: name,
-        contact: contact || null,
-        email: email.trim() || null,
-        surgery_date: surgeryDate,
-        procedure_id: procedureId,
-      });
-      router.push(`/dashboard/patients/${patient.id}`);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't add this patient.");
-      setBusy(false);
-    }
-  }
-
-  const field = "min-w-0 rounded-md border border-border-strong bg-surface px-3 py-2 text-base";
-  return (
-    <form onSubmit={handleSubmit} className="grid gap-2 sm:grid-cols-2">
-      <input
-        required
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Patient name (use a fake name for now)"
-        aria-label="Patient name"
-        className={field}
-      />
-      <input
-        type="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        placeholder="Email for the sign-in invite (optional)"
-        aria-label="Patient email"
-        className={field}
-      />
-      <input
-        value={contact}
-        onChange={(e) => setContact(e.target.value)}
-        placeholder="Phone (optional)"
-        aria-label="Phone"
-        className={`${field} sm:col-span-2`}
-      />
-      <label className="flex flex-col gap-1 text-xs text-muted">
-        Surgery date
-        <input
-          required
-          type="date"
-          value={surgeryDate}
-          onChange={(e) => setSurgeryDate(e.target.value)}
-          className={`${field} text-ink`}
-        />
-      </label>
-      <label className="flex flex-col gap-1 text-xs text-muted">
-        Procedure
-        <select
-          required
-          value={procedureId}
-          onChange={(e) => setProcedureId(e.target.value)}
-          className={`${field} text-ink`}
-        >
-          <option value="" disabled>
-            {procedures === null ? "Loading..." : "Select one"}
-          </option>
-          {procedures?.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <button
-        type="submit"
-        disabled={busy || !name.trim() || !surgeryDate || !procedureId}
-        className="rounded-md bg-primary enabled:hover:bg-primary-hover enabled:active:bg-primary-active px-4 py-2 text-base font-medium text-on-primary disabled:opacity-60 sm:col-span-2"
-      >
-        Add patient
-      </button>
-      {error && <p className="text-sm text-flag-text sm:col-span-2">{error}</p>}
-    </form>
   );
 }

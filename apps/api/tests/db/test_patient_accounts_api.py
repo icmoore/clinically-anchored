@@ -749,7 +749,9 @@ def test_the_patient_list_carries_each_accounts_status_for_the_locked_tag(env):
     env.act(locked, "invite")
     env.c.execute("update patient_accounts set status = 'locked', locked_at = now() "
                   "where patient_id = %s", (locked,))
-    rows = env.client.get(f"/clinics/{env.w.clinic_a}/patients", headers=env.staff()).json()
+    rows = env.client.get(
+        f"/clinics/{env.w.clinic_a}/patients?status=all&limit=50", headers=env.staff()
+    ).json()["items"]
     status = {r["full_name"]: r["account_status"] for r in rows}
     assert {k: status[k] for k in ("Plain", "Invited", "Locked")} == {
         "Plain": "none", "Invited": "invited", "Locked": "locked"}

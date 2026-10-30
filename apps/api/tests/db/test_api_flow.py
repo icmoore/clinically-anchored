@@ -291,7 +291,7 @@ def test_new_patients_get_v2_and_an_older_episode_keeps_v1(env):
 
     at(env, datetime(2025, 3, 12, 15, 0, tzinfo=UTC))  # day 8
     listed = {p["full_name"]: p["episode"] for p in
-              c.get(f"{env.clinic}/patients", headers=auth).json()}
+              c.get(f"{env.clinic}/patients?status=all", headers=auth).json()["items"]}
     old, now_ = listed["Old Pat"], listed["New Pat"]
     assert (old["schedule_version"], now_["schedule_version"]) == (1, 2)
     assert old["state"]["interval_no"] == 4  # v1: window 4 (days 7-14) is open on day 8
