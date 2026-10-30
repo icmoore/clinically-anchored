@@ -9,7 +9,9 @@ a sign-in code, with one exception: a **demo clinic** sends nothing and keeps th
 the owner can read it on the Demo inbox page.
 
 All wording is in `core/email_templates.py` (placeholder wording). It contains the clinic's name and
-office phone and nothing clinical.
+office phone and nothing clinical. Both emails end with "New to this? Read the patient guide:" and a
+link to the web app's public `/guide` page (built from `WEB_BASE_URL`, like the invite's sign-in link);
+with no web address configured the code email leaves those two lines out.
 
 ## Set up SES (once)
 

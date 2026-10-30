@@ -60,6 +60,21 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   top of that file. It used to redirect to `/dashboard`; a visitor who already has
   a clinician session is still sent there (`components/signed-in-redirect.tsx`, client side,
   since the session lives in the browser). No middleware is involved.
+- `/guide`: the **public patient guide** (no sign-in), linked from the top bar ("Patient guide"), the
+  patient sign-in page (both steps), the "How this works" panel on `/care`, and both patient emails. All its
+  words are in `lib/guide-strings.ts` (placeholder wording pending clinical review, with `TODO(...)`
+  comments where the code does not settle something); the page (`app/guide/page.tsx`,
+  `components/guide.tsx`) has none of its own. It is a documentation-style page: eyebrow, title, subtitle,
+  an always-visible "not for emergencies" callout, then numbered sections (01 How this helps your care,
+  02 Getting started, 03 Using the service, 04 Your privacy -- a TODO placeholder, 05 Questions) with H3
+  subsections, each heading an anchor link. A sticky "On this page" list on a wide screen, a folded one
+  on a phone; a skip-to-content link; it prints as a plain white page (top bar and contents hidden). The
+  message-periods table comes from `lib/active-schedule.json` and the other numbers (code length and
+  lifetime, days signed in, wrong dates before a lock, link lifetime) from `lib/guide-facts.json`, and
+  `apps/api/tests/db/test_guide_schedule.py` fails if either stops matching the api; the example
+  timeline is the real `PatientTimeline` with made-up dates. **The page is `noindex` until the surgeon
+  approves the wording:** to publish it, delete the `robots` line in `app/guide/page.tsx` and set
+  `SHOW_DRAFT_NOTICE` to `false` in `lib/guide-strings.ts`.
 - `/login`: clinician email + password via Supabase Auth, on the shared sign-in page (top bar, then one
   centred column: the brand name, "Clinician sign-in", the form; the patient sign-in below mirrors it), with an "Are you a patient? Sign in here" link to
   `/sign-in` under the form (words in `lib/patient-strings.ts`; `/sign-in` has the matching "Are you on

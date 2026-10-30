@@ -1,0 +1,7 @@
+{
+  "version": 2,
+  "offsets_days": [2, 5, 10, 17, 24, 31, 38, 45, 52],
+  "close_after_days": 7,
+  "opens_at_local": "07:00",
+  "timezone": "America/Toronto"
+}

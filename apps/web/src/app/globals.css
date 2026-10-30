@@ -110,3 +110,11 @@ body {
     scroll-behavior: smooth;
   }
 }
+
+/* Printing: a plain white page (no tinted background to waste ink); the top bar and the contents list
+   are hidden by `print:hidden` in the components. */
+@media print {
+  body {
+    background: var(--surface);
+  }
+}

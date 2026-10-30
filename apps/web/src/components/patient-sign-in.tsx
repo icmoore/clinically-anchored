@@ -12,6 +12,18 @@ import { UrgentNotice } from "./patient-frame";
 
 const T = PATIENT_TEXT.signIn;
 
+/** "New to this? Read the patient guide": the public guide, from both steps. */
+function GuideLine() {
+  return (
+    <p className="mt-4 text-sm text-muted">
+      {T.guidePrompt}{" "}
+      <Link href="/guide" className="text-link underline hover:text-link-hover">
+        {T.guideLink}
+      </Link>
+    </p>
+  );
+}
+
 /** Sign in with an email and a code. No password. Two steps on one page: the email, then the code
  *  that was sent to it. Nothing here says whether an email has an account: the api answers every
  *  request for a code the same way, and so does this page. A device that is already signed in goes
@@ -96,6 +108,7 @@ export function PatientSignIn() {
           </button>
         </form>
         <p className="mt-4 text-sm text-muted">{T.noEmail}</p>
+        <GuideLine />
         <p className="mt-4 text-sm text-muted">
           {T.careTeamPrompt}{" "}
           <Link href="/login" className="text-link underline hover:text-link-hover">
@@ -149,6 +162,7 @@ export function PatientSignIn() {
           {T.otherEmail}
         </button>
       </div>
+      <GuideLine />
     </AuthPage>
   );
 }
