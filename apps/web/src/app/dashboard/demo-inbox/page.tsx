@@ -26,7 +26,7 @@ export default function DemoInboxPage() {
   return (
     <>
       <AppHeader clinician={clinician} />
-      <main className="mx-auto max-w-3xl space-y-4 px-4 py-6">
+      <main className="mx-auto w-full max-w-3xl space-y-4 px-4 py-6">
         <div>
           <Link href="/dashboard" className="text-sm text-muted hover:underline">
             &larr; Dashboard
