@@ -54,9 +54,10 @@ Reject use the flag text/border colors, metadata badges are neutral. Light schem
 mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globals.css`).
 
 - `/`: public landing page (`app/page.tsx`: hero, how it works, why it's different, and a sign-in band of
-  two cards, "For patients" (to `/sign-in`) and "For the care team" (to `/login`); nav (`components/site-nav.tsx`, also on `/login` and `/sign-in`) with two buttons at far left: a filled
-  **Patient sign-in** (to `/sign-in`) and an outlined **Care team login** (to `/login`); the hero and
-  closing "Login" buttons still go to `/login`). All copy is a draft, marked `COPY: DRAFT` at the
+  two cards, "For patients" (to `/sign-in`) and "For the care team" (to `/login`); top bar (`components/site-nav.tsx`, also on `/login`, `/sign-in` and `/guide`): the brand name on the
+  left and "Patient guide", "How it works" and "Why it's different" on the right, with no sign-in buttons
+  (the two cards and the hero "Login" button, which goes to `/login`, are the ways in from here; the two
+  sign-in pages link to each other, and the guide links to patient sign-in)). All copy is a draft, marked `COPY: DRAFT` at the
   top of that file. It used to redirect to `/dashboard`; a visitor who already has
   a clinician session is still sent there (`components/signed-in-redirect.tsx`, client side,
   since the session lives in the browser). No middleware is involved.
