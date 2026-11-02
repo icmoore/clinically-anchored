@@ -29,7 +29,7 @@ right on every page: SES identities are per region).
    same way.
 3. **Allow the api's AWS user to send.** The Railway service already has `AWS_ACCESS_KEY_ID` /
    `AWS_SECRET_ACCESS_KEY` for Bedrock. In IAM, add this policy to that same user (fill in the
-   account id and the identity you verified; for a domain use `identity/your-domain.ca` and the
+   account id and the identity you verified; for the domain use `identity/clinicallyanchored.ai` and the
    `ses:FromAddress` below):
 
    ```json
@@ -39,7 +39,7 @@ right on every page: SES identities are per region).
        "Effect": "Allow",
        "Action": "ses:SendEmail",
        "Resource": "arn:aws:ses:ca-central-1:<ACCOUNT_ID>:identity/<your-identity>",
-       "Condition": {"StringEquals": {"ses:FromAddress": "no-reply@your-domain.ca"}}
+       "Condition": {"StringEquals": {"ses:FromAddress": "no-reply@clinicallyanchored.ai"}}
      }]
    }
    ```
@@ -50,10 +50,13 @@ right on every page: SES identities are per region).
 
    | Variable | Value |
    |---|---|
-   | `SES_FROM_ADDRESS` | the verified sender, e.g. `no-reply@your-domain.ca` (required to send) |
+   | `SES_FROM_ADDRESS` | the verified sender: `no-reply@clinicallyanchored.ai` (required to send) |
    | `SES_FROM_NAME` | optional display name, e.g. `Your Surgeon's Office` |
    | `SES_CONFIGURATION_SET` | optional; leave unset for now |
-   | `WEB_BASE_URL` | the web app's address (already used by patient links); the invite points at `<it>/sign-in` |
+   | `WEB_BASE_URL` | the web app's address, `https://clinicallyanchored.ai` (also used by patient links); the invite points at `<it>/sign-in` |
+
+   The address is also written in the patient guide (`apps/web/src/lib/guide-strings.ts`, marked
+   `TODO(surgeon)`); change both together. Moving to the app's own domain: [../domain-switch.md](../domain-switch.md).
 
    Until `SES_FROM_ADDRESS` is set a send is recorded as `failed` with error `ses_not_configured`;
    the service still boots.

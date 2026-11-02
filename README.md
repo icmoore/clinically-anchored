@@ -50,6 +50,9 @@ uv run uvicorn clinically_anchored_api.main:app --reload   # runs on :8000
 - **Vercel**: project root directory `apps/web`. Independent deploys per push;
   unaffected by changes under `apps/api` or `supabase/`.
 - **Railway**: project root directory `apps/api`, start command from `apps/api/Procfile`.
+- **Addresses**: web `https://clinicallyanchored.ai`, api `https://api.clinicallyanchored.ai`, email
+  from `no-reply@clinicallyanchored.ai`. All set by environment variables; see
+  [`docs/domain-switch.md`](docs/domain-switch.md).
 - **Supabase**: `npx supabase link --project-ref <ref>` then `npx supabase db push`
   from `supabase/` (see `supabase/README.md`).
 
