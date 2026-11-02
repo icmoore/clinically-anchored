@@ -24,6 +24,10 @@ right on every page: SES identities are per region).
      hours). Any address at the domain can then send.
    - *Email address (fastest for a trial):* enter the address, create, click the link in the
      verification email. Only that exact address can send.
+     An address at a domain we do not control (for example `gmail.com`) cannot pass authentication
+     when SES sends it, so Gmail warns "couldn't verify this" and patients' providers may filter it.
+     Use the domain identity before real patients are emailed, and add a `_dmarc` TXT record
+     (`v=DMARC1; p=none; rua=mailto:<an address someone reads>`); see [../domain-switch.md](../domain-switch.md).
 2. **Sandbox.** A new SES account is in the sandbox: it only delivers to verified identities, with
    low limits. To test, also create an identity for your own receiving address and verify it the
    same way.
@@ -64,7 +68,7 @@ right on every page: SES identities are per region).
    Railway variables loaded:
 
    ```bash
-   railway run python -m clinically_anchored_api.core.mailer --to you@your-verified-address.ca
+   railway run uv run python -m clinically_anchored_api.core.mailer --to you@your-verified-address.ca
    ```
 
    `--dry-run` prints the email without sending. It prints SES's message id on success and the SES
