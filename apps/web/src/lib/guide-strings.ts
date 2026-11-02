@@ -129,8 +129,15 @@ export function guideSections(f: GuideFacts): GuideSection[] {
           kind: "p",
           text: "Your surgeon's office sends you an email to invite you. The subject starts with your surgeon's office name and says that you are invited to sign in. The email tells you to open the sign-in page and enter your email address. It has no medical information in it.",
         },
-        // TODO(sender): say who the email comes from (name and address) once the production
-        // sender is chosen. The subject and the words above are from core/email_templates.py.
+        {
+          kind: "p",
+          text: "The email comes from no-reply@clinicallyanchored.ai.",
+        },
+        // TODO(surgeon): confirm the sender. The address is the production sender (the api's
+        // SES_FROM_ADDRESS); if that setting changes, change it here too. The display name before
+        // the address is the api's SES_FROM_NAME, which is not chosen yet, so the guide gives no
+        // name. Also decide whether to tell patients not to reply: the emails do not say it and
+        // set no reply-to address. The subject and the words above are from core/email_templates.py.
         {
           kind: "callout",
           tone: "info",

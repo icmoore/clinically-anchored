@@ -36,3 +36,13 @@ def test_production_with_everything_set_is_fine():
 def test_production_refuses_to_start_without_each_secret(missing):
     with pytest.raises(ValidationError, match=missing.upper()):
         _settings(environment="production", **{**FULL, missing: ""})
+
+
+def test_allowed_origins_can_hold_the_new_and_the_old_web_address():
+    s = _settings(allowed_origins="https://new.example.org, https://old.example.net")
+    assert s.allowed_origins_list == ["https://new.example.org", "https://old.example.net"]
+
+
+def test_allowed_origins_forgive_trailing_slashes_blanks_and_repeats():
+    s = _settings(allowed_origins=" https://new.example.org/ ,, https://new.example.org,")
+    assert s.allowed_origins_list == ["https://new.example.org"]

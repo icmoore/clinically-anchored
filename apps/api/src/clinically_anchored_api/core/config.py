@@ -93,12 +93,14 @@ class Settings(BaseSettings):
     # forged. Set it only to the true number of hops.
     trusted_proxy_hops: int = 0
 
-    # Where patients open their links (the deployed web app). Used to build the
-    # URLs the "issue link" endpoint returns. Development falls back to
-    # http://localhost:3000; elsewhere the endpoint refuses until it's set.
+    # Where patients open their links (the deployed web app: https://clinicallyanchored.ai). Used
+    # to build the URLs in emails (invite, guide) and the "issue link" endpoint's single-use link.
+    # Development falls back to http://localhost:3000; elsewhere the link endpoint refuses and
+    # emails are recorded as failed until it's set.
     web_base_url: str = ""
 
-    # CORS: the web app's origin(s), comma-separated in the env var
+    # CORS: the web app's origin(s), comma-separated in the env var. List the current web origin
+    # and, during a move, the old one too (see docs/domain-switch.md). Origins only: no path.
     allowed_origins: str = "http://localhost:3000"
 
     @field_validator("ses_region")
@@ -131,7 +133,10 @@ class Settings(BaseSettings):
 
     @property
     def allowed_origins_list(self) -> list[str]:
-        return [origin.strip() for origin in self.allowed_origins.split(",") if origin.strip()]
+        # A browser's Origin header never ends in "/", so "https://x.ai/" would silently match
+        # nothing and every call would fail CORS. Trim it, and drop repeats.
+        origins = (o.strip().rstrip("/") for o in self.allowed_origins.split(","))
+        return list(dict.fromkeys(o for o in origins if o))
 
 
 @lru_cache
