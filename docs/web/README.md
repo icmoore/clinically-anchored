@@ -290,18 +290,20 @@ Env (see `.env.example`): `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SUPABASE_URL`,
 The build tolerates them being unset (sign-in then fails at runtime).
 
 Vercel: Root Directory `apps/web`. On the api side, set `WEB_BASE_URL` (the web app's origin: the invite email points at
-`<it>/sign-in`) and add the Vercel origin to `ALLOWED_ORIGINS`.
+`<it>/sign-in`) and add the web origin to `ALLOWED_ORIGINS`. Production addresses (web
+`https://clinicallyanchored.ai`, api `https://api.clinicallyanchored.ai`) and the order to change
+them in: [../domain-switch.md](../domain-switch.md).
 
 ## Deploying (Vercel + Railway)
 
 1. **Vercel**: import the GitHub repo, set **Root Directory** to `apps/web`, and add
-   `NEXT_PUBLIC_API_URL` (the Railway api URL), `NEXT_PUBLIC_SUPABASE_URL` and
+   `NEXT_PUBLIC_API_URL` (the api URL: `https://api.clinicallyanchored.ai`), `NEXT_PUBLIC_SUPABASE_URL` and
    `NEXT_PUBLIC_SUPABASE_ANON_KEY` *before* the first build -- `NEXT_PUBLIC_*` values are
    baked in at build time, so changing them needs a redeploy. The anon key is public by
    design (Vercel warns about it; keep the `NEXT_PUBLIC_` name and mark it as config). Never
    put the `service_role` key here.
-2. **Railway** (api service): set `WEB_BASE_URL` and `ALLOWED_ORIGINS` to the Vercel origin
-   (no trailing slash). Without `WEB_BASE_URL` the single-use link button returns 503 and the invite email has no address to point at; without
+2. **Railway** (api service): set `WEB_BASE_URL` to the web origin (`https://clinicallyanchored.ai`,
+   no trailing slash) and `ALLOWED_ORIGINS` to a comma-separated list of the web origins that may call the api. Without `WEB_BASE_URL` the single-use link button returns 503 and the invite email has no address to point at; without
    `ALLOWED_ORIGINS` the browser blocks every call to the api (CORS).
 3. Vercel builds every pushed branch as a Preview and `main` as Production. A preview's
    origin differs from production's, so it also needs adding to `ALLOWED_ORIGINS` to work
