@@ -33,22 +33,61 @@ command uses when `WEB_BASE_URL` is unset.
 
 ## Order of changes
 
-1. **AWS / SES**: finish verifying the `clinicallyanchored.ai` domain identity (DKIM shows
-   "Successful"). In IAM, change the api user's policy to the new identity ARN
-   (`identity/clinicallyanchored.ai`) and `ses:FromAddress` to `no-reply@clinicallyanchored.ai`
-   (see [api/email.md](api/email.md)). Keep the old identity's permission until step 6 is done.
+DNS is at Cloudflare. For every record below, set the proxy status to **DNS only** (grey cloud):
+Vercel and Railway issue their own HTTPS certificates, and the SES DKIM records must not be proxied.
+
+### Web, API and Supabase (done 2026-11-02)
+
+1. **DNS and domains**
+   - Vercel (project -> Settings -> Domains): add `clinicallyanchored.ai` (Production) and
+     `www.clinicallyanchored.ai` (redirect to the apex). Untick "Redirect apex domains to www". Create
+     the two `CNAME` records Vercel shows (`@` and `www`, both to the project's `…vercel-dns-….com`
+     target) and wait for "Valid Configuration".
+   - Railway (api service -> Settings -> Networking -> Custom Domain): add
+     `api.clinicallyanchored.ai` and create the `CNAME` (and `TXT`, if shown) Railway gives you.
+     Check `https://api.clinicallyanchored.ai/health` answers.
 2. **Railway** (api service): set `ALLOWED_ORIGINS` to the new origin **and the old Vercel origin**,
-   then `SES_FROM_ADDRESS` and `WEB_BASE_URL` (below). Railway redeploys. Setting `ALLOWED_ORIGINS`
-   first means the old site keeps working and the new one can call the api.
-3. **Vercel** (production): set `NEXT_PUBLIC_API_URL`, then redeploy (a rebuild, not a re-run of the
-   same build: `NEXT_PUBLIC_*` values are read at build time).
+   and `WEB_BASE_URL` (below). Railway redeploys. Do this before step 3: until the new origin is in
+   `ALLOWED_ORIGINS`, the browser blocks the new site's calls to the api.
+3. **Vercel** (production): set `NEXT_PUBLIC_API_URL`, then redeploy without the build cache (a
+   rebuild, not a re-run of the same build: `NEXT_PUBLIC_*` values are read at build time).
 4. **Supabase**: set Site URL and add the redirect URLs.
-5. **Check**: open `https://clinicallyanchored.ai`, sign in as a clinician, load the dashboard (no CORS
-   errors in the browser console), then send one `[TEST]` invite with
-   `railway run python -m clinically_anchored_api.core.mailer --to <a verified address>`, and
-   check the link in it opens `https://clinicallyanchored.ai/sign-in` and the "From" is the new sender.
-6. **Later, when nothing uses the old addresses**: remove the old Vercel origin from
-   `ALLOWED_ORIGINS` in Railway (see below), and the old redirect entries from Supabase.
+5. **Check**: open `https://clinicallyanchored.ai`, sign in as a clinician and load the dashboard (no
+   CORS errors in the browser console).
+
+### Email sender (separate; do before real patients use the app)
+
+Until this is done, `SES_FROM_ADDRESS` stays on its current address and email keeps working as before.
+But a sender at a `gmail.com` (or any domain we do not control) address cannot pass authentication
+when Amazon SES sends it: Gmail shows "this message appears to be sent from your account but Gmail
+couldn't verify this", and real recipients' providers may send it to spam or reject it. Sending as
+our own domain, with DKIM, fixes that.
+
+1. **SES** (region `ca-central-1`): create the `clinicallyanchored.ai` domain identity with Easy DKIM
+   (RSA_2048). Add the three `CNAME` records it shows in Cloudflare (DNS only). Wait until the identity
+   says **Verified**.
+2. **DMARC** (recommended): add a `TXT` record in Cloudflare, name `_dmarc`, value
+   `v=DMARC1; p=none; rua=mailto:<an address someone reads>`. `p=none` only reports; it blocks nothing.
+   Tighten it later once the reports look clean.
+3. **IAM**: in the api user's `SES-Send` policy, change `Resource` to the new identity ARN
+   (`arn:aws:ses:ca-central-1:<ACCOUNT_ID>:identity/clinicallyanchored.ai`) and add the `ses:FromAddress`
+   condition (see [api/email.md](api/email.md)). Keep the old sender's identity ARN (and its
+   `ses:FromAddress`) in the policy until step 5 passes: with it removed and `SES_FROM_ADDRESS` not yet
+   switched, sends are denied.
+4. **Railway**: set `SES_FROM_ADDRESS` = `no-reply@clinicallyanchored.ai`.
+5. **Check**: from `apps/api` run
+   `railway run uv run python -m clinically_anchored_api.core.mailer --to <a verified address>`
+   (`--dry-run` prints without sending). `railway run` runs on your computer, so use `uv run`; plain
+   `python` is usually not installed. The email's "From" is the new sender, its links open
+   `https://clinicallyanchored.ai/...`, and Gmail shows no warning banner.
+6. **Production access**: a new SES account is in the sandbox and only delivers to verified
+   addresses. Request production access before patients who are not verified in SES need email
+   (see [api/email.md](api/email.md)).
+
+### Later, when nothing uses the old addresses
+
+Remove the old Vercel origin from `ALLOWED_ORIGINS` in Railway and the old redirect entries from
+Supabase (see the end of this page).
 
 ## Values
 
@@ -66,7 +105,7 @@ Railway (api service):
 |---|---|
 | `ALLOWED_ORIGINS` | `https://clinicallyanchored.ai,<the old https://….vercel.app origin>` |
 | `WEB_BASE_URL` | `https://clinicallyanchored.ai` |
-| `SES_FROM_ADDRESS` | `no-reply@clinicallyanchored.ai` |
+| `SES_FROM_ADDRESS` | `no-reply@clinicallyanchored.ai` (only once the SES domain identity is verified; see Email sender above) |
 
 Origins have a scheme and host only: no path, no trailing slash (a trailing slash is trimmed, but do
 not rely on it). `www.clinicallyanchored.ai` does not belong in the list: it redirects before the page
