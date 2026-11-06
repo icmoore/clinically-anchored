@@ -5,7 +5,8 @@ PLACEHOLDER WORDING -- pending clinical and clinic review. Do not treat as final
 Rules for what goes here:
   * no clinical content, ever: no procedure, no dates of surgery, no symptoms, no message text.
     An email says only who is writing (the clinic's name), what to do (a sign-in page, a code) and
-    how to reach a person (the office phone);
+    how to reach a person (the office phone). The invite may say that the first sign-in will ASK for
+    the date of surgery (_FIRST_SIGN_IN_NOTE); it never states any date;
   * short words and short sentences, like the patient screens (lib/patient-strings.ts);
   * plain text first, then a simple HTML copy of the same words (no images, no tracking).
 
@@ -39,6 +40,12 @@ _SUBJECT = {
     SIGN_IN_CODE: "Your {clinic} sign-in code",
 }
 
+# Tells the patient what the first sign-in will ask (the screen is in lib/patient-strings.ts,
+# `identity`). It names no date: the patient types their own.
+_FIRST_SIGN_IN_NOTE = (
+    "The first time you sign in, we will ask for the date of your surgery to confirm it's you."
+)
+
 # Paragraphs, in order. A paragraph with an empty result (no phone on file, no web address for the
 # guide) is left out.
 _PARAGRAPHS = {
@@ -48,6 +55,7 @@ _PARAGRAPHS = {
         "To start, open this page and enter this email address:",
         "{url}",
         "We will email you a code to sign in. You do not need a password.",
+        _FIRST_SIGN_IN_NOTE,
         "If you were not expecting this, you can ignore this email.",
         "{guide_intro}",
         "{guide_url}",

@@ -14,6 +14,9 @@
 // Times end in "a.m." / "p.m.": add the full stop only when there is not one already.
 const stop = (text: string) => (text.endsWith(".") ? text : `${text}.`);
 
+const triesLeft = (left: number) =>
+  stop(`That date does not match. You have ${left} ${left === 1 ? "try" : "tries"} left`);
+
 export const PATIENT_TEXT = {
   explainer: {
     title: "How this works",
@@ -153,10 +156,19 @@ export const PATIENT_TEXT = {
     title: "Check it's you",
     intro: "Please enter the date of your surgery. We ask this once, to make sure it is you.",
     label: "Date of your surgery",
+    // Under the date box. The box shows the date in the order this device uses, so the example is
+    // written out in words (a made-up date) rather than in numbers. PLACEHOLDER wording.
+    example: "Pick the date from the calendar. Example: March 14, 2026.",
     button: "Continue",
     checking: "Checking...",
-    wrong: (left: number) =>
-      stop(`That date does not match. You have ${left} ${left === 1 ? "try" : "tries"} left`),
+    wrong: (left: number) => triesLeft(left),
+    // After a wrong date at the first sign-in: how many tries are left, and who to call. With no
+    // office phone on file it says "call the office" with no number, as the urgent notice does
+    // (components/patient-frame.tsx). (The single-use link screen has no phone: it uses `wrong`.)
+    wrongWithHelp: (left: number, phone: string | null) =>
+      `${triesLeft(left)} ${stop(
+        phone ? `If you need help, call the office at ${phone}` : "If you need help, call the office",
+      )}`,
     couldntCheck: "Couldn't check the date. Please try again.",
   },
   consent: {
