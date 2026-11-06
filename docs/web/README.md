@@ -207,12 +207,19 @@ mode). Keyboard focus is one global 2px primary ring (`:focus-visible` in `globa
   key `ca-patient-auth`), so it never replaces a clinician's session in the same browser and signing
   out of one never signs out the other. Every page a signed-in patient uses sits inside
   `components/patient-gate.tsx`: no session goes to `/sign-in`; the first time, the **surgery-date
-  check** and then **consent** (`patient-first-sign-in.tsx`; a wrong date says how many tries are
-  left, the third locks the account); a locked or turned-off account gets a plain "call the office"
-  screen; then the care page. Every one of those screens has **Sign out**. `/sign-in/link#<secret>`
+  check** and then **"Before you start"** (`patient-first-sign-in.tsx`: links to `/terms` and
+  `/privacy`, two unticked checkboxes, Continue only when both are ticked, and "I don't want to use
+  the app", which records a decline and signs out; a wrong date says how many tries are left, the
+  third locks the account); shown again, before anything else, when the api says `needs_acceptance`
+  (the documents changed); a locked or turned-off account gets a plain "call the office" screen;
+  then the care page. Every one of those screens has **Sign out**; an active patient's also has an
+  **Account** menu with **Stop using the app** (asks once more, then records it and signs out).
+  `/terms` and `/privacy` are public pages built from `content/legal/*.md` (see the README there for
+  how to change a version), showing "Version X · effective <date>". The two consent sentences are read
+  from `content/legal/config.json` into `lib/patient-strings.ts`. `/sign-in/link#<secret>`
   is the single-use link for a patient with no email: it asks the surgery date every time. All the
-  words are in `lib/patient-strings.ts` (placeholder wording; the consent wording has a version the
-  api stores with the answer). The clinician side: the **Demo inbox** (`/dashboard/demo-inbox`, linked
+  words are in `lib/patient-strings.ts` (placeholder wording; the versions of the legal documents and consent sentences are in
+  `content/legal/config.json`, and the api stores them, with hashes, with each answer). The clinician side: the **Demo inbox** (`/dashboard/demo-inbox`, linked
   in the header only for an owner of a demo clinic) shows the emails a demo clinic did not send, with
   the banner "Demo clinic: emails are not sent."
 - **Patient screens (Messaging v2).** A signed-in patient's `/care` (the api's `GET /episode` says

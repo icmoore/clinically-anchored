@@ -78,6 +78,12 @@ export function episodeSummary(e: Episode): { label: string; detail: string; ton
         tone: "info",
       };
     case "closed": {
+      if (s.close_reason === "withdrawn")
+        return {
+          label: "Patient stopped using the app",
+          detail: `The patient chose to stop using the app on ${at(s.closed_at)}. Their messages are turned off.`,
+          tone: "quiet",
+        };
       if (s.close_reason === "discharged")
         return { label: "Discharged", detail: `Discharged ${at(s.closed_at)}. The patient can no longer send messages.`, tone: "quiet" };
       const what = ext && ext.number > 0 ? "extension" : "care period";

@@ -51,7 +51,7 @@ export interface EpisodeState {
   next_opens_at: string | null;
   episode_closes_at: string;
   closed_at: string | null;
-  close_reason: "discharged" | "schedule_complete" | null;
+  close_reason: "discharged" | "schedule_complete" | "withdrawn" | null;
   missed: number[]; // intervals that ended without a message
   reply_available: boolean; // the patient may send one reply to the clinic's latest message
   can_send_scheduled: boolean;
@@ -92,7 +92,7 @@ export interface Episode {
   timezone: string;
   checkin_completed_at: string | null;
   closed_at: string | null;
-  close_reason: "discharged" | "schedule_complete" | null;
+  close_reason: "discharged" | "schedule_complete" | "withdrawn" | null;
   created_at: string;
   state: EpisodeState;
   extension?: EpisodeExtension; // absent from an older api
@@ -370,7 +370,17 @@ export interface FallbackLinkInfo {
   used_at: string | null;
   revoked_at: string | null;
 }
+/** Where a patient stands on "Before you start" (Terms, Privacy Notice, consents): their newest
+ *  answer. `outdated`: they accepted older versions and will be asked again. */
+export interface Acceptance {
+  status: "accepted" | "outdated" | "declined" | "withdrawn";
+  terms_version: string;
+  privacy_version: string;
+  consent_version: string;
+  at: string;
+}
 export interface Account {
+  acceptance?: Acceptance | null; // null: not answered yet
   status: AccountStatus;
   email: string | null;
   invited_at: string | null;

@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { ApiError } from "@/lib/api";
 import {
+  Acceptance,
   Account,
   FallbackLink,
   createFallbackLink,
@@ -70,6 +71,7 @@ export function PatientAccountSection({
   return (
     <Section title="Patient account">
       <StatusLine account={account} />
+      <AcceptanceLine account={account} />
       <EmailRow
         account={account}
         disabled={busy}
@@ -165,6 +167,54 @@ const BADGE: Record<string, { variant: StatusVariant | null; label: string }> = 
   locked: { variant: "watch", label: "Locked" },
   off: { variant: null, label: "Access turned off" },
 };
+
+const ACCEPTANCE: Record<
+  string,
+  { variant: StatusVariant | null; label: string; sentence: (a: Acceptance) => string }
+> = {
+  accepted: {
+    variant: "clear",
+    label: "Terms accepted",
+    sentence: (a) =>
+      `Terms v${a.terms_version}, Privacy Notice v${a.privacy_version} and both consents, ${clock(a.at)}.`,
+  },
+  outdated: {
+    variant: "watch",
+    label: "Will be asked again",
+    sentence: (a) =>
+      `They accepted Terms v${a.terms_version} and Privacy Notice v${a.privacy_version} on ${clock(a.at)}. The documents have changed, so they will be asked again the next time they open the app.`,
+  },
+  declined: {
+    variant: "flag",
+    label: "Declined",
+    sentence: (a) =>
+      `They chose not to use the app on ${clock(a.at)}. They will be asked again if they sign in.`,
+  },
+  withdrawn: {
+    variant: "flag",
+    label: "Withdrawn",
+    sentence: (a) =>
+      `They chose to stop using the app on ${clock(a.at)}. Their messages are turned off. Re-invite them if they want to start again.`,
+  },
+};
+
+/** "Before you start": which Terms, Privacy Notice and consent versions the patient accepted, and
+ *  when -- or, clearly, that they declined or withdrew. Nothing until they have answered. */
+function AcceptanceLine({ account }: { account: Account }) {
+  const a = account.acceptance;
+  if (!a) {
+    return account.status === "none" ? null : (
+      <p className="mt-2 text-sm text-muted">Terms and consents: not answered yet.</p>
+    );
+  }
+  const view = ACCEPTANCE[a.status];
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2" data-testid="acceptance">
+      {view.variant && <StatusBadge variant={view.variant}>{view.label}</StatusBadge>}
+      <span className="text-sm text-ink">{view.sentence(a)}</span>
+    </div>
+  );
+}
 
 /** One plain sentence about where the account stands, and the last invite email's fate. */
 function StatusLine({ account }: { account: Account }) {

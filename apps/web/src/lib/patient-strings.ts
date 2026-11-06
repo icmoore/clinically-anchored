@@ -11,6 +11,8 @@
 // 7:00 a.m."). The urgent notice is not here: it is the same on every patient screen
 // (components/patient-frame.tsx).
 
+import { CONSENT_KEYS, LEGAL } from "./legal";
+
 // Times end in "a.m." / "p.m.": add the full stop only when there is not one already.
 const stop = (text: string) => (text.endsWith(".") ? text : `${text}.`);
 
@@ -149,9 +151,7 @@ export const PATIENT_TEXT = {
     sessionEnded: "Please sign in again.",
   },
 
-  // The first time only: confirm it is them, then agree. PLACEHOLDER wording; the consent wording
-  // has a version, which the api stores with the answer. Change the words and the version together
-  // (api: core/consent_wording.py).
+  // The first time only: confirm it is them, then "Before you start" (below). PLACEHOLDER wording.
   identity: {
     title: "Check it's you",
     intro: "Please enter the date of your surgery. We ask this once, to make sure it is you.",
@@ -171,24 +171,56 @@ export const PATIENT_TEXT = {
       )}`,
     couldntCheck: "Couldn't check the date. Please try again.",
   },
-  consent: {
-    version: "2026-10-v1",
+  // "Before you start": the Terms of Use, the Privacy Notice and the two consents, on one screen,
+  // the first time and again whenever the documents change. The two checkbox sentences are not
+  // typed here: they are read from content/legal/config.json (their version and text are one thing
+  // there, and the api hashes them). PLACEHOLDER wording for everything else; the surgeon and the
+  // lawyer approve it.
+  acceptance: {
     title: "Before you start",
-    intro: "Please read and agree to both to use messages with your care team.",
-    items: [
-      {
-        key: "messaging",
-        text: "I agree to send and receive messages with my surgeon's office in this app.",
-      },
-      {
-        key: "ai_assisted_replies",
-        text: "I agree that my care team may use a computer program (AI) to help write replies. A person reads and approves every reply before it is sent.",
-      },
-    ],
-    button: "I agree",
+    // Shown again, with this line, when the documents have changed since the patient last agreed.
+    changed: "Our Terms of Use or Privacy Notice have changed. Please read them and agree again to keep using the app.",
+    intro: "Please read these two pages. Then tick both boxes to continue.",
+    readTerms: "Read the Terms of Use",
+    readPrivacy: "Read the Privacy Notice",
+    opensNewTab: "(opens in a new tab)",
+    items: CONSENT_KEYS.map((key) => ({ key, text: LEGAL.consent[key].text })),
+    button: "Continue",
     saving: "Saving...",
+    needBoth: "Tick both boxes to continue.",
     couldntSave: "Couldn't save. Please try again.",
     reload: "The wording has changed. Please reload this page.",
+    decline: "I don't want to use the app",
+    declining: "Saving...",
+    // After "I don't want to use the app": the patient is signed out and sees only this.
+    declined: {
+      title: "You chose not to use the app",
+      body: "That is okay. You have been signed out and nothing has been turned on. Your care continues with your surgeon's office. If you change your mind, sign in again, or call the office.",
+    },
+  },
+  // The public Terms and Privacy pages (/terms, /privacy).
+  legal: {
+    termsTitle: "Terms of Use",
+    privacyTitle: "Privacy Notice",
+    versionLine: (version: string, date: string) => `Version ${version} \u00b7 effective ${date}`,
+  },
+  // The patient's account menu (top right of every signed-in screen).
+  accountMenu: {
+    button: "Account",
+    stopUsing: "Stop using the app",
+  },
+  // "Stop using the app": asked once more before it happens.
+  stopUsing: {
+    title: "Stop using the app?",
+    body: "If you stop, you will not be able to send messages to your care team in this app, and you will be signed out. Your surgeon's office will see that you stopped. To start again, they would need to invite you again.",
+    confirm: "Yes, stop using the app",
+    cancel: "No, keep using it",
+    working: "Stopping...",
+    failed: "Couldn't do that. Please try again, or call the office.",
+    done: {
+      title: "You have stopped using the app",
+      body: "You have been signed out and your messages have been turned off. Your care continues with your surgeon's office. If you want to use the app again, call the office.",
+    },
   },
   locked: {
     title: "Your account is locked",

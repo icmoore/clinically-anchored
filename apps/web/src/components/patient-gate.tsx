@@ -3,15 +3,17 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { ApiError, PatientAccount, getPatientAccount } from "@/lib/api";
+import { ApiError, PatientAccount, getPatientAccount, withdrawFromApp } from "@/lib/api";
 import { signOutPatient, usePatientSignIn } from "@/lib/patient-session";
 import {
-  ConsentScreen,
+  AcceptanceScreen,
+  DeclinedScreen,
   IdentityScreen,
   LockedScreen,
+  StoppedScreen,
   TurnedOffScreen,
 } from "./patient-first-sign-in";
-import { SignOutContext } from "./patient-frame";
+import { SignOutContext, WithdrawContext } from "./patient-frame";
 
 /** What a patient page may ask of the gate around it. */
 export interface GateControls {
@@ -21,15 +23,19 @@ export interface GateControls {
 }
 
 /** Wraps every page a signed-in patient uses. No session on this device: to /sign-in. A session:
- *  where the account stands decides what shows -- the surgery-date check, then consent, then the
- *  page itself (`children`); a locked or turned-off account gets a plain "call the office" screen.
- *  Every one of those screens has Sign out. */
+ *  where the account stands decides what shows -- the surgery-date check, then "Before you start"
+ *  (also for an active patient whose acceptance is not for the current versions, before anything
+ *  else), then the page itself (`children`); a locked or turned-off account gets a plain "call the
+ *  office" screen. Every one of those screens has Sign out, and an active patient's has "Stop using
+ *  the app". */
 export function SignedInPatient({ children }: { children: (gate: GateControls) => ReactNode }) {
   const router = useRouter();
   const signIn = usePatientSignIn();
   const [account, setAccount] = useState<PatientAccount | null>(null);
   const [problem, setProblem] = useState(false);
   const [nonce, setNonce] = useState(0);
+  // They chose not to use the app / to stop: signed out, and shown only that.
+  const [ended, setEnded] = useState<"declined" | "stopped" | null>(null);
 
   const leave = useCallback(async () => {
     await signOutPatient();
@@ -62,8 +68,20 @@ export function SignedInPatient({ children }: { children: (gate: GateControls) =
 
   const recheck = useCallback(() => setNonce((n) => n + 1), []);
 
+  // "Stop using the app": the api records it, ends the messaging periods and the access; then this
+  // device signs out too. A failure is thrown to the menu, which says so.
+  const withdraw = useCallback(async () => {
+    await withdrawFromApp();
+    await signOutPatient();
+    setEnded("stopped");
+  }, []);
+
   let body: ReactNode;
-  if (signIn !== "signed-in" || (account === null && !problem)) {
+  if (ended === "declined") {
+    body = <DeclinedScreen />;
+  } else if (ended === "stopped") {
+    body = <StoppedScreen />;
+  } else if (signIn !== "signed-in" || (account === null && !problem)) {
     body = <p className="p-6 text-muted">Loading...</p>;
   } else if (account === null) {
     body = (
@@ -85,11 +103,22 @@ export function SignedInPatient({ children }: { children: (gate: GateControls) =
     body = <TurnedOffScreen phone={account.office_phone} />;
   } else if (account.status === "invited" && account.needs_identity) {
     body = <IdentityScreen account={account} onAccount={setAccount} />;
-  } else if (account.status === "invited") {
-    body = <ConsentScreen account={account} onAccount={setAccount} />;
+  } else if (account.needs_acceptance || account.status === "invited") {
+    body = (
+      <AcceptanceScreen
+        account={account}
+        onAccount={setAccount}
+        onSignedOut={() => setEnded("declined")}
+      />
+    );
   } else {
     body = children({ recheck });
   }
 
-  return <SignOutContext.Provider value={leave}>{body}</SignOutContext.Provider>;
+  const canStop = account?.status === "active" && ended === null;
+  return (
+    <SignOutContext.Provider value={leave}>
+      <WithdrawContext.Provider value={canStop ? withdraw : null}>{body}</WithdrawContext.Provider>
+    </SignOutContext.Provider>
+  );
 }

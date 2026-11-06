@@ -168,14 +168,14 @@ export function guideSections(f: GuideFacts): GuideSection[] {
           items: [
             "We ask for the date of your surgery. We ask once, to make sure it is you.",
             `If the date is wrong ${f.wrongDatesBeforeLock} times, we lock your account to keep it safe. Then call your surgeon's office. They can unlock it.`,
-            "You read two statements and agree to both. You need to agree to both to use messages.",
+            "The screen \"Before you start\" has links to our Terms of Use and Privacy Notice. You read them, then tick two boxes. You need to tick both to use messages. If you do not want to use the app, you can say so on that screen. We will not turn anything on.",
           ],
         },
         {
           kind: "callout",
           tone: "info",
           title: "What you agree to",
-          text: U.consent.items.map((i) => i.text).join(" "),
+          text: U.acceptance.items.map((i) => i.text).join(" "),
         },
         { kind: "h3", id: "no-email", text: "If you do not have an email address" },
         {

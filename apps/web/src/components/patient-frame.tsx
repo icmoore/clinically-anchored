@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { PATIENT_TEXT } from "@/lib/patient-strings";
 
@@ -9,18 +9,138 @@ import { PATIENT_TEXT } from "@/lib/patient-strings";
  *  Screens reached by a legacy link are not inside it, so they show no button. */
 export const SignOutContext = createContext<(() => void) | null>(null);
 
-/** The patient's "Sign out", wherever a patient is signed in; nothing otherwise. */
+/** Set by the signed-in patient's wrapper while the account is active: what "Stop using the app"
+ *  does (record it, sign out). It throws if the api could not do it. Null: the menu is not shown. */
+export const WithdrawContext = createContext<(() => Promise<void>) | null>(null);
+
+const headerButton =
+  "shrink-0 rounded-md border border-link px-3 py-1.5 text-sm text-link hover:border-link-hover hover:text-link-hover hover:bg-primary-tint";
+
+/** The patient's "Sign out" (always visible, because a shared phone must be easy to sign out of),
+ *  and, when the account is active, an "Account" menu holding "Stop using the app". Nothing when
+ *  nobody is signed in. */
 export function SignOutButton() {
   const signOut = useContext(SignOutContext);
+  const withdraw = useContext(WithdrawContext);
   if (!signOut) return null;
   return (
-    <button
-      type="button"
-      onClick={signOut}
-      className="shrink-0 rounded-md border border-link px-3 py-1.5 text-sm text-link hover:border-link-hover hover:text-link-hover hover:bg-primary-tint"
-    >
-      {PATIENT_TEXT.signOut}
-    </button>
+    <div className="flex shrink-0 items-start gap-2">
+      <button type="button" onClick={signOut} className={headerButton}>
+        {PATIENT_TEXT.signOut}
+      </button>
+      {withdraw && <AccountMenu withdraw={withdraw} />}
+    </div>
+  );
+}
+
+/** "Account" menu with one item, "Stop using the app", which asks once more before it does it. */
+function AccountMenu({ withdraw }: { withdraw: () => Promise<void> }) {
+  const T = PATIENT_TEXT.accountMenu;
+  const S = PATIENT_TEXT.stopUsing;
+  const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
+
+  // Close the menu on a click outside it or on Escape.
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => {
+      if (root.current && !root.current.contains(e.target as Node)) setOpen(false);
+    };
+    const escape = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    const el = dialog.current;
+    if (!el) return;
+    if (confirming && !el.open) el.showModal();
+    if (!confirming && el.open) el.close();
+  }, [confirming]);
+
+  async function confirm() {
+    setBusy(true);
+    setFailed(false);
+    try {
+      await withdraw();
+    } catch {
+      setFailed(true);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div ref={root} className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className={headerButton}
+      >
+        {T.button}
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 z-10 mt-1 w-56 rounded-md border border-border bg-surface p-1 shadow-md"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              setConfirming(true);
+            }}
+            className="block w-full rounded px-3 py-2 text-left text-sm text-ink hover:bg-surface-subtle"
+          >
+            {T.stopUsing}
+          </button>
+        </div>
+      )}
+      <dialog
+        ref={dialog}
+        onClose={() => !busy && setConfirming(false)}
+        aria-labelledby="stop-using-title"
+        className="m-auto w-[calc(100%-2rem)] max-w-md rounded-lg border border-border bg-surface p-5 text-ink backdrop:bg-black/40"
+      >
+        <h2 id="stop-using-title" className="text-lg font-semibold">
+          {S.title}
+        </h2>
+        <p className="mt-2 text-sm">{S.body}</p>
+        {failed && (
+          <p role="alert" className="mt-3 text-sm text-flag-text">
+            {S.failed}
+          </p>
+        )}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setConfirming(false)}
+            disabled={busy}
+            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-60"
+          >
+            {S.cancel}
+          </button>
+          <button
+            type="button"
+            onClick={() => void confirm()}
+            disabled={busy}
+            className="rounded-md border border-flag-border px-4 py-2 text-sm font-medium text-flag-text hover:bg-flag-bg disabled:opacity-60"
+          >
+            {busy ? S.working : S.confirm}
+          </button>
+        </div>
+      </dialog>
+    </div>
   );
 }
 
