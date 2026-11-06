@@ -51,7 +51,7 @@ class _Db:
             "patients", "episodes", "check_ins", "messages", "consents", "message_drafts",
             "touchpoints", "thread_summaries", "patient_briefs", "care_provider_summaries",
             "care_provider_summary_edits", "extension_requests", "patient_accounts",
-            "patient_sign_in_links", "email_outbox", "audit_log",
+            "patient_sign_in_links", "email_outbox", "patient_acceptances", "audit_log",
         )}
 
     def table(self, name):
@@ -241,6 +241,21 @@ def test_unaudited_touchpoint_is_reported(db):
     ]
     db.audit(A, "touchpoint.logged", "t-ok")
     assert _gaps(rec.reconcile(db)) == {("touchpoints", "t-orphan", "touchpoint.logged")}
+
+
+def test_each_acceptance_answer_is_checked_against_its_own_event(db):
+    t = "2026-10-01T10:00:00Z"
+    for n, action in enumerate(("accepted", "declined", "withdrawn")):
+        db.t["patient_acceptances"] += [
+            {"id": f"ok-{n}", "clinic_id": A, "created_at": t, "action": action},
+            {"id": f"orphan-{n}", "clinic_id": A, "created_at": t, "action": action},
+        ]
+        db.audit(A, f"acceptance.{action}", f"ok-{n}")
+    assert _gaps(rec.reconcile(db)) == {
+        ("patient_acceptances", "orphan-0", "acceptance.accepted"),
+        ("patient_acceptances", "orphan-1", "acceptance.declined"),
+        ("patient_acceptances", "orphan-2", "acceptance.withdrawn"),
+    }
 
 
 def test_episodes_are_checked_for_creation_and_close(db):

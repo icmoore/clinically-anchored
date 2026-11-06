@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+"""List every [square-bracket] placeholder still in the CURRENT legal documents.
+
+Run it before the pilot. It only reports: it exits 0 whether or not it finds any, and CI does not
+run it. Only the documents named in apps/web/content/legal/config.json are read (older versions
+that patients have accepted are left alone), plus the two consent sentences.
+
+    scripts/check_legal_docs
+"""
+
+import json
+import re
+import sys
+from pathlib import Path
+
+LEGAL = Path(__file__).resolve().parent.parent / "apps" / "web" / "content" / "legal"
+PLACEHOLDER = re.compile(r"\[[^\[\]\n]+\](?!\()")  # [text], but not a markdown link [text](url)
+
+
+def find(name: str, text: str) -> list[tuple[str, int, str]]:
+    found = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        for match in PLACEHOLDER.finditer(line):
+            found.append((name, number, match.group(0)))
+    return found
+
+
+def main() -> int:
+    config = json.loads((LEGAL / "config.json").read_text(encoding="utf-8"))
+    hits: list[tuple[str, int, str]] = []
+    for kind in ("terms", "privacy"):
+        name = config[kind]["file"]
+        hits += find(name, (LEGAL / name).read_text(encoding="utf-8"))
+    for key, sentence in config["consent"].items():
+        hits += find(f"config.json consent.{key}", sentence["text"])
+    if not hits:
+        print("No [placeholders] left in the current documents.")
+        return 0
+    print(f"{len(hits)} placeholder(s) left in the current documents:\n")
+    for name, line, text in hits:
+        print(f"  {name}:{line}  {text}")
+    print("\nFill them in, then run scripts/sync_legal.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

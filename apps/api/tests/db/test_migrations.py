@@ -31,7 +31,7 @@ COVERED_BY = {
     13: "test_patient_briefs.py", 14: "test_care_provider_summaries.py",
     15: "test_care_provider_summaries.py", 16: "test_follow_up_extensions.py",
     17: "test_email_outbox.py", 18: "test_patient_accounts_schema.py",
-    19: "test_patient_list.py",
+    19: "test_patient_list.py", 20: "test_patient_acceptances_schema.py",
 }
 DEV_CLINIC = "00000000-0000-0000-0000-0000000000c1"
 

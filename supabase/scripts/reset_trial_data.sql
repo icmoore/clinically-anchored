@@ -4,7 +4,7 @@
 --
 --   Wiped:  message_drafts, thread_summaries, patient_briefs, care_provider_summaries,
 --           care_provider_summary_edits, touchpoints, consents, extension_requests, email_outbox,
---           patient_sign_in_links, patient_accounts, messages, check_ins, episodes, patients,
+--           patient_sign_in_links, patient_accounts, patient_acceptances, messages, check_ins, episodes, patients,
 --           audit_log
 --   Kept:   clinics, clinic_members, procedures, message_schedules, auth.users (patients' Auth
 --           users stay, without an account; inviting the same email again reuses them)
@@ -35,7 +35,7 @@ declare
   wipe text[] := array['message_drafts', 'thread_summaries', 'patient_briefs',
                        'care_provider_summaries', 'care_provider_summary_edits', 'touchpoints',
                        'extension_requests', 'email_outbox', 'patient_sign_in_links',
-                       'patient_accounts',
+                       'patient_accounts', 'patient_acceptances',
                        'consents', 'messages', 'check_ins', 'episodes', 'patients', 'audit_log'];
   keep text[] := array['clinics', 'clinic_members', 'procedures', 'message_schedules'];
   t text;

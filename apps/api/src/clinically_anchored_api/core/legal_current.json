@@ -1,0 +1,19 @@
+{
+  "effective_date": "2026-12-01",
+  "terms": {
+    "version": "1.0",
+    "sha256": "7c47968faffc277f0b6431493783a67bbb434cc3311e2bdfca29a45b49fe436b"
+  },
+  "privacy": {
+    "version": "1.0",
+    "sha256": "677d71e96531ce0e1c7096d513a6cabb6c044150b65c3f57268176611160b0b6"
+  },
+  "consent": {
+    "version": "ai_assisted_replies:1.0;messaging:1.0",
+    "sha256": "c550f1bd36311b8c6a2f4c564cf4fceef36569576e81e1b2508831111485fc05",
+    "items": {
+      "ai_assisted_replies": "1.0",
+      "messaging": "1.0"
+    }
+  }
+}

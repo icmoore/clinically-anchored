@@ -20,7 +20,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
 from fastapi.testclient import TestClient
 
-from clinically_anchored_api.core import gotrue, mailer, patient_auth
+from clinically_anchored_api.core import gotrue, legal, mailer, patient_auth
 from clinically_anchored_api.core.audit import record_event
 from clinically_anchored_api.core.config import get_settings
 from clinically_anchored_api.main import app
@@ -273,8 +273,7 @@ class Env:
         r = self.client.post("/patient/identity", headers=headers,
                              json={"surgery_date": self.surgery_date(patient_id)})
         assert r.status_code == 200, r.text
-        r = self.client.post("/patient/consent", headers=headers, json={
-            "consent_text_version": "2026-10-v1", "consents": ["messaging", "ai_assisted_replies"]})
+        r = self.client.post("/patient/consent", headers=headers, json=accept_body())
         assert r.status_code == 200 and r.json()["status"] == "active", r.text
         return headers
 
@@ -285,6 +284,19 @@ class Env:
     def audit_types(self) -> list[str]:
         return [r["event_type"] for r in self.c.execute("select event_type from audit_log "
                                                         "order by id").fetchall()]
+
+
+def accept_body(action: str = "accepted", **over) -> dict:
+    """What the "Before you start" screen sends: the current versions, and (for an accept) both
+    boxes ticked."""
+    now = legal.current()
+    return {
+        "action": action, "terms_version": now.terms_version,
+        "privacy_version": now.privacy_version, "consent_version": now.consent_version,
+        "consent_sha256": now.consent_sha256,
+        "consents": ["messaging", "ai_assisted_replies"] if action == "accepted" else [],
+        **over,
+    }
 
 
 def patient_session(pg, w, patient_id: str) -> dict:

@@ -78,6 +78,11 @@ def populate(c, w):
               "values (%s, %s, 'messaging', 'v1')", (w.clinic_a, w.patient_a))
     c.execute("insert into touchpoints (clinic_id, patient_id, kind, source) "
               "values (%s, %s, 'call', 'manual')", (w.clinic_a, w.patient_a))
+    c.execute("insert into patient_acceptances (id, clinic_id, patient_id, episode_id, action, "
+              "terms_version, privacy_version, consent_version, terms_sha256, privacy_sha256, "
+              "consent_sha256) values (gen_random_uuid(), %s, %s, %s, 'accepted', '1.0', '1.0', "
+              "'m:1.0', repeat('a', 64), repeat('b', 64), repeat('c', 64))",
+              (w.clinic_a, w.patient_a, e))
     pu = user(c, "pat@x.org")
     a = account(c, w, u=pu)
     c.execute("insert into patient_sign_in_links (clinic_id, account_id, token_hash, issued_by, "
@@ -124,7 +129,8 @@ def test_a_patient_user_reads_nothing_directly_from_any_table(db):
     staff = {t: visible(c, t) for t in tables}
     c.execute("reset role")
     for t in ("clinics", "clinic_members", "patients", "episodes", "check_ins", "messages",
-              "consents", "touchpoints", "patient_accounts", "audit_log", "message_schedules"):
+              "consents", "touchpoints", "patient_accounts", "audit_log", "message_schedules",
+              "patient_acceptances"):
         assert staff[t] > 0, t
     assert staff["email_outbox"] == 0 and staff["patient_sign_in_links"] == 0  # not even staff
 

@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+"""Write the api's copy of the current legal versions and hashes.
+
+The patient-facing documents live in apps/web/content/legal/ (config.json names the current
+version of each). The api deploys on its own, without that folder, so it keeps a small generated
+file: apps/api/src/clinically_anchored_api/core/legal_current.json, holding the current versions
+and the SHA-256 of the exact text of each (the api stores these with every acceptance, and checks
+what the browser says it showed against them).
+
+    scripts/sync_legal           write the file
+    scripts/sync_legal --check   change nothing; exit 1 if the file is out of date (CI runs the
+                                 same check as a test)
+
+How the hashes are made (the web screen makes the consent one the same way, lib/legal.ts):
+  document  sha256 of the file's bytes, with Windows line endings turned into "\\n"
+  consent   sha256 of the consent sentences, ordered by their key, joined with "\\n", as UTF-8
+  consent version  "<key>:<version>" for each sentence, ordered by key, joined with ";"
+"""
+
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+LEGAL = ROOT / "apps" / "web" / "content" / "legal"
+OUT = ROOT / "apps" / "api" / "src" / "clinically_anchored_api" / "core" / "legal_current.json"
+
+
+def sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def document_text(path: Path) -> str:
+    return path.read_bytes().decode("utf-8").replace("\r\n", "\n")
+
+
+def consent_text(sentences: dict) -> str:
+    return "\n".join(sentences[key]["text"] for key in sorted(sentences))
+
+
+def consent_version(sentences: dict) -> str:
+    return ";".join(f"{key}:{sentences[key]['version']}" for key in sorted(sentences))
+
+
+def build(legal: Path = LEGAL) -> dict:
+    config = json.loads((legal / "config.json").read_text(encoding="utf-8"))
+    out: dict = {"effective_date": config["effective_date"]}
+    for kind in ("terms", "privacy"):
+        entry = config[kind]
+        out[kind] = {
+            "version": entry["version"],
+            "sha256": sha256(document_text(legal / entry["file"])),
+        }
+    sentences = config["consent"]
+    out["consent"] = {
+        "version": consent_version(sentences),
+        "sha256": sha256(consent_text(sentences)),
+        "items": {key: sentences[key]["version"] for key in sorted(sentences)},
+    }
+    return out
+
+
+def render(data: dict) -> str:
+    return json.dumps(data, indent=2) + "\n"
+
+
+def main(argv: list[str]) -> int:
+    wanted = render(build())
+    if "--check" in argv:
+        if not OUT.exists() or OUT.read_text(encoding="utf-8") != wanted:
+            print(f"{OUT.relative_to(ROOT)} is out of date. Run scripts/sync_legal.")
+            return 1
+        print("Up to date.")
+        return 0
+    OUT.write_text(wanted, encoding="utf-8")
+    print(f"Wrote {OUT.relative_to(ROOT)}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

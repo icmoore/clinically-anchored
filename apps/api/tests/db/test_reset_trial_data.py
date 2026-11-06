@@ -180,6 +180,13 @@ def test_execute_after_migration_9_wipes_episodes_too_and_frees_the_schedule(db)
         "expires_at) values (%s, %s, repeat('a', 64), %s, now() + interval '1 day')",
         (w.clinic_a, acct, w.user_a),
     )
+    c.execute(  # migration 20
+        "insert into patient_acceptances (id, clinic_id, patient_id, episode_id, action, "
+        "terms_version, privacy_version, consent_version, terms_sha256, privacy_sha256, "
+        "consent_sha256) values (gen_random_uuid(), %s, %s, %s, 'accepted', '1.0', '1.0', "
+        "'m:1.0', repeat('a', 64), repeat('b', 64), repeat('c', 64))",
+        (w.clinic_a, w.patient_a, e),
+    )
     with pytest.raises(Exception, match="message_schedules_in_use"):
         c.execute("update message_schedules set offsets_days = '{2,3}' where version = 1")
 
@@ -188,7 +195,7 @@ def test_execute_after_migration_9_wipes_episodes_too_and_frees_the_schedule(db)
     emptied = WIPED + [
         "episodes", "thread_summaries", "patient_briefs", "care_provider_summaries",
         "care_provider_summary_edits", "extension_requests", "email_outbox",
-        "patient_accounts", "patient_sign_in_links",
+        "patient_accounts", "patient_sign_in_links", "patient_acceptances",
     ]
     assert all(count(c, t) == 0 for t in emptied)
     assert count(c, "clinics") >= 2 and count(c, "procedures") >= 2 and count(c, "clinic_members") == 2
