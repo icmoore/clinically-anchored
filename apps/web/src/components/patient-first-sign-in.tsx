@@ -11,7 +11,8 @@ import { PatientFrame } from "./patient-frame";
 const today = () => new Date().toLocaleDateString("en-CA");
 
 /** First sign-in, step 1: "enter your surgery date". Asked once, to be sure it is the patient. A
- *  wrong date says how many tries are left; the third locks the account. */
+ *  wrong date says how many tries are left and the office phone; the third wrong one locks the
+ *  account. */
 export function IdentityScreen({
   account,
   onAccount,
@@ -32,7 +33,7 @@ export function IdentityScreen({
       onAccount(await confirmSurgeryDate(date));
     } catch (err) {
       if (err instanceof ApiError && err.status === 422 && typeof err.body.attempts_left === "number") {
-        setError(T.wrong(err.body.attempts_left));
+        setError(T.wrongWithHelp(err.body.attempts_left, account.office_phone));
       } else if (err instanceof ApiError && err.body.locked === true) {
         onAccount({ ...account, status: "locked" });
         return;
@@ -57,8 +58,12 @@ export function IdentityScreen({
           max={today()}
           value={date}
           onChange={(e) => setDate(e.target.value)}
+          aria-describedby="surgery-date-example"
           className={inputClass}
         />
+        <p id="surgery-date-example" className="mt-1 text-sm text-muted">
+          {T.example}
+        </p>
         {error && <FormError>{error}</FormError>}
         <button type="submit" disabled={busy || !date} className={`${buttonClass} mt-4`}>
           {busy ? T.checking : T.button}

@@ -96,9 +96,39 @@ def test_a_blank_clinic_name_still_reads_properly():
 
 @pytest.mark.parametrize("template", t.TEMPLATES)
 def test_emails_carry_no_clinical_content(template):
-    """The words around the variables mention no surgery, symptom, medicine or date."""
+    """The words around the variables mention no surgery, symptom, medicine or date. The one
+    allowed mention is the invite's note that the first sign-in will ASK for the surgery date."""
     e = (invite() if template == t.INVITE else code_email())
-    words = re.sub(r"[^a-z ]", " ", (e.subject + " " + e.text).lower())
+    text = e.text.replace(t._FIRST_SIGN_IN_NOTE, "")
+    words = re.sub(r"[^a-z ]", " ", (e.subject + " " + text).lower())
     for banned in ("surgery", "operation", "procedure", "pain", "fever", "wound", "medication",
                    "symptom", "diagnos", "patient", "check-in"):
         assert banned not in words, banned
+
+
+def test_invite_says_the_first_sign_in_asks_for_the_surgery_date_after_the_code_line():
+    e = invite()
+    note = (
+        "The first time you sign in, we will ask for the date of your surgery to confirm it's you."
+    )
+    code_line = "We will email you a code to sign in. You do not need a password."
+    for body in (e.text, e.html.replace("&#x27;", "'")):
+        assert note in body
+        assert body.index(code_line) < body.index(note) < body.index("you were not expecting")
+    assert note not in code_email().text  # only the invite says it
+
+
+def test_no_email_states_a_date_or_the_surgery_date():
+    """The invite names no date: not in the words, and not from anything a clinic passes in. The
+    patient types their own date; the email only says that we will ask."""
+    no_phone = {"clinic_name": "Lakeview Surgical", "office_phone": None}  # a phone is not a date
+    emails = (
+        t.render(t.INVITE, sign_in_url=URL, guide_url="https://app.example.org/guide", **no_phone),
+        t.render(t.SIGN_IN_CODE, code="a1b2", **no_phone),
+    )
+    for e in emails:
+        words = e.subject + " " + e.text
+        assert not re.search(r"\b(19|20)\d\d\b", words)  # no year
+        assert not re.search(r"\d{1,2}[/-]\d{1,2}", words)  # no 03/14 or 2026-03-14 style date
+        months = "jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec"
+        assert not re.search(rf"(?i)\b({months})[a-z]*\b \d", words)  # no "March 14"
