@@ -161,7 +161,7 @@ class EpisodeStateOut(BaseModel):
     next_opens_at: str | None
     episode_closes_at: str
     closed_at: str | None
-    close_reason: Literal["discharged", "schedule_complete"] | None
+    close_reason: Literal["discharged", "schedule_complete", "withdrawn"] | None
     missed: list[int]
     reply_available: bool
     can_send_scheduled: bool
@@ -246,7 +246,7 @@ class EpisodeOut(BaseModel):
     timezone: str
     checkin_completed_at: str | None
     closed_at: str | None
-    close_reason: Literal["discharged", "schedule_complete"] | None
+    close_reason: Literal["discharged", "schedule_complete", "withdrawn"] | None
     created_at: str
     state: EpisodeStateOut
     extension: EpisodeExtensionOut = EpisodeExtensionOut()
@@ -390,9 +390,18 @@ class IdentityIn(BaseModel):
     surgery_date: date
 
 
-class ConsentAcceptIn(BaseModel):
-    consent_text_version: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
-    consents: list[str] = Field(max_length=10)
+class AcceptanceIn(BaseModel):
+    """The "Before you start" screen's answer: accept both, or decline. The patient's screen says
+    which versions it showed and the SHA-256 of the consent sentences it showed; the api compares
+    them with its own and refuses (409) if they are not the current ones, so an answer is never
+    recorded against words the patient did not read."""
+
+    action: Literal["accepted", "declined"]
+    terms_version: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
+    privacy_version: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
+    consent_version: str = Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._:;-]+$")
+    consent_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    consents: list[str] = Field(default_factory=list, max_length=10)  # the boxes ticked
 
 
 class PatientAccountOut(BaseModel):
@@ -400,8 +409,10 @@ class PatientAccountOut(BaseModel):
 
     status: str  # invited | active | locked | off
     needs_identity: bool  # still to enter the surgery date
-    needs_consent: bool  # still to agree
+    needs_acceptance: bool  # "Before you start": none yet, or not for the current versions
     identity_attempts_left: int
+    terms_version: str  # the versions the api expects the screen to have shown
+    privacy_version: str
     consent_version: str
     required_consents: list[str]
     clinic_name: str
@@ -424,6 +435,18 @@ class FallbackLinkInfo(BaseModel):
     revoked_at: str | None
 
 
+class AcceptanceOut(BaseModel):
+    """Where a patient stands on the Terms, Privacy Notice and consents, as the clinic sees it:
+    `accepted` (the current versions), `outdated` (accepted older ones; will be asked again),
+    `declined`, or `withdrawn`."""
+
+    status: str  # accepted | outdated | declined | withdrawn
+    terms_version: str
+    privacy_version: str
+    consent_version: str
+    at: str
+
+
 class AccountOut(BaseModel):
     """A patient's account as the clinic sees it. `status` is none until someone is invited."""
 
@@ -436,6 +459,7 @@ class AccountOut(BaseModel):
     last_sign_in_at: str | None = None
     last_invite_email: InviteEmailOut | None = None
     fallback_link: FallbackLinkInfo | None = None
+    acceptance: AcceptanceOut | None = None  # None: they have not seen "Before you start" yet
 
 
 class FallbackLinkOut(BaseModel):

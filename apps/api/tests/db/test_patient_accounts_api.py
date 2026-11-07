@@ -12,16 +12,16 @@ from datetime import timedelta
 import pytest
 from psycopg.types.json import Jsonb
 
-from clinically_anchored_api.core import audit, gotrue, patient_auth, reconcile
+from clinically_anchored_api.core import audit, gotrue, legal, patient_auth, reconcile
 from clinically_anchored_api.core import clock as clock_module
 from clinically_anchored_api.core.audit import AuditWriteError
-from tests.db.accounts_env import Env
+from tests.db.accounts_env import Env, accept_body
 from tests.db.conftest import check_in, clinician_msg, patient_msg
 
 pytestmark = pytest.mark.db
 
-VERSION = "2026-10-v1"
 BOTH = ["messaging", "ai_assisted_replies"]
+VERSIONS = legal.current().consent_items  # each sentence's own version
 GENERIC_REQUEST = {"ok": True}
 
 
@@ -237,8 +237,9 @@ def invited_session(env, email="pat@mail.org", **kw):
 def test_an_invited_patient_reaches_only_the_first_sign_in_steps(env):
     pid, headers = invited_session(env)
     me = env.client.get("/patient/account", headers=headers).json()
-    assert me["status"] == "invited" and me["needs_identity"] and me["needs_consent"]
-    assert me["consent_version"] == VERSION and me["required_consents"] == BOTH
+    assert me["status"] == "invited" and me["needs_identity"] and me["needs_acceptance"]
+    assert me["consent_version"] == legal.current().consent_version
+    assert me["required_consents"] == BOTH
     assert me["clinic_name"] == "Lakeview Surgical" and me["office_phone"] == "905-555-0100"
     assert me["identity_attempts_left"] == 3
     for path in ("/episode", "/messages", "/check-ins/context", "/consents"):
@@ -249,7 +250,7 @@ def test_an_invited_patient_reaches_only_the_first_sign_in_steps(env):
 def test_consent_comes_after_the_surgery_date(env):
     pid, headers = invited_session(env)
     r = env.client.post("/patient/consent", headers=headers,
-                        json={"consent_text_version": VERSION, "consents": BOTH})
+                        json=accept_body())
     assert r.status_code == 409 and "surgery date" in r.json()["detail"]
     assert count(env.c, "consents") == 0
 
@@ -258,31 +259,36 @@ def test_the_right_surgery_date_then_consent_makes_the_account_active(env):
     pid, headers = invited_session(env)
     r = env.client.post("/patient/identity", headers=headers,
                         json={"surgery_date": env.surgery_date(pid)})
-    assert r.status_code == 200 and not r.json()["needs_identity"] and r.json()["needs_consent"]
+    assert r.status_code == 200 and not r.json()["needs_identity"] and r.json()["needs_acceptance"]
     assert env.account(pid)["status"] == "invited"  # not active until they agree
     r = env.client.post("/patient/consent", headers=headers,
-                        json={"consent_text_version": VERSION, "consents": BOTH})
+                        json=accept_body())
     assert r.status_code == 200 and r.json()["status"] == "active"
     a = env.account(pid)
     assert a["status"] == "active" and a["activated_at"] and a["identity_verified_at"]
     rows = env.c.execute("select consent_type, consent_text_version from consents "
                          "order by consent_type").fetchall()
     assert [(r["consent_type"], r["consent_text_version"]) for r in rows] == [
-        ("ai_assisted_replies", VERSION), ("messaging", VERSION)]
+        ("ai_assisted_replies", VERSIONS["ai_assisted_replies"]),
+        ("messaging", VERSIONS["messaging"])]
     assert env.client.get("/episode", headers=headers).status_code == 200
 
 
 @pytest.mark.parametrize("body,status", [
-    ({"consent_text_version": "old", "consents": BOTH}, 409),  # not the wording they were shown
-    ({"consent_text_version": VERSION, "consents": ["messaging"]}, 422),  # both are required
-    ({"consent_text_version": VERSION, "consents": BOTH + ["marketing"]}, 422),
+    ({"consent_version": "old"}, 409),  # not the wording they were shown
+    ({"terms_version": "0.1"}, 409),
+    ({"consent_sha256": "0" * 64}, 409),  # not the text they were shown
+    ({"consents": ["messaging"]}, 422),  # both are required
+    ({"consents": BOTH + ["marketing"]}, 422),
 ])
 def test_consent_must_be_both_types_of_the_current_wording(env, body, status):
     pid, headers = invited_session(env)
     env.client.post("/patient/identity", headers=headers,
                     json={"surgery_date": env.surgery_date(pid)})
-    assert env.client.post("/patient/consent", headers=headers, json=body).status_code == status
-    assert count(env.c, "consents") == 0
+    assert env.client.post(
+        "/patient/consent", headers=headers, json=accept_body(**body)
+    ).status_code == status
+    assert count(env.c, "consents") == 0 and count(env.c, "patient_acceptances") == 0
 
 
 def test_three_wrong_surgery_dates_lock_the_account_and_say_so(env):
@@ -502,7 +508,7 @@ def test_reinviting_starts_the_first_sign_in_again(env):
     # They sign in with a code again and re-check the date; consent they already gave is kept.
     headers = env.sign_in("pat@mail.org")
     me = env.client.get("/patient/account", headers=headers).json()
-    assert me["needs_identity"] and not me["needs_consent"]
+    assert me["needs_identity"] and not me["needs_acceptance"]
     r = env.client.post("/patient/identity", headers=headers,
                         json={"surgery_date": env.surgery_date(pid)})
     assert r.json()["status"] == "active"
@@ -811,9 +817,9 @@ def test_the_link_needs_the_surgery_date_signs_in_once_and_then_the_first_steps_
     headers = {"Authorization": f"Bearer {r.json()['access_token']}"}
     assert redeem(env, token, date_).status_code == 401  # once
     me = env.client.get("/patient/account", headers=headers).json()
-    assert me["status"] == "invited" and not me["needs_identity"] and me["needs_consent"]
+    assert me["status"] == "invited" and not me["needs_identity"] and me["needs_acceptance"]
     r = env.client.post("/patient/consent", headers=headers,
-                        json={"consent_text_version": VERSION, "consents": BOTH})
+                        json=accept_body())
     assert r.json()["status"] == "active"
     assert env.client.get("/episode", headers=headers).status_code == 200
 
@@ -981,7 +987,7 @@ def test_when_the_audit_cannot_be_written_a_code_is_not_made_and_the_account_doe
     env.client.post("/patient/identity", headers=headers, json={"surgery_date": env.surgery_date(pid)})
     monkeypatch.setattr(patient_auth, "record_event", failing)
     r = env.client.post("/patient/consent", headers=headers,
-                        json={"consent_text_version": VERSION, "consents": BOTH})
+                        json=accept_body())
     assert r.status_code == 500 and count(env.c, "consents") == 0
     assert env.account(pid)["status"] == "invited"
 

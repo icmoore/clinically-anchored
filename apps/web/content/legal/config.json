@@ -1,0 +1,15 @@
+{
+  "effective_date": "2026-12-01",
+  "terms": { "version": "1.0", "file": "terms-v1.0.md" },
+  "privacy": { "version": "1.0", "file": "privacy-v1.0.md" },
+  "consent": {
+    "messaging": {
+      "version": "1.0",
+      "text": "I agree to send and receive messages with my surgeon's office in this app."
+    },
+    "ai_assisted_replies": {
+      "version": "1.0",
+      "text": "I agree that my care team may use a computer program (AI) to help write replies. A person reads and approves every reply before it is sent."
+    }
+  }
+}

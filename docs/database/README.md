@@ -164,6 +164,14 @@ data changes and the migration does not need empty tables.
 update/delete (only `authenticated`/`anon` are revoked) -- tampering by a service-role
 holder is detectable via the signed chain, not prevented by grants.
 
+Migration `00000000000020_patient_acceptances.sql` adds `patient_acceptances`: the append-only record of a
+patient's answers to "Before you start" (accepted / declined / withdrawn). Each row holds the patient,
+their episode, the versions of the Terms, Privacy Notice and consent sentences they were shown and the
+SHA-256 of the exact text of each. Rows are never updated or deleted (a trigger refuses both; TRUNCATE,
+used by the reset script, still works); the newest row is where the patient stands. Written only by the
+api, audit event first. It also lets an episode close with reason `withdrawn` (the patient stopped
+using the app; `closed_by` is the patient's own user) and updates `close_episode` to match.
+
 ## Mapping to the data catalogue
 
 `claude/data-catalogue.md` is the authoritative list of every data class the product

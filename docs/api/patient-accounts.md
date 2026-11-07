@@ -23,9 +23,10 @@ actions), `api/auth_hooks.py` (Supabase's email hook), migration 18.
    (counted in the database before Supabase is asked); every failure to enter one is the same 401.
    Codes are stored nowhere (only a demo clinic's outbox row keeps its rendered email).
 3. **First sign-in**: the patient confirms their surgery date (it must match their latest care
-   period; three wrong dates lock the account until the clinic re-invites) and agrees to messaging
-   and AI-assisted replies (stored in `consents` with the wording version). Then the account is
-   `active` and the existing care screens work.
+   period; three wrong dates lock the account until the clinic re-invites), then answers **"Before
+   you start"** (`POST /patient/consent`): accepts the Terms of Use, the Privacy Notice and the two
+   consents (messaging, AI-assisted replies), or declines. Then the account is `active` and the
+   existing care screens work. See "Before you start" below.
 4. **Every request** (`core/patient_auth.py`): the token is checked with Supabase Auth (a session that
    was ended stops working at once; the check is remembered for 30 s), the user must be a patient
    user, the session must be younger than 30 days, and the account's status is read from the
@@ -97,3 +98,34 @@ railway run python -m clinically_anchored_api.core.gotrue_check
 - One account per patient; one live (not `off`) account per Auth user; a user is never both staff and
   a patient (two triggers); the email of an active account cannot change.
 - The code/identity counters and the link redemption are atomic functions (service role only).
+
+## "Before you start": versioned acceptance
+
+The Terms, the Privacy Notice and the two consent sentences are versioned content in
+`apps/web/content/legal/` (`config.json` names the current version of each and the effective date; see
+the README there). The api deploys without that folder, so `scripts/sync_legal` writes
+`core/legal_current.json` (the current versions and the SHA-256 of the exact text of each);
+`tests/test_acceptance.py` fails if it is out of date. `core/legal.py` reads it.
+
+- **Accept or decline**: `POST /patient/consent` with `action` (`accepted` / `declined`), the three
+  versions the screen showed, the SHA-256 of the consent sentences it showed and the boxes ticked.
+  The api refuses (409) versions or a hash that are not the current ones, so an answer is never
+  recorded against words the patient did not read; an accept needs BOTH consents (422), not only in
+  the screen. It stores its own versions and hashes. Order, as for every write: the audit event
+  (`acceptance.accepted` / `acceptance.declined`), then the append-only row in `patient_acceptances`
+  (migration 20), then, for an accept, the two `consents` rows and activation. A repeated accept of
+  the same versions adds nothing.
+- **Re-prompt**: `GET /patient/account` returns `needs_acceptance`: true unless the patient's LATEST
+  acceptance row is an `accepted` for exactly the current versions and hashes. The web app routes by
+  it before showing anything else, for an active patient too. Changing a version in `config.json`
+  and running `scripts/sync_legal` is all it takes. (The api's other routes are not blocked for an
+  active patient who has not re-accepted yet; the gate in the web app is what asks.)
+- **Withdraw**: `POST /patient/withdraw` ("Stop using the app"). In order: `acceptance.withdrawn` and
+  its row, every live consent ended (`consent.revoked`), the care period closed with reason
+  `withdrawn` (which stops the messaging windows), then the account turned off
+  (`patient_account.access_turned_off`, reason `withdrawn`) and every sign-in ended. Each step can be
+  repeated if one fails. The clinic can re-invite; the patient is asked "Before you start" again.
+- **The clinic's view**: `GET .../account` has `acceptance` (`accepted`, `outdated`, `declined` or
+  `withdrawn`, with the versions and the time), or null before the first answer.
+- Reconcile checks the three events against `patient_acceptances`; the reset script and the backup
+  include the table.

@@ -348,7 +348,7 @@ def test_the_seed_gives_patients_an_email_and_accounts_in_every_state(env):
         str(k) for k in consented}
     assert set(consented.values()) == {2}
     assert {r["consent_text_version"] for r in env.conn.execute(
-        "select consent_text_version from consents")} == {"2026-10-v1"}
+        "select consent_text_version from consents")} == {"1.0"}
     # Auth: a patient user for each account, banned only where access is off.
     for contact, a in acc.items():
         user = env.pg.gt.users[str(a["user_id"])]

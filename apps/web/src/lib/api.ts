@@ -192,9 +192,11 @@ export const redeemFallbackLink = (token: string, surgeryDate: string) =>
 export interface PatientAccount {
   status: "invited" | "active" | "locked" | "off";
   needs_identity: boolean; // still to enter the surgery date
-  needs_consent: boolean; // still to agree
+  needs_acceptance: boolean; // "Before you start": not answered yet, or not for the current versions
   identity_attempts_left: number;
-  consent_version: string; // the wording version the api expects back
+  terms_version: string; // the versions the api expects the screen to have shown
+  privacy_version: string;
+  consent_version: string;
   required_consents: string[];
   clinic_name: string;
   office_phone: string | null;
@@ -206,8 +208,24 @@ export const confirmSurgeryDate = (surgeryDate: string) =>
     method: "POST",
     body: JSON.stringify({ surgery_date: surgeryDate }),
   });
-export const acceptConsents = (consentTextVersion: string, consents: string[]) =>
+
+/** What the "Before you start" screen sends: the answer, the versions it showed, the SHA-256 of the
+ *  consent sentences it showed, and which boxes were ticked. The api compares the versions and the
+ *  hash with its own and refuses (409) if they are not the current ones. */
+export interface BeforeYouStartAnswer {
+  action: "accepted" | "declined";
+  terms_version: string;
+  privacy_version: string;
+  consent_version: string;
+  consent_sha256: string;
+  consents: string[];
+}
+export const answerBeforeYouStart = (answer: BeforeYouStartAnswer) =>
   patientRequest<PatientAccount>("/patient/consent", {
     method: "POST",
-    body: JSON.stringify({ consent_text_version: consentTextVersion, consents }),
+    body: JSON.stringify(answer),
   });
+
+/** "Stop using the app": ends the patient's messaging windows, consents and access. */
+export const withdrawFromApp = () =>
+  patientRequest<PatientAccount>("/patient/withdraw", { method: "POST" });

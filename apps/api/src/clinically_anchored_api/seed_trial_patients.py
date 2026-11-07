@@ -105,7 +105,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from clinically_anchored_api.core import categories, consent_wording, gotrue, mailer
+from clinically_anchored_api.core import categories, consent_wording, gotrue, legal, mailer
 from clinically_anchored_api.core.episodes import default_schedule
 from clinically_anchored_api.core.extension import decision_entry_body, request_deadline
 from clinically_anchored_api.core.rules import evaluate_red_flags
@@ -1694,7 +1694,7 @@ def seed_account(
         _audit(
             supabase, clinic_id=clinic_id, event_type="consent.granted",
             payload={"consent_id": consent_id, "patient_id": patient_id, "consent_type": kind,
-                     "consent_text_version": consent_wording.CURRENT_VERSION,
+                     "consent_text_version": legal.current().consent_items[kind],
                      "granted_at": _iso(at)},
             metadata={"ref_type": "consent", "ref_id": consent_id, "patient_id": patient_id},
         )
@@ -1712,14 +1712,51 @@ def seed_account(
     for kind, consent_id, at in consents:
         _insert(supabase, "consents", {
             "id": consent_id, "clinic_id": clinic_id, "patient_id": patient_id,
-            "consent_type": kind, "consent_text_version": consent_wording.CURRENT_VERSION,
+            "consent_type": kind, "consent_text_version": legal.current().consent_items[kind],
             "granted_at": _iso(at),
         })
+    if consents:
+        _seed_acceptance(supabase, clinic_id, patient_id, verified_at)
     if state == "off":
         gotrue.ban(auth_id)
     if state == "invited":
         _mail_invite(supabase, clinic_id=clinic_id, patient_id=patient_id, email=email)
     return True
+
+
+def _seed_acceptance(supabase, clinic_id: str, patient_id: str, at: datetime) -> None:
+    """An accepted "Before you start" for a seeded patient who has been through the first sign-in,
+    at the current versions (so the seed does not send them back to the screen). Skipped before
+    migration 20."""
+    try:
+        supabase.table("patient_acceptances").select("id").limit(1).execute()
+    except Exception:  # the table is not there yet
+        return
+    episode = (
+        supabase.table("episodes").select("id").eq("clinic_id", clinic_id)
+        .eq("patient_id", patient_id).order("created_at", desc=True).limit(1).execute().data
+    )
+    if not episode:
+        return
+    now = legal.current()
+    acceptance_id = str(uuid.uuid4())
+    shown = {
+        "terms_version": now.terms_version, "privacy_version": now.privacy_version,
+        "consent_version": now.consent_version, "terms_sha256": now.terms_sha256,
+        "privacy_sha256": now.privacy_sha256, "consent_sha256": now.consent_sha256,
+    }
+    _audit(
+        supabase, clinic_id=clinic_id, event_type="acceptance.accepted",
+        payload={"acceptance_id": acceptance_id, "patient_id": patient_id,
+                 "episode_id": episode[0]["id"], "action": "accepted", "created_at": _iso(at),
+                 **shown},
+        metadata={"ref_type": "patient_acceptance", "ref_id": acceptance_id,
+                  "patient_id": patient_id},
+    )
+    _insert(supabase, "patient_acceptances", {
+        "id": acceptance_id, "clinic_id": clinic_id, "patient_id": patient_id,
+        "episode_id": episode[0]["id"], "action": "accepted", "created_at": _iso(at), **shown,
+    })
 
 
 def _mail_invite(supabase, *, clinic_id: str, patient_id: str, email: str) -> None:

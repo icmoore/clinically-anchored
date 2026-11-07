@@ -32,7 +32,7 @@ RESTORE_SH = SCRIPTS / "restore_trial_data.sh"
 RESET_SH = SCRIPTS / "reset_trial_data.sh"
 RESET_SQL = SCRIPTS / "reset_trial_data.sql"
 TABLES = ["message_drafts", "thread_summaries", "patient_briefs", "care_provider_summaries",
-          "care_provider_summary_edits", "touchpoints", "consents", "extension_requests", "email_outbox", "patient_accounts", "patient_sign_in_links",
+          "care_provider_summary_edits", "touchpoints", "consents", "extension_requests", "email_outbox", "patient_accounts", "patient_sign_in_links", "patient_acceptances",
           "messages",
           "check_ins",
           "episodes", "patients", "audit_log"]
@@ -146,6 +146,14 @@ def populate(conn):
             "insert into patient_sign_in_links (clinic_id, account_id, token_hash, issued_by, "
             "expires_at) values (%s, %s, repeat('a', 64), %s, now() + interval '1 day')",
             (w.clinic_a, acct, w.user_a),
+        )
+    if conn.execute("select to_regclass('patient_acceptances') as t").fetchone()["t"]:  # 20
+        conn.execute(
+            "insert into patient_acceptances (id, clinic_id, patient_id, episode_id, action, "
+            "terms_version, privacy_version, consent_version, terms_sha256, privacy_sha256, "
+            "consent_sha256) values (gen_random_uuid(), %s, %s, %s, 'accepted', '1.0', '1.0', "
+            "'m:1.0', repeat('a', 64), repeat('b', 64), repeat('c', 64))",
+            (w.clinic_a, w.patient_a, episode),
         )
     prev = None
     for n in range(3):

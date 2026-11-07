@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { ApiError, PatientAccount, acceptConsents, confirmSurgeryDate } from "@/lib/api";
+import { ApiError, PatientAccount, answerBeforeYouStart, confirmSurgeryDate } from "@/lib/api";
+import { LEGAL, consentText, consentVersion, sha256Hex } from "@/lib/legal";
 import { PATIENT_TEXT } from "@/lib/patient-strings";
+import { signOutPatient } from "@/lib/patient-session";
 import { FormError, buttonClass, inputClass } from "./auth-form";
 import { PatientFrame } from "./patient-frame";
 
@@ -73,45 +75,93 @@ export function IdentityScreen({
   );
 }
 
-/** First sign-in, step 2: agree to messaging and to AI-assisted replies. Both are needed. What is
- *  sent back is the wording version the patient was shown (lib/patient-strings.ts), which the api
- *  stores with the answer. */
-export function ConsentScreen({
+/** "Before you start": the Terms, the Privacy Notice and the two consents, with two separate boxes
+ *  (neither ticked for the patient) and Continue only once both are ticked. The same screen comes
+ *  back after the documents change (`account.needs_acceptance` on an active patient). What is sent
+ *  with an answer is the versions shown and the hash of the consent sentences shown
+ *  (lib/legal.ts); the api checks both against its own and stores its own hashes. "I don't want to
+ *  use the app" records a decline and signs the patient out. Both boxes are also required by the
+ *  api, not only here. */
+export function AcceptanceScreen({
   account,
   onAccount,
+  onSignedOut,
 }: {
   account: PatientAccount;
   onAccount: (account: PatientAccount) => void;
+  /** After a decline, the patient is signed out: the gate shows the declined message. */
+  onSignedOut: () => void;
 }) {
-  const T = PATIENT_TEXT.consent;
+  const T = PATIENT_TEXT.acceptance;
   const [agreed, setAgreed] = useState<Record<string, boolean>>({});
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"accept" | "decline" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // The words on screen are for T.version. If the api expects another, say so rather than
-  // record an agreement to words the patient did not read.
-  const outdated = account.consent_version !== T.version;
+  // The words on screen are for the versions in lib/legal.ts. If the api expects others (the web app
+  // and the api were updated at different moments), say so rather than record an answer to words
+  // the patient did not read.
+  const outdated =
+    account.terms_version !== LEGAL.terms.version ||
+    account.privacy_version !== LEGAL.privacy.version ||
+    account.consent_version !== consentVersion();
   const all = T.items.every((item) => agreed[item.key]);
+  // An active patient is here because the documents changed; a new patient is here for the first time.
+  const changed = account.status === "active";
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
+  async function answer(action: "accepted" | "declined") {
+    setBusy(action === "accepted" ? "accept" : "decline");
     setError(null);
     try {
-      onAccount(await acceptConsents(T.version, T.items.map((item) => item.key)));
+      const updated = await answerBeforeYouStart({
+        action,
+        terms_version: LEGAL.terms.version,
+        privacy_version: LEGAL.privacy.version,
+        consent_version: consentVersion(),
+        consent_sha256: await sha256Hex(consentText()),
+        consents: action === "accepted" ? T.items.map((item) => item.key) : [],
+      });
+      if (action === "declined") {
+        await signOutPatient();
+        onSignedOut();
+        return;
+      }
+      onAccount(updated);
     } catch {
       setError(T.couldntSave);
-      setBusy(false);
+      setBusy(null);
     }
+  }
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (all) void answer("accepted");
   }
 
   return (
     <PatientFrame title={T.title} phone={account.office_phone}>
-      <p className="text-ink">{T.intro}</p>
+      <p className="text-ink">{changed ? T.changed : T.intro}</p>
       {outdated ? (
         <FormError>{T.reload}</FormError>
       ) : (
         <form onSubmit={submit} className="mt-4">
-          <div className="space-y-2">
+          <ul className="space-y-1 text-sm">
+            {[
+              { href: "/terms", label: T.readTerms },
+              { href: "/privacy", label: T.readPrivacy },
+            ].map((doc) => (
+              <li key={doc.href}>
+                <a
+                  href={doc.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-link underline hover:text-link-hover"
+                >
+                  {doc.label}
+                </a>{" "}
+                <span className="text-muted">{T.opensNewTab}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-4 space-y-2">
             {T.items.map((item) => (
               <label
                 key={item.key}
@@ -131,11 +181,51 @@ export function ConsentScreen({
             ))}
           </div>
           {error && <FormError>{error}</FormError>}
-          <button type="submit" disabled={busy || !all} className={`${buttonClass} mt-4`}>
-            {busy ? T.saving : T.button}
+          <button
+            type="submit"
+            disabled={busy !== null || !all}
+            aria-describedby={all ? undefined : "need-both"}
+            className={`${buttonClass} mt-4`}
+          >
+            {busy === "accept" ? T.saving : T.button}
           </button>
+          {!all && (
+            <p id="need-both" className="mt-2 text-sm text-muted">
+              {T.needBoth}
+            </p>
+          )}
+          <p className="mt-6 text-center">
+            <button
+              type="button"
+              onClick={() => void answer("declined")}
+              disabled={busy !== null}
+              className="text-sm text-link underline hover:text-link-hover disabled:opacity-60"
+            >
+              {busy === "decline" ? T.declining : T.decline}
+            </button>
+          </p>
         </form>
       )}
+    </PatientFrame>
+  );
+}
+
+/** After "I don't want to use the app": nothing but the message. The patient is already signed out. */
+export function DeclinedScreen() {
+  const T = PATIENT_TEXT.acceptance.declined;
+  return (
+    <PatientFrame title={T.title}>
+      <p className="text-ink">{T.body}</p>
+    </PatientFrame>
+  );
+}
+
+/** After "Stop using the app": the patient is signed out and their messages are turned off. */
+export function StoppedScreen() {
+  const T = PATIENT_TEXT.stopUsing.done;
+  return (
+    <PatientFrame title={T.title}>
+      <p className="text-ink">{T.body}</p>
     </PatientFrame>
   );
 }

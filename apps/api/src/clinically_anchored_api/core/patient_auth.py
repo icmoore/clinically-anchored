@@ -10,8 +10,9 @@ nothing in a request (a path, a query, a body) can name a different patient. The
      clinician's token is refused here, and a patient's token is refused on every clinician route;
   3. the session is not older than `patient_session_max_age_days`;
   4. the user has an account, and its status lets the request through:
-       active          everything
-       invited         only the first sign-in steps (surgery date, consent)
+       active          everything (unless "Before you start" is out of date: the web app asks
+                       again before showing anything)
+       invited         only the first sign-in steps (surgery date, "Before you start")
        locked / off    nothing but "tell me my status"
      The status is read from the database on every request, so turning access off blocks the api
      immediately, whatever the token cache says.
@@ -270,6 +271,14 @@ def require_first_sign_in(
 ) -> PatientSession:
     """An invited patient finishing the first sign-in."""
     return _require_status(resolve_session(request, authorization), ("invited",))
+
+
+def require_live_patient(
+    request: Request, authorization: str | None = Header(default=None)
+) -> PatientSession:
+    """An invited or active patient: for "Before you start", which an active patient may be asked
+    again after the wording changes, and for stopping the service."""
+    return _require_status(resolve_session(request, authorization), LIVE)
 
 
 def require_active_patient(

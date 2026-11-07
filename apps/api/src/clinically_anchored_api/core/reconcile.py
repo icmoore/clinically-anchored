@@ -73,6 +73,19 @@ CHECKS = [
     Check("messages", "message", "message.read", "read_at"),
     Check("consents", "consent", "consent.granted", "granted_at"),
     Check("consents", "consent", "consent.revoked", "revoked_at"),
+    # "Before you start" (migration 20): one append-only row per answer, each after its event.
+    Check(
+        "patient_acceptances", "patient_acceptance", "acceptance.accepted", "created_at",
+        (("action", "accepted"),),
+    ),
+    Check(
+        "patient_acceptances", "patient_acceptance", "acceptance.declined", "created_at",
+        (("action", "declined"),),
+    ),
+    Check(
+        "patient_acceptances", "patient_acceptance", "acceptance.withdrawn", "created_at",
+        (("action", "withdrawn"),),
+    ),
     Check("touchpoints", "touchpoint", "touchpoint.logged", "created_at"),
     Check("thread_summaries", "summary", "summary.generated", "generated_at"),
     Check("patient_briefs", "patient_brief", "patient_brief.generated", "generated_at"),

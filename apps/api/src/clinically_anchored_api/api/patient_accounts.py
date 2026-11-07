@@ -25,13 +25,14 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException
 
 from clinically_anchored_api.api.messages import _require_patient_in_clinic
-from clinically_anchored_api.core import clock, gotrue, mailer, patient_auth
+from clinically_anchored_api.core import clock, gotrue, legal, mailer, patient_auth
 from clinically_anchored_api.core.auth import ClinicMember, require_clinic_member
 from clinically_anchored_api.core.config import get_settings
 from clinically_anchored_api.core.db import get_supabase
 from clinically_anchored_api.core.email_templates import INVITE
 from clinically_anchored_api.core.episodes import member_actor
 from clinically_anchored_api.schemas import (
+    AcceptanceOut,
     AccountOut,
     FallbackLinkInfo,
     FallbackLinkOut,
@@ -57,6 +58,25 @@ def _patient(supabase, clinic_id: str, patient_id: str) -> dict:
     return (
         supabase.table("patients").select("id, full_name, email").eq("clinic_id", clinic_id)
         .eq("id", patient_id).execute().data[0]
+    )
+
+
+def _acceptance(supabase, clinic_id: str, patient_id: str) -> AcceptanceOut | None:
+    """Where the patient stands on "Before you start": their newest answer, and whether an
+    acceptance is still for the current versions."""
+    row = legal.latest(supabase, clinic_id, patient_id)
+    if row is None:
+        return None
+    if row["action"] == legal.ACCEPTED:
+        status = "accepted" if legal.matches_current(row) else "outdated"
+    else:
+        status = row["action"]
+    return AcceptanceOut(
+        status=status,
+        terms_version=row["terms_version"],
+        privacy_version=row["privacy_version"],
+        consent_version=row["consent_version"],
+        at=row["created_at"],
     )
 
 
@@ -86,6 +106,7 @@ def _out(supabase, patient: dict, account: dict | None) -> AccountOut:
             if invite else None
         ),
         fallback_link=FallbackLinkInfo(**link[0]) if link else None,
+        acceptance=_acceptance(supabase, account["clinic_id"], account["patient_id"]),
     )
 
 
