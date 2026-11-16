@@ -736,7 +736,7 @@ def test_the_account_view_shows_each_state(env):
     assert env.client.get(url, headers=env.staff()).json() == {
         "status": "none", "email": "pat@mail.org", "invited_at": None, "activated_at": None,
         "turned_off_at": None, "locked_at": None, "last_sign_in_at": None,
-        "last_invite_email": None, "fallback_link": None}
+        "last_invite_email": None, "fallback_link": None, "acceptance": None}
     env.activate(pid, "pat@mail.org")
     body = env.client.get(url, headers=env.staff(env.delegate)).json()
     assert body["status"] == "active" and body["activated_at"] and body["last_sign_in_at"]

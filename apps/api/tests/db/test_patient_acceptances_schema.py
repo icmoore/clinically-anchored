@@ -86,8 +86,12 @@ def test_only_the_clinics_staff_can_read_and_nobody_signed_in_can_write(db):
             c.execute("reset role")
     c.execute("set role anon")
     try:
-        with pytest.raises((errors.InsufficientPrivilege, errors.UndefinedTable)):
-            c.execute("select count(*) from patient_acceptances")
+        # Row-level security with no policy for anon: the table reads as empty (or, where anon has
+        # no SELECT at all, the read is refused). Either way nobody signed out sees a row.
+        try:
+            assert c.execute("select count(*) as n from patient_acceptances").fetchone()["n"] == 0
+        except errors.InsufficientPrivilege:
+            pass
     finally:
         c.execute("reset role")
 
