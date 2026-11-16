@@ -20,6 +20,13 @@ class Settings(BaseSettings):
 
     environment: str = "development"
 
+    # Which deployment this is: "production" or "staging". It must equal the single row in the
+    # database's app_settings table (migration 21), checked at startup (core/environment.py): a
+    # mismatch, a missing row or an empty APP_ENV stops the service, so a staging api can never
+    # run against the production database or the other way round. Not the same as ENVIRONMENT
+    # above, which only decides whether the secrets below are required.
+    app_env: str = ""
+
     # Supabase (ca-central-1 project)
     supabase_url: str = ""
     supabase_service_role_key: str = ""
@@ -110,6 +117,23 @@ class Settings(BaseSettings):
         if not re.fullmatch(r"[a-z]{2}(-[a-z]+)+-\d", value):
             raise ValueError(f"SES_REGION {value!r} is not an AWS region name (e.g. us-east-2)")
         return value
+
+    @field_validator("app_env")
+    @classmethod
+    def _app_env_is_known(cls, value: str) -> str:
+        value = value.strip().lower()
+        if value not in ("", "production", "staging"):
+            raise ValueError(f"APP_ENV {value!r} must be 'production' or 'staging'")
+        return value
+
+    @model_validator(mode="after")
+    def _production_is_not_development(self) -> "Settings":
+        # APP_ENV=production with ENVIRONMENT=development would skip the required-secrets check.
+        if self.app_env == "production" and self.environment == "development":
+            raise ValueError(
+                "APP_ENV=production needs ENVIRONMENT to be something other than 'development'"
+            )
+        return self
 
     @model_validator(mode="after")
     def _require_secrets_outside_development(self) -> "Settings":

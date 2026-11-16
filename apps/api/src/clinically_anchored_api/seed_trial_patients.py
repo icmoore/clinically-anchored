@@ -85,6 +85,9 @@ Usage, from apps/api with the same .env the api uses locally:
     uv run python -m clinically_anchored_api.seed_trial_patients --email you@example.com \\
         --clinic dev --active-email you+patient@gmail.com
 
+Writes only to a STAGING environment: APP_ENV=staging and the database's app_settings row
+(migration 21) must both say so, or it refuses (--dry-run needs neither).
+
 Needs migrations 9, 11, 16 and 18 applied (after supabase/scripts/reset_trial_data.sh). Re-running
 is safe: the demo clinic, membership and procedures are reused, and a patient that already exists
 (matched by its synthetic contact address) is skipped, never duplicated.
@@ -1850,9 +1853,15 @@ def main(argv: list[str] | None = None) -> int:
     if not args.email:
         parser.error("--email is required unless --dry-run")
 
+    from clinically_anchored_api.core.config import get_settings
     from clinically_anchored_api.core.db import get_supabase
+    from clinically_anchored_api.core.environment import EnvironmentMismatch, require_staging
 
     supabase = get_supabase()
+    try:
+        require_staging(supabase, get_settings())
+    except EnvironmentMismatch as exc:
+        raise SystemExit(f"Not seeding: {exc}") from exc
     if not _messaging_v2_applied(supabase):
         raise SystemExit(
             "Migration 9 (Messaging v2) is not applied to this database: there is no episodes "

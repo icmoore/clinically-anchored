@@ -46,3 +46,17 @@ def test_allowed_origins_can_hold_the_new_and_the_old_web_address():
 def test_allowed_origins_forgive_trailing_slashes_blanks_and_repeats():
     s = _settings(allowed_origins=" https://new.example.org/ ,, https://new.example.org,")
     assert s.allowed_origins_list == ["https://new.example.org"]
+
+
+def test_app_env_is_production_staging_or_unset():
+    assert _settings().app_env == ""
+    assert _settings(app_env=" Staging ").app_env == "staging"
+    with pytest.raises(ValidationError, match="APP_ENV"):
+        _settings(app_env="dev")
+
+
+def test_app_env_production_cannot_run_as_development():
+    with pytest.raises(ValidationError, match="APP_ENV=production"):
+        _settings(app_env="production", environment="development")
+    assert _settings(app_env="production", environment="production", **FULL).app_env == "production"
+    assert _settings(app_env="staging", environment="development").app_env == "staging"

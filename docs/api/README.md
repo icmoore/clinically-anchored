@@ -172,6 +172,14 @@ Built (on `main`):
   Patients stay link-only (no patient sign-in) -- decision for the trial; revisit with Sarah.
 - Startup guard: outside `ENVIRONMENT=development` the app refuses to start unless
   `CHECKIN_LINK_SECRET`, `AUDIT_SIGNING_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` are set.
+- Environment guard (migration 21, `core/environment.py`): `APP_ENV` (`production` or `staging`)
+  must equal the single row in the database's `app_settings` table, which is inserted by hand in
+  each Supabase project. The app refuses to start when `APP_ENV` is unset, the row is missing or
+  the two differ; `GET /health` reports the environment. `reset_trial_data.sql` and
+  `restore_trial_data.sql` call `assert_not_production()` and raise on a production database (a
+  project whose row isn't set yet is allowed, which the one-time cutover reset relies on); a clinic
+  can't be made `is_demo` in production (trigger); the seed writes only when both say `staging`.
+  `APP_ENV=production` also needs `ENVIRONMENT` other than `development`.
 - Audit log writer (`core/audit.py`): salted payload hash, per-clinic hash chain,
   Ed25519 signature, atomic append via `append_audit_event()` (migration 3), and
   `GET /clinics/{id}/audit-log/verify` (checks each row against the public key named by its

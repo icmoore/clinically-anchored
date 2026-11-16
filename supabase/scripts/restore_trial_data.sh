@@ -40,9 +40,11 @@ if [[ -z "${DATABASE_URL:-}" ]]; then
 fi
 command -v psql >/dev/null || { echo "psql not found on PATH." >&2; exit 2; }
 
+require_not_production "$DATABASE_URL"
+
 host="$(printf '%s' "$DATABASE_URL" | sed -E 's#^[a-z]+://([^@/]*@)?([^:/?]+).*#\2#')"
 echo "Target: host '$host'. Backup: $backup"
-echo "Dev and production share this database."
+echo "Environment: $db_environment"
 echo
 
 prepared="$(mktemp "${TMPDIR:-/tmp}/restore-backup.XXXXXX")"

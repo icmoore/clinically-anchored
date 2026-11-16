@@ -63,3 +63,27 @@ prepare_backup() {
   ' "$in" > "$out"
   chmod 600 "$out"
 }
+
+# require_not_production <database-url>: stop before anything is dumped or wiped when the database
+# says it is production (app_settings, migration 21). The SQL scripts refuse as well, from inside
+# the database; this is the friendly early stop. A database whose row isn't set yet is allowed: the
+# one-time reset that turns the current project into production runs before its row is inserted.
+# Sets $db_environment (production, staging, or "not set").
+require_not_production() {
+  local url="$1"
+  local has_table
+  has_table="$(psql "$url" -X -At -c "select to_regclass('public.app_settings') is not null")"
+  if [[ "$has_table" != t ]]; then
+    db_environment=no-table
+  else
+    db_environment="$(psql "$url" -X -At -c "select coalesce((select environment from public.app_settings), 'not set')")"
+  fi
+  case "$db_environment" in
+    production)
+      echo "Refusing to run: this database is PRODUCTION (app_settings.environment)." >&2
+      exit 1 ;;
+    no-table)
+      echo "Refusing to run: migration 21 (app_settings) is not applied to this database." >&2
+      exit 1 ;;
+  esac
+}
