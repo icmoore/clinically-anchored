@@ -3,6 +3,9 @@
 Schema and migrations for the Supabase project (Postgres, `ca-central-1`). Managed with the
 Supabase CLI; migrations here are the source of truth, not changes made in the dashboard.
 
+There are two projects, production and staging: see [../docs/environments.md](../docs/environments.md)
+for creating staging, applying migrations to each, and the production cutover.
+
 ## Setup (once you have a Supabase project)
 
 ```

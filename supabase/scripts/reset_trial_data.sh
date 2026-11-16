@@ -54,6 +54,10 @@ require_not_production "$DATABASE_URL"
 target="$(psql "$DATABASE_URL" -X -At -c "select coalesce(inet_server_addr()::text, 'local-socket') || ' ' || current_database()")"
 host="$(printf '%s' "$DATABASE_URL" | sed -E 's#^[a-z]+://([^@/]*@)?([^:/?]+).*#\2#')"
 echo "Target: host '$host' ($target)"
+# On Supabase's pooler the user is postgres.<project-ref>: the one thing in the URL that says WHICH
+# project this is, so show it (never the password).
+dbuser="$(printf '%s' "$DATABASE_URL" | sed -nE 's#^[a-z]+://([^:@/]+)(:[^@]*)?@.*#\1#p')"
+[[ -z "$dbuser" ]] || echo "User: $dbuser"
 echo "Environment: $db_environment"
 echo
 
