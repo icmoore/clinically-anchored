@@ -4,6 +4,7 @@ app_settings holds one row ('production' or 'staging') that nothing inserts for 
 restore scripts and the demo-clinic trigger refuse on 'production'; the api's role can read the
 row and never change it."""
 
+import os
 import shutil
 import subprocess
 
@@ -22,6 +23,12 @@ RESTORE_SH = SCRIPTS / "restore_trial_data.sh"
 needs_psql = pytest.mark.skipif(
     not (shutil.which("psql") and shutil.which("pg_dump")), reason="psql and pg_dump needed"
 )
+
+
+def script_env(db) -> dict:
+    """The script's environment: a real one, minus the CI variables the scripts refuse to run under."""
+    env = {k: v for k, v in os.environ.items() if k not in ("CI", "GITHUB_ACTIONS")}
+    return {**env, "DATABASE_URL": db.conninfo}
 
 
 def set_env(conn, environment: str | None):
@@ -178,23 +185,17 @@ def test_the_shell_scripts_stop_early_on_production(db, script, tmp_path):
     backup = tmp_path / "backup.sql"
     backup.write_text("-- empty\n")
     args = [str(script)] + ([str(backup)] if script == RESTORE_SH else [])
-    env = {"PATH": "/usr/bin:/bin:" + __import__("os").environ["PATH"], "DATABASE_URL": db.conninfo}
-    out = subprocess.run(args, env=env, capture_output=True, text=True)
+    out = subprocess.run(args, env=script_env(db), capture_output=True, text=True)
     assert out.returncode == 1 and "PRODUCTION" in out.stderr
     assert "Target:" not in out.stdout  # stopped before it even named the target
 
 
 @needs_psql
 def test_the_reset_script_dry_run_shows_the_environment_and_changes_nothing(db):
-    import os
-
     c = db.conn
     set_env(c, "staging")
     build_world(c)
-    out = subprocess.run(
-        [str(RESET_SH)], env={**os.environ, "DATABASE_URL": db.conninfo},
-        capture_output=True, text=True,
-    )
+    out = subprocess.run([str(RESET_SH)], env=script_env(db), capture_output=True, text=True)
     assert out.returncode == 0, out.stderr
     assert "Environment: staging" in out.stdout and "DRY RUN" in out.stdout
     assert patients(c) == 3
@@ -202,10 +203,7 @@ def test_the_reset_script_dry_run_shows_the_environment_and_changes_nothing(db):
 
 @needs_psql
 def test_the_shell_scripts_refuse_a_database_without_migration_21(db_pre21):
-    import os
-
     out = subprocess.run(
-        [str(RESET_SH)], env={**os.environ, "DATABASE_URL": db_pre21.conninfo},
-        capture_output=True, text=True,
+        [str(RESET_SH)], env=script_env(db_pre21), capture_output=True, text=True
     )
     assert out.returncode == 1 and "migration 21" in out.stderr
