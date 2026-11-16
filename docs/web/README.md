@@ -315,7 +315,9 @@ them in: [../domain-switch.md](../domain-switch.md).
 3. Vercel builds every pushed branch as a Preview and `main` as Production. A preview's
    origin differs from production's, so it also needs adding to `ALLOWED_ORIGINS` to work
    against the api.
-4. Give each clinician a Supabase Auth user (Auto Confirm) plus a `clinic_members` row.
+4. Give each clinician a Supabase Auth user (Auto Confirm) plus a `clinic_members` row: the steps
+   and SQL are in [../environments.md](../environments.md#adding-a-clinician). Vercel Production
+   variables point at the production project; Preview variables are staging or unset (same file).
 
 ## Design references already agreed
 

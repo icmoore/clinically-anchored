@@ -19,7 +19,9 @@ alter role service_role bypassrls;
 create schema if not exists auth;
 create table auth.users (
   id    uuid primary key default gen_random_uuid(),
-  email text
+  email text,
+  -- Where Supabase Auth keeps app_metadata; the api marks patient logins with account_type.
+  raw_app_meta_data jsonb not null default '{}'::jsonb
 );
 create table auth.sessions (
   id         uuid primary key default gen_random_uuid(),
