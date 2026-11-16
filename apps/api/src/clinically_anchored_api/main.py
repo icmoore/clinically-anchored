@@ -9,6 +9,7 @@ from clinically_anchored_api.api import (
     briefs,
     care_provider_summaries,
     check_ins,
+    clinician_account,
     clinics,
     consents,
     demo_inbox,
@@ -59,6 +60,7 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(audit.router)
 app.include_router(clinics.router)
+app.include_router(clinician_account.router)
 app.include_router(episodes.router)
 app.include_router(patient.router)
 app.include_router(patient_auth.router)

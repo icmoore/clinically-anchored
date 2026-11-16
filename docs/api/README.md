@@ -186,7 +186,7 @@ Built (on `main`):
   `key_id`; keys other than the current one come from `AUDIT_PUBLIC_KEYS`). Audited events:
   `check_in.submitted`/`.reviewed`, `message.sent`/`.read`, `patient.created`, `link.issued`,
   `episode.created`/`.corrected`/`.closed`/`.link_rotated`, `consent.granted`/`.revoked`,
-  `touchpoint.logged`, `extension.requested`/`.accepted`/`.declined`. `message.sent` carries the episode, origin, interval and category key in
+  `touchpoint.logged`, `clinician.password_changed` (one per clinic the user belongs to; the user id only; written by `POST /me/password-changed`, which believes the claim only if Supabase Auth shows the user changed in the last 2 minutes), `extension.requested`/`.accepted`/`.declined`. `message.sent` carries the episode, origin, interval and category key in
   its readable metadata (a menu choice, not content) and the text only in the hashed payload;
   `check_in.submitted` records the intervals that had already passed (`missed_intervals`).
   Known gap: the business row and its audit row are separate writes, so a failure

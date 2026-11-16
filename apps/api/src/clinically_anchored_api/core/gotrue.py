@@ -11,6 +11,7 @@ import base64
 import json
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from clinically_anchored_api.core.config import get_settings
 from clinically_anchored_api.core.db import get_supabase
@@ -109,6 +110,17 @@ def set_user_email(user_id: str, email: str) -> None:
 
 def user_email(user_id: str) -> str | None:
     return get_supabase().auth.admin.get_user_by_id(user_id).user.email
+
+
+def user_updated_at(user_id: str) -> datetime | None:
+    """When Supabase Auth last changed this user (a password change sets it), as an aware UTC
+    datetime, or None when it isn't known."""
+    value = get_supabase().auth.admin.get_user_by_id(user_id).user.updated_at
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if value is None:
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
 def ban(user_id: str) -> None:
