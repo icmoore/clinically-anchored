@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Go-live checklist: PASS or FAIL for each check, against whichever environment apps/api/.env
+# points at (the line at the top says which Supabase project and APP_ENV). READ-ONLY: it selects
+# from the database and reads Supabase Auth's public settings; it writes nothing, sends no email.
+#
+#   scripts/golive_check        # local .env = staging: environment-specific checks pass with a note
+#
+# To check production, run it with Railway's variables instead of a local file, so no production key
+# is ever on this machine. --no-env-file ignores apps/api/.env, so a local value can't hide a
+# variable that is missing in Railway:
+#
+#   (cd apps/api && railway run ../../scripts/golive_check --no-env-file)
+#
+# Exit status: 0 all passed, 1 something failed, 2 could not connect.
+# Needs the api's dependencies: uses `uv run` if there is one, else apps/api/.venv, else python3.
+
+set -euo pipefail
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$root/apps/api"
+if command -v uv >/dev/null 2>&1; then
+  exec uv run python -m clinically_anchored_api.golive_check "$@"
+elif [[ -x .venv/bin/python ]]; then
+  PYTHONPATH=src exec .venv/bin/python -m clinically_anchored_api.golive_check "$@"
+else
+  PYTHONPATH=src exec python3 -m clinically_anchored_api.golive_check "$@"
+fi

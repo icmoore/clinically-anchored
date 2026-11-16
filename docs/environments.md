@@ -354,7 +354,7 @@ variables:
 cd apps/api && railway run uv run python -m clinically_anchored_api.core.reconcile --clinic 00000000-0000-0000-0000-0000000000c1
 ```
 
-Then remove the patient. Episodes, summaries, sent-email records, sign-in links, drafts and
+Then remove the patient (and afterwards run the [go-live check](#go-live-check)). Episodes, summaries, sent-email records, sign-in links, drafts and
 acceptances are **retention-protected**: the database refuses to delete them (`episodes_retained`,
 `..._append_only`). That is right for real patients. For this one throwaway record, the table owner
 can switch those guards off *inside one transaction*, which also holds an exclusive lock on those
@@ -423,6 +423,42 @@ commit;
 
 The patient's audit events stay: the log is append-only, and reconcile lists them as "dangling
 events", which is informational. Production now holds Sarah's clinic and no patients.
+
+## Go-live check
+
+`scripts/golive_check` prints PASS or FAIL for each thing that must be true before real patients use
+an environment, against whichever environment it is pointed at. It is **read-only**: it only selects
+from the database and reads Supabase Auth's public settings, and it sends no email. The top line says
+which Supabase project and `APP_ENV` it checked; run it on staging any time, and on production after
+step i and before Sarah's first patient.
+
+| Check | Passes when |
+|---|---|
+| Environment row | `app_settings` has a row (`production` or `staging`) |
+| APP_ENV matches | `APP_ENV` equals that row |
+| No demo clinics | none exist (production; on staging they are expected) |
+| Clinic name has no "(dev)" | no clinic is named so (production; on staging the dev clinic is) |
+| Patient count | it can read them; the number is shown |
+| Legal documents | `scripts/check_legal_docs` finds no `[placeholders]` |
+| Bedrock model | `BEDROCK_MODEL_ID` is set; shown with the AI call cap |
+| SES_FROM_ADDRESS | set, valid and on the web app's domain (production; staging may leave it unset) |
+| Sign-ups off | Supabase Auth reports `disable_signup` |
+
+Locally it reads `apps/api/.env`, i.e. staging:
+
+```bash
+scripts/golive_check
+```
+
+To check **production**, don't put production keys in a file: let Railway supply them. `--no-env-file`
+ignores `apps/api/.env`, so a local value can never hide a variable that is missing in Railway.
+
+```bash
+cd apps/api && railway run ../../scripts/golive_check --no-env-file
+```
+
+Exit status is 0 when everything passes, 1 when anything fails, 2 when it can't connect. A failed
+legal-documents line is expected until the terms and privacy text is final; the placeholders are listed.
 
 ## Adding a clinician
 
