@@ -150,3 +150,23 @@ def test_the_settings_come_from_the_environment(monkeypatch):
     assert Settings(_env_file=None).patient_session_max_age_days == 30
     assert (d.patient_code_ttl_seconds, d.patient_code_max_attempts,
             d.patient_identity_max_attempts, d.patient_fallback_link_ttl_hours) == (600, 5, 3, 24)
+
+
+def test_user_updated_at_reads_the_admin_user_as_an_aware_datetime(monkeypatch):
+    from datetime import UTC, datetime
+
+    class Admin:
+        def __init__(self, value):
+            self.value = value
+
+        def get_user_by_id(self, _uid):
+            return type("R", (), {"user": type("U", (), {"updated_at": self.value})()})()
+
+    def with_value(value):
+        client = type("C", (), {"auth": type("A", (), {"admin": Admin(value)})()})()
+        monkeypatch.setattr(gotrue, "get_supabase", lambda: client)
+        return gotrue.user_updated_at("u1")
+
+    assert with_value("2026-10-03T11:30:00Z") == datetime(2026, 10, 3, 11, 30, tzinfo=UTC)
+    assert with_value(datetime(2026, 10, 3, 11, 30)) == datetime(2026, 10, 3, 11, 30, tzinfo=UTC)
+    assert with_value(None) is None

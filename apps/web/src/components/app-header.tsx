@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import { clinicLabels } from "@/lib/clinic-choice";
 import { supabase } from "@/lib/supabase";
 import type { ReadyClinician } from "@/lib/use-clinician";
@@ -13,6 +14,10 @@ export function AppHeader({ clinician }: { clinician: ReadyClinician }) {
   const router = useRouter();
   const { clinic, clinics, email, switchClinic } = clinician;
   const labels = clinicLabels(clinics);
+  async function signOut() {
+    await supabase.auth.signOut();
+    router.replace("/login");
+  }
   return (
     <header className="border-b border-border bg-surface">
       <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-4 py-3">
@@ -49,18 +54,64 @@ export function AppHeader({ clinician }: { clinician: ReadyClinician }) {
               Demo inbox
             </Link>
           )}
-          {email && <span className="hidden truncate text-xs text-muted sm:block">{email}</span>}
-          <button
-            onClick={async () => {
-              await supabase.auth.signOut();
-              router.replace("/login");
-            }}
-            className="rounded-md border border-link px-3 py-1.5 text-sm text-link hover:border-link-hover hover:text-link-hover hover:bg-primary-tint"
-          >
-            Sign out
-          </button>
+          <AccountMenu email={email} onSignOut={signOut} />
         </div>
       </div>
     </header>
+  );
+}
+
+/** The clinician's account menu: who is signed in, Change password, Sign out. Closes on Escape, on
+ *  a click elsewhere and when a choice is made. */
+function AccountMenu({ email, onSignOut }: { email: string | null; onSignOut: () => void }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => {
+      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [open]);
+  const item = "block w-full px-3 py-2 text-left text-sm text-ink hover:bg-primary-tint";
+  return (
+    <div ref={box} className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="rounded-md border border-link px-3 py-1.5 text-sm text-link hover:border-link-hover hover:text-link-hover hover:bg-primary-tint"
+      >
+        Account
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 z-10 mt-1 w-56 rounded-md border border-border bg-surface py-1 shadow-md"
+        >
+          {email && <p className="truncate px-3 py-2 text-xs text-muted">{email}</p>}
+          <Link
+            role="menuitem"
+            href="/dashboard/account/password"
+            onClick={() => setOpen(false)}
+            className={item}
+          >
+            Change password
+          </Link>
+          <button role="menuitem" type="button" onClick={onSignOut} className={item}>
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

@@ -181,6 +181,11 @@ async function authed<T>(path: string, init?: RequestInit): Promise<T> {
 const post = <T>(path: string, body?: unknown) =>
   authed<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
 
+/** Tell the api the password was just changed so it can write the audit event. No body: no
+ *  password goes to the api, ever. */
+export const recordPasswordChanged = () =>
+  post<{ audited_in_clinics: number }>("/me/password-changed").then(() => undefined);
+
 export const getMe = (signal?: AbortSignal) => authed<Me>("/me", { signal });
 export const getQueue = (clinic: string) => authed<QueueItem[]>(`/clinics/${clinic}/queue`);
 /** One page of the clinic's patients. `query` is the api's query string (lib/patient-filters.ts
