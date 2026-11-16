@@ -2,7 +2,7 @@
 """List every [square-bracket] placeholder still in the CURRENT legal documents.
 
 Run it before the pilot. It only reports: it exits 0 whether or not it finds any, and CI does not
-run it. Only the documents named in apps/web/content/legal/config.json are read (older versions
+run it. (scripts/golive_check imports `placeholders()` and turns it into a PASS or FAIL.) Only the documents named in apps/web/content/legal/config.json are read (older versions
 that patients have accepted are left alone), plus the two consent sentences.
 
     scripts/check_legal_docs
@@ -25,7 +25,8 @@ def find(name: str, text: str) -> list[tuple[str, int, str]]:
     return found
 
 
-def main() -> int:
+def placeholders() -> list[tuple[str, int, str]]:
+    """Every [placeholder] left in the current documents, as (file, line, text)."""
     config = json.loads((LEGAL / "config.json").read_text(encoding="utf-8"))
     hits: list[tuple[str, int, str]] = []
     for kind in ("terms", "privacy"):
@@ -33,6 +34,11 @@ def main() -> int:
         hits += find(name, (LEGAL / name).read_text(encoding="utf-8"))
     for key, sentence in config["consent"].items():
         hits += find(f"config.json consent.{key}", sentence["text"])
+    return hits
+
+
+def main() -> int:
+    hits = placeholders()
     if not hits:
         print("No [placeholders] left in the current documents.")
         return 0
