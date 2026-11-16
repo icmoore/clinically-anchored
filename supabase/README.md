@@ -34,7 +34,7 @@ npx supabase migration new <name>
 `scripts/reset_trial_data.sh` wipes every clinic's patients, check-ins, messages, drafts, saved AI
 summaries, touchpoints, consents, acceptance records (`patient_acceptances`), sent-email records (`email_outbox`), episodes and audit log, and keeps clinics, memberships, procedures,
 message schedules and Supabase Auth users. A person runs it, on purpose (it refuses in CI and
-without a terminal; there is no `--yes`). Dev and production share one database, so it wipes both.
+without a terminal; there is no `--yes`). It refuses on a database whose `app_settings` row says `production` (migration 21), and so do the restore script and the seed; run it against the staging project.
 
 ```
 DATABASE_URL='postgresql://postgres:...@db.<ref>.supabase.co:5432/postgres' \

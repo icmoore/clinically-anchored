@@ -14,7 +14,9 @@
 #     backups, and the audit log is evidence even when the data is synthetic), then PROVES the
 #     backup restores (loads it back inside a transaction that is rolled back) and stops
 #     before wiping if it does not.
-# Dev and production share one database here: a wipe is a wipe of both.
+# It refuses on a PRODUCTION database (app_settings.environment, migration 21), here and again
+# inside the SQL. A database whose row isn't set yet is allowed: that is the one-time reset that
+# turns the current project into production (docs/environments.md).
 # To put a backup back, see restore_trial_data.sh.
 
 set -euo pipefail
@@ -46,11 +48,13 @@ for tool in psql pg_dump; do
   command -v "$tool" >/dev/null || { echo "$tool not found on PATH." >&2; exit 2; }
 done
 
+require_not_production "$DATABASE_URL"
+
 # What we are about to touch: host and database, never the password.
 target="$(psql "$DATABASE_URL" -X -At -c "select coalesce(inet_server_addr()::text, 'local-socket') || ' ' || current_database()")"
 host="$(printf '%s' "$DATABASE_URL" | sed -E 's#^[a-z]+://([^@/]*@)?([^:/?]+).*#\2#')"
 echo "Target: host '$host' ($target)"
-echo "Dev and production share this database."
+echo "Environment: $db_environment"
 echo
 
 if [[ "$execute" != true ]]; then

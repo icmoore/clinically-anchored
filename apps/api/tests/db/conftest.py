@@ -131,6 +131,15 @@ def template_pre18(admin_info):
         admin.execute(f'drop database if exists "{name}" with (force)')
 
 
+@pytest.fixture(scope="session")
+def template_pre21(admin_info):
+    """Schema before migration 21 (the environment marker)."""
+    name = _build_template(admin_info, 20)
+    yield name
+    with _connect(admin_info) as admin:
+        admin.execute(f'drop database if exists "{name}" with (force)')
+
+
 @dataclass
 class Scratch:
     conn: "psycopg.Connection"
@@ -143,11 +152,21 @@ class Scratch:
         return make_conninfo(**{**self.info, "dbname": self.name})
 
 
-def _scratch(admin_info, template):
+def install_environment_guard(conn) -> None:
+    """Put migration 21's marker table and assert_not_production() into a database that predates
+    it. Production has them (the reset and restore scripts refuse without them); the tests that
+    exercise the scripts on older schemas need the same guard to be there."""
+    text = (MIGRATIONS / "00000000000021_app_settings_environment.sql").read_text()
+    conn.execute(text.split("-- A demo clinic can't exist in production.")[0].rsplit("-- ----", 1)[0])
+
+
+def _scratch(admin_info, template, guard: bool = False):
     name = f"ca_t_{uuid.uuid4().hex[:10]}"
     with _connect(admin_info) as admin:
         admin.execute(f'create database "{name}" template "{template}"')
     conn = _connect(admin_info, name)
+    if guard:
+        install_environment_guard(conn)
     try:
         yield Scratch(conn=conn, info=admin_info, name=name)
     finally:
@@ -165,25 +184,31 @@ def db(admin_info, template_all):
 @pytest.fixture
 def db_pre9(admin_info, template_pre9):
     """A scratch database as production is today (migrations 1-8)."""
-    yield from _scratch(admin_info, template_pre9)
+    yield from _scratch(admin_info, template_pre9, guard=True)
 
 
 @pytest.fixture
 def db_pre17(admin_info, template_pre17):
     """A scratch database as production is before migration 17 (migrations 1-16)."""
-    yield from _scratch(admin_info, template_pre17)
+    yield from _scratch(admin_info, template_pre17, guard=True)
 
 
 @pytest.fixture
 def db_pre18(admin_info, template_pre18):
     """A scratch database as production is before migration 18 (migrations 1-17)."""
-    yield from _scratch(admin_info, template_pre18)
+    yield from _scratch(admin_info, template_pre18, guard=True)
+
+
+@pytest.fixture
+def db_pre21(admin_info, template_pre21):
+    """A scratch database before migration 21 (migrations 1-20)."""
+    yield from _scratch(admin_info, template_pre21)
 
 
 @pytest.fixture
 def db_pre12(admin_info, template_pre12):
     """A scratch database as production was before migration 12 (migrations 1-11)."""
-    yield from _scratch(admin_info, template_pre12)
+    yield from _scratch(admin_info, template_pre12, guard=True)
 
 
 @dataclass

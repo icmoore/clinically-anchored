@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -25,10 +27,22 @@ from clinically_anchored_api.api import (
     touchpoints,
 )
 from clinically_anchored_api.core.config import get_settings
+from clinically_anchored_api.core.db import get_supabase
+from clinically_anchored_api.core.environment import check_environment
 
 settings = get_settings()
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Refuse to start unless APP_ENV matches the database's app_settings row (core/environment.py).
+    Plain `TestClient(app)` doesn't run this; tests of the check call check_environment directly."""
+    check_environment(get_supabase(), settings)
+    yield
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="Clinically Anchored API",
     description="Backend service: check-in intake, red-flag rules, summary generation, audit log.",
     version="0.1.0",

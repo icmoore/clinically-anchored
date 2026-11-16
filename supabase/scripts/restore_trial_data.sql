@@ -28,6 +28,8 @@
 
 begin;
 set local lock_timeout = '5s';
+-- Never in production (migration 21); see reset_trial_data.sql for the not-yet-set case.
+do $$ begin perform assert_not_production('restore_trial_data'); end $$;
 select set_config('ca.tables', :'tables', true) \gset
 
 create temp table _present as
