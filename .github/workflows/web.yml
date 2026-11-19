@@ -2,9 +2,10 @@ name: web
 
 on:
   pull_request:
+    branches: [main, develop]
     paths: ["apps/web/**"]
   push:
-    branches: [main]
+    branches: [main, develop]
     paths: ["apps/web/**"]
 
 jobs:

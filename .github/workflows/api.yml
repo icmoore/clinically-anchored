@@ -2,10 +2,11 @@ name: api
 
 on:
   pull_request:
+    branches: [main, develop]
     # supabase/** too: a migration is exercised by the api's real-Postgres tests.
     paths: ["apps/api/**", "supabase/**", ".github/workflows/api.yml", ".github/scripts/**"]
   push:
-    branches: [main]
+    branches: [main, develop]
     paths: ["apps/api/**", "supabase/**", ".github/workflows/api.yml", ".github/scripts/**"]
 
 jobs:
