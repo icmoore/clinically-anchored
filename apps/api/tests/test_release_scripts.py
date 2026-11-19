@@ -34,7 +34,8 @@ echo "supabase PGPASSWORD=${PGPASSWORD:-unset}" >> "$STUB_LOG"
 CURL_STUB = r"""#!/usr/bin/env bash
 case "${*: -1}" in
   *api-staging*) echo "{\"status\":\"ok\",\"environment\":\"${STUB_HEALTH_STAGING:-staging}\"}" ;;
-  *api.clinicallyanchored*) echo "{\"status\":\"ok\",\"environment\":\"${STUB_HEALTH_PROD:-production}\"}" ;;
+  *api.clinicallyanchored*)
+    echo "{\"status\":\"ok\",\"environment\":\"${STUB_HEALTH_PROD:-production}\"}" ;;
   *) exit 22 ;;
 esac
 """
@@ -89,7 +90,10 @@ def sandbox(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     for name, body in (
-        ("psql", PSQL_STUB), ("supabase", SUPABASE_STUB), ("curl", CURL_STUB), ("railway", RAILWAY_STUB),
+        ("psql", PSQL_STUB),
+        ("supabase", SUPABASE_STUB),
+        ("curl", CURL_STUB),
+        ("railway", RAILWAY_STUB),
     ):
         (bin_dir / name).write_text(body)
         (bin_dir / name).chmod(0o755)
@@ -103,15 +107,22 @@ def sandbox(tmp_path):
         "STUB_LOG": str(log),
         "STUB_RECORDED": str(recorded),
     }
-    return type("Box", (), {"work": work, "env": env, "recorded": recorded, "log": log,
-                            "mig": mig, "origin": origin})
+    return type(
+        "Box",
+        (),
+        {"work": work, "env": env, "recorded": recorded, "log": log, "mig": mig, "origin": origin},
+    )
 
 
 def _run_plain(box, script, *args, stdin="pw\n", extra_env=None):
     return subprocess.run(
         ["bash", str(box.work / "scripts" / script), *args],
-        cwd=box.work, env={**box.env, **(extra_env or {})}, input=stdin,
-        capture_output=True, text=True, timeout=60,
+        cwd=box.work,
+        env={**box.env, **(extra_env or {})},
+        input=stdin,
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
 
 
@@ -119,9 +130,13 @@ def _run_tty(box, args, answers, extra_env=None):
     """Run db_migrate with a real terminal on stdin; send each answer when its prompt appears."""
     master, slave = pty.openpty()
     proc = subprocess.Popen(
-        ["bash", str(box.work / "scripts" / "db_migrate"), *args], cwd=box.work,
-        env={**box.env, **(extra_env or {})}, stdin=slave, stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, close_fds=True,
+        ["bash", str(box.work / "scripts" / "db_migrate"), *args],
+        cwd=box.work,
+        env={**box.env, **(extra_env or {})},
+        stdin=slave,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        close_fds=True,
     )
     os.close(slave)
     out, pending = "", list(answers)
@@ -150,7 +165,7 @@ def _log(box):
 
 
 def _pushed(box):
-    """True if the supabase CLI was ever run (the psql lines mention supabase.com, so match lines)."""
+    """True if the supabase CLI was ever run (psql lines mention supabase.com: match whole lines)."""
     return any(line.startswith("supabase ") for line in _log(box).splitlines())
 
 
@@ -211,7 +226,10 @@ def test_dry_run_lists_pending_and_pushes_nothing(sandbox):
     code, out = _run_tty(sandbox, ["staging", "--dry-run"], [PW], {"STUB_ENV": "staging"})
     assert code == 0, out
     assert f"Project     : {STAGING_REF}" in out
-    assert "00000000000003_m3.sql" in out and "00000000000002_m2.sql" not in out.split("Migrations still")[1]
+    assert (
+        "00000000000003_m3.sql" in out
+        and "00000000000002_m2.sql" not in out.split("Migrations still")[1]
+    )
     assert "Dry run" in out
     assert not _pushed(sandbox)
 
@@ -242,17 +260,23 @@ def test_a_database_with_migrations_this_checkout_lacks_is_refused(sandbox):
 
 def test_a_wrong_confirmation_applies_nothing(sandbox):
     sandbox.recorded.write_text("00000000000001\n")
-    code, out = _run_tty(sandbox, ["staging"], [PW, ("to continue:", "production")], {"STUB_ENV": "staging"})
+    code, out = _run_tty(
+        sandbox, ["staging"], [PW, ("to continue:", "production")], {"STUB_ENV": "staging"}
+    )
     assert code == 1 and "nothing was applied" in out
     assert not _pushed(sandbox)
 
 
 def test_typing_the_environment_name_pushes_with_db_url_and_no_password_in_it(sandbox):
     sandbox.recorded.write_text("00000000000001\n")
-    code, out = _run_tty(sandbox, ["staging"], [PW, ("to continue:", "staging")], {"STUB_ENV": "staging"})
+    code, out = _run_tty(
+        sandbox, ["staging"], [PW, ("to continue:", "staging")], {"STUB_ENV": "staging"}
+    )
     assert code == 0, out
     log = _log(sandbox)
-    url = f"postgresql://postgres.{STAGING_REF}@aws-0-ca-central-1.pooler.supabase.com:5432/postgres"
+    url = (
+        f"postgresql://postgres.{STAGING_REF}@aws-0-ca-central-1.pooler.supabase.com:5432/postgres"
+    )
     assert f"supabase db push --db-url {url}" in log
     assert "sekret" not in log.replace("PGPASSWORD=sekret", "")  # only ever in the environment
     assert "supabase PGPASSWORD=sekret" in log
@@ -260,14 +284,21 @@ def test_typing_the_environment_name_pushes_with_db_url_and_no_password_in_it(sa
 
 def test_production_from_an_up_to_date_main_works(sandbox):
     sandbox.recorded.write_text("00000000000001\n")
-    code, out = _run_tty(sandbox, ["production"], [PW, ("to continue:", "production")], {"STUB_ENV": "production"})
+    code, out = _run_tty(
+        sandbox, ["production"], [PW, ("to continue:", "production")], {"STUB_ENV": "production"}
+    )
     assert code == 0, out
     assert f"Project     : {PROD_REF}" in out
     assert f"db push --db-url postgresql://postgres.{PROD_REF}@" in _log(sandbox)
 
 
 def test_an_inherited_pgpassword_is_never_reused(sandbox):
-    code, out = _run_tty(sandbox, ["staging", "--dry-run"], [PW], {"STUB_ENV": "staging", "PGPASSWORD": "other-project"})
+    code, out = _run_tty(
+        sandbox,
+        ["staging", "--dry-run"],
+        [PW],
+        {"STUB_ENV": "staging", "PGPASSWORD": "other-project"},
+    )
     assert code == 0
     assert "other-project" not in _log(sandbox)
 
@@ -300,7 +331,10 @@ def test_release_check_fails_when_production_says_staging(sandbox):
 def test_release_check_fails_on_the_wrong_health_environment(sandbox):
     r = _run_plain(sandbox, "release_check", extra_env={"STUB_HEALTH_STAGING": "production"})
     assert r.returncode == 1
-    assert "api-staging.clinicallyanchored.ai/health says environment='production', expected 'staging'" in r.stdout
+    assert (
+        "api-staging.clinicallyanchored.ai/health says environment='production', expected 'staging'"
+        in r.stdout
+    )
 
 
 def test_release_check_fails_when_golive_check_fails_or_runs_as_the_wrong_environment(sandbox):
@@ -314,4 +348,6 @@ def test_release_check_writes_nothing(sandbox):
     _run_plain(sandbox, "release_check")
     log = _log(sandbox)
     assert not _pushed(sandbox)
-    assert "insert" not in log.lower() and "update" not in log.lower() and "delete" not in log.lower()
+    assert (
+        "insert" not in log.lower() and "update" not in log.lower() and "delete" not in log.lower()
+    )
