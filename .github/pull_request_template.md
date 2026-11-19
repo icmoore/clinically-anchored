@@ -1,3 +1,10 @@
+<!--
+Where this PR goes:
+- Feature and fix PRs target `develop` (deploys to staging).
+- `main` (production) only takes release PRs from `develop`, and hotfixes. A hotfix is merged back
+  into `develop` straight after. Release steps: docs/release.md.
+-->
+
 ## What changed
 
 ## How it was checked
@@ -6,6 +13,5 @@
 
 ## Migration
 
-<!-- "None", or the migration file and the exact psql command for Ian to run. -->
-
-If this PR needs a migration, Ian applies it to the shared database before the PR is merged.
+<!-- "None", or the migration file. New migrations are applied by Ian: to staging first with
+`scripts/db_migrate staging`, to production before the release PR is merged (docs/release.md). -->

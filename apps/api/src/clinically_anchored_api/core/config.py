@@ -110,6 +110,11 @@ class Settings(BaseSettings):
     # and, during a move, the old one too (see docs/domain-switch.md). Origins only: no path.
     allowed_origins: str = "http://localhost:3000"
 
+    # STAGING ONLY: a regular expression (matched against the whole Origin) for the Vercel preview
+    # URLs of this project, in addition to the exact list above. Refused at startup unless
+    # APP_ENV=staging, so production can never accept a pattern. docs/environments.md has the value.
+    allowed_origin_regex: str = ""
+
     @field_validator("ses_region")
     @classmethod
     def _ses_region_is_a_region(cls, value: str) -> str:
@@ -125,6 +130,23 @@ class Settings(BaseSettings):
         if value not in ("", "production", "staging"):
             raise ValueError(f"APP_ENV {value!r} must be 'production' or 'staging'")
         return value
+
+    @model_validator(mode="after")
+    def _origin_regex_is_staging_only(self) -> "Settings":
+        pattern = self.allowed_origin_regex.strip()
+        if not pattern:
+            return self
+        if self.app_env != "staging":
+            raise ValueError(
+                "ALLOWED_ORIGIN_REGEX is only allowed when APP_ENV=staging "
+                f"(APP_ENV is {self.app_env or 'unset'}). Production uses the exact "
+                "ALLOWED_ORIGINS list; remove ALLOWED_ORIGIN_REGEX."
+            )
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            raise ValueError(f"ALLOWED_ORIGIN_REGEX is not a valid regular expression: {exc}")
+        return self
 
     @model_validator(mode="after")
     def _production_is_not_development(self) -> "Settings":
@@ -161,6 +183,17 @@ class Settings(BaseSettings):
         # nothing and every call would fail CORS. Trim it, and drop repeats.
         origins = (o.strip().rstrip("/") for o in self.allowed_origins.split(","))
         return list(dict.fromkeys(o for o in origins if o))
+
+    @property
+    def cors_options(self) -> dict:
+        """Keyword arguments for CORSMiddleware: the exact list, plus the staging-only pattern."""
+        return {
+            "allow_origins": self.allowed_origins_list,
+            "allow_origin_regex": self.allowed_origin_regex.strip() or None,
+            "allow_credentials": True,
+            "allow_methods": ["*"],
+            "allow_headers": ["*"],
+        }
 
 
 @lru_cache
