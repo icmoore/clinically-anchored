@@ -313,6 +313,11 @@ def test_release_check_passes_when_everything_lines_up(sandbox):
     assert "add m4" in r.stdout  # in develop, not in main
     assert "00000000000004_m4.sql" in r.stdout  # the migration arriving with the release
     assert "railway run --service clinically-anchored " in _log(sandbox)
+    # m4 exists only in develop and production lacks it: a warning, not a failure
+    assert (
+        "WARN  develop has migrations that are in neither main nor production: 00000000000004"
+        in r.stdout
+    )
 
 
 def test_release_check_fails_on_a_migration_gap(sandbox):

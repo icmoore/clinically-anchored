@@ -12,6 +12,7 @@
 #   2. Both APIs answer /health with their own environment (production / staging).
 #   3. golive_check against production, with Railway's variables (service clinically-anchored), so no
 #      production key is on this machine. Its first line must say APP_ENV=production.
+#    Also a WARN (not a failure) for migrations that only develop has and production lacks.
 # Then, for information, the commits in origin/develop that are not in origin/main, and the
 # migrations that arrive with them (apply those first: docs/release.md).
 #
@@ -25,6 +26,7 @@ source "$here/lib/environments.sh"
 
 fails=0
 pass() { printf 'PASS  %s\n' "$1"; }
+warn() { printf 'WARN  %s\n' "$1"; }
 fail() { printf 'FAIL  %s\n' "$1"; fails=$((fails + 1)); }
 note() { printf '      %s\n' "$1"; }
 
@@ -72,6 +74,16 @@ else
       fi
       if [[ -n "$extra" ]]; then
         fail "production records migrations main does not have: $(echo $extra)"
+      fi
+      # Not a failure (the spec is main vs production), but it is what the release would deploy:
+      # code that needs a migration which only develop has, and production has not.
+      develop_versions="$(git -C "$root" ls-tree --name-only origin/develop supabase/migrations/ \
+        | sed -n 's#^supabase/migrations/\([0-9]*\)_.*\.sql$#\1#p' | sort)"
+      arriving="$(comm -13 <(printf '%s\n' "$main_versions") <(printf '%s\n' "$develop_versions") \
+        | comm -23 - <(printf '%s\n' "$recorded" | sed '/^$/d' | sort))"
+      if [[ -n "$arriving" ]]; then
+        warn "develop has migrations that are in neither main nor production: $(echo $arriving)"
+        note "this release would deploy code that may need them; see 'Releases that add migrations' in docs/release.md"
       fi
     fi
   fi
