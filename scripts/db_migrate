@@ -65,7 +65,7 @@ fi
 url="$(env_db_url "$target")"
 echo "Environment : $target"
 echo "Project     : $ref"
-echo "Host        : $POOLER_HOST"
+echo "Host        : $(env_pooler_host "$target")"
 echo "Branch      : $(git -C "$root" rev-parse --abbrev-ref HEAD) @ $(git -C "$root" rev-parse --short HEAD)"
 [[ "$dry_run" == false ]] || echo "Mode        : dry run (nothing will be changed)"
 echo
