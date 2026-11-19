@@ -165,7 +165,7 @@ def _log(box):
 
 
 def _pushed(box):
-    """True if the supabase CLI was ever run (psql lines mention supabase.com: match whole lines)."""
+    """True if the supabase CLI was ever run (psql lines mention supabase.com)."""
     return any(line.startswith("supabase ") for line in _log(box).splitlines())
 
 
