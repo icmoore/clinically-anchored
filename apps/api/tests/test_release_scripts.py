@@ -12,7 +12,8 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[3]
-STAGING_REF = "abcdefghijklmnopqrst"
+STAGING_REF = "abcdefghijklmnopqrst"  # the tests run against a copy with this ref
+REAL_STAGING_REF = "qhwipkigthcfprscthcr"
 PROD_REF = "cdaswsjirkkdhvhegwco"
 
 PSQL_STUB = r"""#!/usr/bin/env bash
@@ -69,7 +70,7 @@ def sandbox(tmp_path):
         shutil.copy(REPO / "scripts" / name, scripts / name)
     env_file = scripts / "lib" / "environments.sh"
     env_file.write_text(
-        env_file.read_text().replace("REPLACE_WITH_STAGING_PROJECT_REF", STAGING_REF)
+        env_file.read_text().replace(REAL_STAGING_REF, STAGING_REF)
     )
     (work / "apps" / "api").mkdir(parents=True)
     mig = work / "supabase" / "migrations"

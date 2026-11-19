@@ -2,17 +2,24 @@
 # scripts/release_check; never run on its own. This file is the ONLY place a project ref lives in
 # the repo: a script never takes a ref (or a URL) from an argument or from your shell.
 #
-# Staging project ref: fill in once the staging Supabase project exists (Dashboard -> Project
-# Settings -> General -> Reference ID). While it still says REPLACE_*, `db_migrate staging` refuses.
+# Project refs: Dashboard -> Project Settings -> General -> Reference ID. A ref that is not 20
+# lowercase letters (e.g. a REPLACE_* placeholder) makes `db_migrate` refuse.
 
-POOLER_HOST="aws-0-ca-central-1.pooler.supabase.com"
+# Session pooler host per project (Dashboard -> Connect -> Session pooler; port 5432, never 6543).
+# Older projects use aws-0-..., newer ones aws-1-...: copy the host exactly as the dashboard shows it.
+env_pooler_host() {
+  case "$1" in
+    production) echo "aws-0-ca-central-1.pooler.supabase.com" ;;
+    staging) echo "aws-0-ca-central-1.pooler.supabase.com" ;;
+  esac
+}
 
 env_known() { case "$1" in production|staging) return 0 ;; *) return 1 ;; esac; }
 
 env_project_ref() {
   case "$1" in
     production) echo "cdaswsjirkkdhvhegwco" ;;
-    staging) echo "REPLACE_WITH_STAGING_PROJECT_REF" ;;
+    staging) echo "qhwipkigthcfprscthcr" ;;
   esac
 }
 
@@ -35,7 +42,7 @@ env_ref_is_set() { [[ "$1" =~ ^[a-z]{20}$ ]]; }
 
 # Connection string for the session pooler (port 5432, never 6543). No password: it comes from
 # PGPASSWORD, typed at a hidden prompt, so it is never in a URL, a process list or your history.
-env_db_url() { echo "postgresql://postgres.$(env_project_ref "$1")@${POOLER_HOST}:5432/postgres"; }
+env_db_url() { echo "postgresql://postgres.$(env_project_ref "$1")@$(env_pooler_host "$1"):5432/postgres"; }
 
 # Read a password into PGPASSWORD without echoing it. Always asks: a PGPASSWORD left in your shell
 # from another project's session is never reused.

@@ -24,8 +24,8 @@ Vercel Production, and nowhere on your machine.
 [release.md](release.md). Two scripts do the database and pre-release work by environment *name*:
 
 - `scripts/db_migrate staging|production`: applies pending migrations to that project. The project
-  ref comes from the fixed mapping in `scripts/lib/environments.sh` (fill in the staging ref there
-  once the project exists), never from an argument.
+  ref and pooler host come from the fixed mapping in `scripts/lib/environments.sh` (staging is
+  `qhwipkigthcfprscthcr`), never from an argument.
 - `scripts/release_check`: read-only; run before merging a release PR.
 
 ## How production is protected
@@ -76,8 +76,9 @@ Run a SQL block by pasting it into `psql "$DATABASE_URL" -X`. Each block starts 
 2. **Turn sign-ups off.** Authentication -> Sign In / Providers -> turn off **Allow new users to sign
    up** (the dashboard moves things around; the setting is that one). Clinicians are created by hand,
    and patients by the api, never by self-sign-up.
-3. **Apply the migrations.** First put the new project's ref (Project Settings -> General ->
-   Reference ID) in `scripts/lib/environments.sh` (`staging`), and merge that change. Then, from the
+3. **Apply the migrations.** The staging project's ref is already in `scripts/lib/environments.sh`.
+   Check that the pooler host there (`env_pooler_host`) is exactly the host the dashboard shows under
+   Connect -> Session pooler (older projects use `aws-0-...`, newer ones `aws-1-...`). Then, from the
    repo root:
 
    ```bash
