@@ -1,12 +1,13 @@
 name: api
 
 on:
+  # No `paths` filter on pull requests: `test` is a required check on main and develop, and a
+  # required check that never runs would block the PR ("Expected: waiting") instead of passing.
   pull_request:
     branches: [main, develop]
-    # supabase/** too: a migration is exercised by the api's real-Postgres tests.
-    paths: ["apps/api/**", "supabase/**", ".github/workflows/api.yml", ".github/scripts/**"]
   push:
     branches: [main, develop]
+    # supabase/** too: a migration is exercised by the api's real-Postgres tests.
     paths: ["apps/api/**", "supabase/**", ".github/workflows/api.yml", ".github/scripts/**"]
 
 jobs:
