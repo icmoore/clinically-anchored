@@ -7,12 +7,26 @@ Two Supabase projects, and nothing shared between them.
 | Supabase project | the original one (`ca-central-1`, ref `cdaswsjirkkdhvhegwco`) | a new one, same region |
 | Holds | Sarah's real patients | synthetic data only: the demo and dev clinics |
 | `app_settings.environment` | `production` | `staging` |
-| Api | Railway, `https://api.clinicallyanchored.ai` (`APP_ENV=production`) | your laptop (`APP_ENV=staging`); no deployed staging api yet |
-| Web | Vercel Production, `https://clinicallyanchored.ai` | your laptop; Vercel Preview left unset |
-| Audit signing key | its own (Railway only) | its own (`staging-1`, your `.env`) |
+| Git branch | `main` | `develop` |
+| Api | Railway service `clinically-anchored`, `https://api.clinicallyanchored.ai` (`APP_ENV=production`) | Railway service `clinically-anchored-staging`, `https://api-staging.clinicallyanchored.ai` (`APP_ENV=staging`) |
+| Web | Vercel Production, `https://clinicallyanchored.ai` | Vercel Preview; `develop` is also served at `https://staging.clinicallyanchored.ai` |
+| AI (Bedrock) | per the go-live decision | on, **synthetic data only** |
+| Audit signing key | its own (Railway only) | its own, `staging-1` (Railway staging service and your `.env`) |
 
 **Your local `.env` files always point at staging.** Production credentials live in Railway and
 Vercel Production, and nowhere on your machine.
+
+## Branches and releases
+
+`develop` deploys to staging; `main` deploys to production. Feature and fix PRs target `develop`.
+`main` takes only release PRs from `develop`, plus hotfixes (which are then merged back into
+`develop`). Both branches run CI on PRs and pushes. The steps of a release, in order, are in
+[release.md](release.md). Two scripts do the database and pre-release work by environment *name*:
+
+- `scripts/db_migrate staging|production`: applies pending migrations to that project. The project
+  ref and pooler host come from the fixed mapping in `scripts/lib/environments.sh` (staging is
+  `qhwipkigthcfprscthcr`), never from an argument.
+- `scripts/release_check`: read-only; run before merging a release PR.
 
 ## How production is protected
 
@@ -62,9 +76,22 @@ Run a SQL block by pasting it into `psql "$DATABASE_URL" -X`. Each block starts 
 2. **Turn sign-ups off.** Authentication -> Sign In / Providers -> turn off **Allow new users to sign
    up** (the dashboard moves things around; the setting is that one). Clinicians are created by hand,
    and patients by the api, never by self-sign-up.
-3. **Apply the migrations**, from the repo root, with `DATABASE_URL` pointing at staging. It records
-   each one in `supabase_migrations.schema_migrations`, skips ones already recorded, and stops at the
-   first failure, so it is safe to re-run, and it is how any later migration goes onto each project.
+3. **Apply the migrations.** The staging project's ref is already in `scripts/lib/environments.sh`.
+   Check that the pooler host there (`env_pooler_host`) is exactly the host the dashboard shows under
+   Connect -> Session pooler (older projects use `aws-0-...`, newer ones `aws-1-...`). Then, from the
+   repo root:
+
+   ```bash
+   scripts/db_migrate staging --dry-run    # shows the project and the migrations still to apply
+   scripts/db_migrate staging              # asks for the password, then you type: staging
+   ```
+
+   It needs `psql` and the Supabase CLI (`brew install supabase/tap/supabase`). It pushes with
+   `supabase db push --db-url`, so `supabase link` state never matters, and the password is typed at
+   a hidden prompt. It refuses if the database already says it is a different environment. The
+   alternative, with only `psql`, is the loop below with `DATABASE_URL` pointing at staging. It
+   records each one in `supabase_migrations.schema_migrations`, skips ones already recorded, and
+   stops at the first failure, so it is safe to re-run.
 
    ```bash
    psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -c "
@@ -145,11 +172,134 @@ Run a SQL block by pasting it into `psql "$DATABASE_URL" -X`. Each block starts 
 
    (`you@example.com` is your staging clinician's sign-in address.) The seed refuses unless
    `APP_ENV=staging` and the row says staging.
-9. **Staging sends no real email.** Don't configure a Send Email hook or SES for it. Patient
-   sign-in codes never go through Supabase's own mailer, but the dashboard's "invite user" and
-   "reset password" buttons would: don't use them on staging; create clinicians with Auto Confirm.
+9. **Staging sends no real email.** Staging has its own Send Email hook (below) so Supabase's mailer
+   never sends anything, but leave `SES_FROM_ADDRESS` unset on the staging api: a send is then
+   recorded as failed (`ses_not_configured`) and nothing leaves. The dashboard's "invite user" and
+   "reset password" buttons: don't use them on staging; create clinicians with Auto Confirm.
+
+## Deploying staging
+
+Once the staging Supabase project exists (above), give `develop` somewhere to run. You create all of
+this by hand; none of it is in the repo.
+
+### A. Railway: the staging api service
+
+Create a **second service**, `clinically-anchored-staging`, in the same Railway project, from the same
+GitHub repo, with **Root Directory** `/apps/api` (as production) and its deploy branch set to
+**`develop`**. (`clinically-anchored` stays on `main`.) Variables:
+
+| Variable | Value |
+|---|---|
+| `ENVIRONMENT` | `production` (the api's strict mode: required secrets are checked; this is not the environment marker) |
+| `APP_ENV` | `staging` |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` | the **staging** project's. Never production's |
+| `AUDIT_SIGNING_KEY`, `AUDIT_KEY_ID` | its own key (step 5 above), `staging-1`. See "Audit key" below |
+| `ALLOWED_ORIGINS` | `https://staging.clinicallyanchored.ai` |
+| `ALLOWED_ORIGIN_REGEX` | the Vercel preview pattern, below. **Staging only**: production refuses to start with it |
+| `WEB_BASE_URL` | `https://staging.clinicallyanchored.ai` |
+| `SEND_EMAIL_HOOK_SECRET` | the **staging** hook's secret (section B). Not production's |
+| `TRUSTED_PROXY_HOPS` | `1` |
+| `BEDROCK_MODEL_ID`, AWS credentials | AI on (below) |
+| `SES_FROM_ADDRESS` | **leave unset**: no real email from staging |
+
+Then Settings -> Networking -> Custom Domain: `api-staging.clinicallyanchored.ai` (Cloudflare, D).
+
+**The preview pattern.** Vercel preview URLs for this project look like
+`clinically-anchored-<hash>-<team-slug>.vercel.app` and `clinically-anchored-git-<branch>-<team-slug>.vercel.app`.
+The regex is matched against the **whole** origin, so a look-alike host or a suffix does not match:
+
+```
+ALLOWED_ORIGIN_REGEX=https://clinically-anchored-[a-z0-9-]+-<team-slug>\.vercel\.app
+```
+
+Use your Vercel team slug (the one in your preview URLs, e.g. `acme` above). The exact list
+(`ALLOWED_ORIGINS`) still applies as well. If the api refuses to start with a message about
+`ALLOWED_ORIGIN_REGEX`, `APP_ENV` is not `staging`.
+
+**AI on, synthetic data only.** Staging runs with the AI features on, so the drafting and summary
+screens can be tested, but the Bedrock model runs through a cross-region inference profile (see
+[api/README.md](api/README.md), decision 10), so **only synthetic data may ever be in the staging
+database**: never copy production rows into it. Leave `AI_DAILY_CALL_CAP_PER_CLINIC` at its default
+(200) or lower it; `0` turns AI off. Give the staging service Bedrock permission only (no SES).
+
+**Audit key.** Staging has its own `AUDIT_SIGNING_KEY` with `AUDIT_KEY_ID=staging-1`, generated with
+the command in step 5, never production's, so a production chain can never be signed by a key that sits
+in a lower-security place. Your local `.env` may use the same staging key (the same database), or its
+own key id: then put its public key in `AUDIT_PUBLIC_KEYS` on the Railway staging service so its rows
+still verify.
+
+### B. Supabase (staging project): the Send Email hook and URLs
+
+1. Authentication -> Hooks -> **Send Email** -> HTTPS: URL `https://api-staging.clinicallyanchored.ai/auth-hooks/send-email`.
+   Generate the secret here (`v1,whsec_...`) and put it in Railway staging as `SEND_EMAIL_HOOK_SECRET`.
+   It must differ from production's: each project has its own.
+2. Authentication -> URL Configuration: Site URL `https://staging.clinicallyanchored.ai`; redirect URLs
+   `https://staging.clinicallyanchored.ai/**` (add `http://localhost:3000/**` for local work).
+3. Sign-ups stay off (step 2 above).
+
+### C. Vercel: Preview variables and the staging domain
+
+Project -> Settings -> Environment Variables. **Untick Production** on these (Preview only), so a
+preview build can never carry a production value:
+
+| Variable | Preview |
+|---|---|
+| `NEXT_PUBLIC_API_URL` | `https://api-staging.clinicallyanchored.ai` |
+| `NEXT_PUBLIC_SUPABASE_URL` | the staging project's URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | the staging project's anon (publishable) key |
+
+Settings -> Domains -> add `staging.clinicallyanchored.ai` and assign it to the Git branch
+**`develop`**. Production Branch stays `main`. `NEXT_PUBLIC_*` values are baked in at build time:
+redeploy after changing them.
+
+### D. Cloudflare DNS
+
+Both records are **DNS only** (grey cloud), as for production ([domain-switch.md](domain-switch.md)):
+
+| Name | Type | Value |
+|---|---|---|
+| `api-staging` | `CNAME` | the target Railway shows for the custom domain (plus the `TXT` it asks for, if any) |
+| `staging` | `CNAME` | the target Vercel shows for the domain (a `…vercel-dns-….com` name) |
+
+### E. Check it
+
+```bash
+curl -s https://api-staging.clinicallyanchored.ai/health   # {"status":"ok","environment":"staging"}
+```
+
+Then open `https://staging.clinicallyanchored.ai`, sign in as the staging clinician, and open one
+Vercel preview URL: its calls to the staging api must not fail CORS. `scripts/release_check` checks
+`/health` on both apis every time.
+
+### F. What went wrong the first time (so it doesn't again)
+
+- **"Sign-in failed: Failed to fetch" on the staging site.** The site was built without the
+  `NEXT_PUBLIC_*` variables, so it fell back to `http://localhost:54321` (`src/lib/supabase.ts`).
+  Check in the browser: DevTools -> Network -> the red `token?grant_type=password` request; its
+  Request URL says which address the build holds. Or DevTools search (`Cmd`+`Option`+`F`) for
+  `localhost:54321`: a build that has the values has the real address in place of
+  `process.env.NEXT_PUBLIC_SUPABASE_URL`. A Vercel build now fails on purpose when one is missing.
+- **Put the `NEXT_PUBLIC_*` variables in Vercel, never Railway.** They are Vercel's (Preview only).
+  The api ignores them. In Vercel create them as type **Config**, not Secret: they reach every
+  visitor's browser anyway, and Vercel warns on a Secret with a public prefix.
+- **A change to a variable only reaches a new build.** Vercel's **Redeploy** rebuilds the commit
+  and branch of the row you click, so check the row says Source `develop` and the commit you want.
+  (Redeploying an old `main` row builds old code with no `staging` domain.) The safest way to
+  rebuild `develop` is to merge a commit into it.
+- **"Your account isn't linked to a clinic yet"** after signing in: the user has no `clinic_members`
+  row. Run the SQL in [Adding a clinician](#adding-a-clinician) against the staging project.
+- **The Supabase CLI may not install.** Homebrew can refuse when the Xcode Command Line Tools are old
+  (update them in System Settings -> Software Update). Without the CLI, `scripts/db_migrate staging
+  --dry-run` still works (it needs only `psql`), and the `psql` loop in step 3 above applies the same
+  migrations and records them identically.
+- **The staging site is behind Vercel's login** (Deployment Protection applies to the `develop`
+  deployment): only signed-in members of the Vercel team can open it. Patients cannot, which is fine
+  for staging. Don't test it with `curl`: it answers with a redirect to Vercel's sign-in.
 
 ## Where each variable lives
+
+**Railway staging api** (`clinically-anchored-staging`): the table in
+[Deploying staging](#deploying-staging).
 
 **Railway (production api).** `ENVIRONMENT=production` and `APP_ENV=production` (the pair: a
 production `APP_ENV` is refused alongside `ENVIRONMENT=development`), `SUPABASE_URL`,
@@ -163,13 +313,14 @@ Production, Preview, Development.
 
 | Variable | Production | Preview | Development |
 |---|---|---|---|
-| `NEXT_PUBLIC_API_URL` | `https://api.clinicallyanchored.ai` | **unset** until a staging api exists | unset |
-| `NEXT_PUBLIC_SUPABASE_URL` | production project | staging project, or unset | unset |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | production anon key | staging anon key, or unset | unset |
+| `NEXT_PUBLIC_API_URL` | `https://api.clinicallyanchored.ai` | `https://api-staging.clinicallyanchored.ai` | unset |
+| `NEXT_PUBLIC_SUPABASE_URL` | production project | staging project | unset |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | production anon key | staging anon key | unset |
 
-Untick Preview and Development on the production values. A Preview deployment must never carry a
-production value: it is built from any branch, and its address is on the api's CORS list only if you
-add it. Until a staging api exists a Preview can't load data at all; that is the intended state.
+Each value is ticked for **one** environment only: the production values for Production alone, the
+staging values for Preview alone. A Preview deployment must never carry a production value: it is
+built from any branch. Its address reaches the staging api only through `ALLOWED_ORIGIN_REGEX`
+(Railway staging), never the production api.
 `NEXT_PUBLIC_*` values are baked in at build time: redeploy after changing them.
 
 **Your machine:** staging only (step 6 above).
@@ -493,6 +644,10 @@ legal-documents line is expected until the terms and privacy text is final; the 
   the SQL in this file.
 - Check the environment (the `select ... app_settings` line) before running SQL in a terminal you
   haven't looked at for a while.
-- A new migration goes onto **staging first**, then production, with the loop in step 3 above, before
-  the code that needs it is merged.
+- A new migration goes onto **staging first** (`scripts/db_migrate staging`), then production
+  (`scripts/db_migrate production`), before the code that needs it is deployed: [release.md](release.md).
+- **Changing a project's environment marker: the database row first, then `APP_ENV`.** The api only
+  checks the row when it starts, so the order that keeps it up is: update the row (in psql, as the table
+  owner), then change `APP_ENV` on that Railway service (which redeploys it). The other order restarts
+  the api against a row that still disagrees, and it refuses to start (the outage of 2026-11-16).
 - Never paste a production key into a local file, a chat or a ticket.

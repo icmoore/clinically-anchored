@@ -1,10 +1,12 @@
 name: web
 
 on:
+  # No `paths` filter on pull requests: `build` is a required check on main and develop, and a
+  # required check that never runs would block the PR ("Expected: waiting") instead of passing.
   pull_request:
-    paths: ["apps/web/**"]
+    branches: [main, develop]
   push:
-    branches: [main]
+    branches: [main, develop]
     paths: ["apps/web/**"]
 
 jobs:

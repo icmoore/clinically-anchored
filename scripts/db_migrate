@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# Apply the repo's migrations (supabase/migrations/) to ONE named environment.
+#
+#   scripts/db_migrate staging              # show the target and what is pending, then ask
+#   scripts/db_migrate production           # same, but only from an up-to-date main
+#   scripts/db_migrate staging --dry-run    # show the target and what is pending; change nothing
+#
+# The project comes from the fixed mapping in scripts/lib/environments.sh, never from an argument or
+# your shell, and the Supabase CLI's link state (supabase link) is never used: it pushes with
+# `supabase db push --db-url`. In order, it:
+#   1. refuses unless it is run by a person at a terminal, never in CI;
+#   2. production only: refuses unless the current branch is main and equal to origin/main, with no
+#      uncommitted change under supabase/migrations;
+#   3. shows which project it will touch, and asks for the database password (hidden; never in the
+#      URL, never read from your environment);
+#   4. reads, without writing: the database's app_settings row, which must match the environment
+#      name (a project not marked yet is allowed), and the migrations already recorded;
+#   5. prints the migrations still to apply, and stops if there are none, or if the database holds a
+#      migration this checkout does not have;
+#   6. asks you to type the environment name, then runs the push (the CLI shows its own list and
+#      asks once more).
+# Needs psql (libpq) and, to push, the Supabase CLI. Exit: 0 done or nothing to do, 1 refused or
+# failed, 2 usage.
+
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+root="$(cd "$here/.." && pwd)"
+# shellcheck source=lib/environments.sh
+source "$here/lib/environments.sh"
+
+die() { echo "Refusing: $*" >&2; exit 1; }
+
+target="" dry_run=false
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) dry_run=true ;;
+    -h|--help) sed -n '2,24p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -*) echo "Unknown option: $arg" >&2; exit 2 ;;
+    *) [[ -z "$target" ]] || { echo "One environment only." >&2; exit 2; }; target="$arg" ;;
+  esac
+done
+env_known "$target" || { echo "Usage: scripts/db_migrate staging|production [--dry-run]" >&2; exit 2; }
+
+[[ -z "${CI:-}" && -z "${GITHUB_ACTIONS:-}" ]] || die "this must never run in CI."
+
+ref="$(env_project_ref "$target")"
+env_ref_is_set "$ref" || die "the project ref for $target is not filled in (scripts/lib/environments.sh says '$ref')."
+
+if [[ "$target" == production ]]; then
+  branch="$(git -C "$root" rev-parse --abbrev-ref HEAD)"
+  [[ "$branch" == main ]] || die "production migrations run only from main (you are on '$branch')."
+  git -C "$root" fetch --quiet origin main || die "could not fetch origin/main to check that main is up to date."
+  [[ "$(git -C "$root" rev-parse HEAD)" == "$(git -C "$root" rev-parse origin/main)" ]] \
+    || die "local main is not equal to origin/main. Run: git pull --ff-only (or push your commits)."
+  [[ -z "$(git -C "$root" status --porcelain -- supabase/migrations)" ]] \
+    || die "supabase/migrations has uncommitted changes."
+fi
+
+[[ -t 0 ]] || die "this needs an interactive terminal (it asks for the password and a typed confirmation)."
+command -v psql >/dev/null || die "psql not found on PATH (brew install libpq; export PATH=/opt/homebrew/opt/libpq/bin:\$PATH)."
+if [[ "$dry_run" == false ]]; then
+  command -v supabase >/dev/null || die "the Supabase CLI is not installed (brew install supabase/tap/supabase)."
+fi
+
+url="$(env_db_url "$target")"
+echo "Environment : $target"
+echo "Project     : $ref"
+echo "Host        : $(env_pooler_host "$target")"
+echo "Branch      : $(git -C "$root" rev-parse --abbrev-ref HEAD) @ $(git -C "$root" rev-parse --short HEAD)"
+[[ "$dry_run" == false ]] || echo "Mode        : dry run (nothing will be changed)"
+echo
+
+prompt_password "$target ($ref)" || exit 1
+q() { psql "$url" -X -At -v ON_ERROR_STOP=1 -c "$1"; }
+
+# 4a. The database must say it is this environment (unset is fine: a project before migration 21).
+has_settings="$(q "select to_regclass('public.app_settings') is not null")" || die "could not connect."
+recorded_env="NOT SET"
+if [[ "$has_settings" == t ]]; then
+  recorded_env="$(q "select coalesce((select environment from app_settings limit 1), 'NOT SET')")"
+fi
+if [[ "$recorded_env" != "NOT SET" && "$recorded_env" != "$target" ]]; then
+  die "project $ref says it is '$recorded_env', not '$target'. Check scripts/lib/environments.sh and the password you typed."
+fi
+echo "app_settings: $recorded_env"
+
+# 4b. What is already recorded.
+has_history="$(q "select to_regclass('supabase_migrations.schema_migrations') is not null")"
+recorded=""
+if [[ "$has_history" == t ]]; then
+  recorded="$(q "select version from supabase_migrations.schema_migrations order by version")"
+fi
+local_versions="$(migration_versions_in "$root/supabase/migrations")"
+
+unknown="$(comm -13 <(printf '%s\n' "$local_versions") <(printf '%s\n' "$recorded" | sed '/^$/d' | sort) || true)"
+if [[ -n "$unknown" ]]; then
+  echo "The database records migrations this checkout does not have:" >&2
+  # shellcheck disable=SC2001
+  echo "$unknown" | sed 's/^/  /' >&2
+  die "update your checkout (git pull) before applying anything."
+fi
+
+pending="$(comm -23 <(printf '%s\n' "$local_versions") <(printf '%s\n' "$recorded" | sed '/^$/d' | sort) || true)"
+echo
+if [[ -z "$pending" ]]; then
+  echo "Nothing to apply: all $(printf '%s\n' "$local_versions" | grep -c .) migrations are recorded on $target."
+  exit 0
+fi
+echo "Migrations still to apply to $target ($(printf '%s\n' "$pending" | grep -c .)):"
+for v in $pending; do echo "  $(basename "$(ls "$root"/supabase/migrations/"${v}"_*.sql)")"; done
+echo
+
+if [[ "$dry_run" == true ]]; then
+  echo "Dry run: stopping here."
+  exit 0
+fi
+
+printf "This will change the %s database (project %s). Type the environment name (%s) to continue: " "$target" "$ref" "$target"
+read -r answer
+[[ "$answer" == "$target" ]] || die "you typed '$answer'; nothing was applied."
+
+cd "$root"
+exec supabase db push --db-url "$url"

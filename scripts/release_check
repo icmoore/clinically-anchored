@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# Pre-release check: run before merging a release PR (develop -> main). READ-ONLY: it fetches
+# origin, selects from the production database, reads two /health endpoints, and runs the
+# read-only golive_check. It writes to no database, sends no email, and changes no branch.
+#
+#   scripts/release_check
+#
+# PASS or FAIL for each check:
+#   1. Migrations: every migration in origin/main is recorded in production (a gap means main's code
+#      could meet a schema that is missing a table or column). Needs the production database
+#      password (hidden prompt), and psql.
+#   2. Both APIs answer /health with their own environment (production / staging).
+#   3. golive_check against production, with Railway's variables (service clinically-anchored), so no
+#      production key is on this machine. Its first line must say APP_ENV=production.
+#    Also a WARN (not a failure) for migrations that only develop has and production lacks.
+# Then, for information, the commits in origin/develop that are not in origin/main, and the
+# migrations that arrive with them (apply those first: docs/release.md).
+#
+# Exit: 0 every check passed, 1 something failed. Run from anywhere inside the repo.
+
+set -uo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+root="$(cd "$here/.." && pwd)"
+# shellcheck source=lib/environments.sh
+source "$here/lib/environments.sh"
+
+fails=0
+pass() { printf 'PASS  %s\n' "$1"; }
+warn() { printf 'WARN  %s\n' "$1"; }
+fail() { printf 'FAIL  %s\n' "$1"; fails=$((fails + 1)); }
+note() { printf '      %s\n' "$1"; }
+
+if [[ -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" ]]; then echo "Refusing: run this by hand, not in CI." >&2; exit 1; fi
+
+echo "Release check: production $(env_project_ref production), staging api $(env_api_url staging)"
+git -C "$root" fetch --quiet origin main develop || { echo "Could not fetch origin main/develop." >&2; exit 1; }
+echo
+
+# ---- 1. migrations -------------------------------------------------------------------------------
+echo "== Migrations: origin/main vs recorded in production =="
+main_versions="$(git -C "$root" ls-tree --name-only origin/main supabase/migrations/ \
+  | sed -n 's#^supabase/migrations/\([0-9]*\)_.*\.sql$#\1#p' | sort)"
+if [[ -z "$main_versions" ]]; then
+  fail "no migrations found in origin/main"
+elif ! command -v psql >/dev/null; then
+  fail "psql not found on PATH (export PATH=/opt/homebrew/opt/libpq/bin:\$PATH)"
+elif ! env_ref_is_set "$(env_project_ref production)"; then
+  fail "production project ref is not set in scripts/lib/environments.sh"
+else
+  url="$(env_db_url production)"
+  if ! prompt_password "production ($(env_project_ref production))"; then
+    fail "no password entered"
+  else
+    env_row="$(psql "$url" -X -At -v ON_ERROR_STOP=1 -c "select coalesce((select environment from app_settings limit 1), 'NOT SET')" 2>/dev/null)"
+    recorded="$(psql "$url" -X -At -v ON_ERROR_STOP=1 -c "select version from supabase_migrations.schema_migrations order by version" 2>/dev/null)"
+    status=$?
+    unset PGPASSWORD
+    if [[ $status -ne 0 || -z "$env_row" ]]; then
+      fail "could not read the production database (wrong password, or unreachable)"
+    else
+      if [[ "$env_row" == production ]]; then
+        pass "the project says it is production"
+      else
+        fail "the project says it is '$env_row', not production (cutover step f not done, or wrong project)"
+      fi
+      missing="$(comm -23 <(printf '%s\n' "$main_versions") <(printf '%s\n' "$recorded" | sed '/^$/d' | sort))"
+      extra="$(comm -13 <(printf '%s\n' "$main_versions") <(printf '%s\n' "$recorded" | sed '/^$/d' | sort))"
+      if [[ -z "$missing" ]]; then
+        pass "all $(printf '%s\n' "$main_versions" | grep -c .) migrations in main are recorded in production"
+      else
+        fail "migrations in main but NOT recorded in production:"
+        for v in $missing; do note "$(git -C "$root" ls-tree --name-only origin/main supabase/migrations/ | grep "/${v}_")"; done
+        note "apply them: scripts/db_migrate production"
+      fi
+      if [[ -n "$extra" ]]; then
+        fail "production records migrations main does not have: $(echo $extra)"
+      fi
+      # Not a failure (the spec is main vs production), but it is what the release would deploy:
+      # code that needs a migration which only develop has, and production has not.
+      develop_versions="$(git -C "$root" ls-tree --name-only origin/develop supabase/migrations/ \
+        | sed -n 's#^supabase/migrations/\([0-9]*\)_.*\.sql$#\1#p' | sort)"
+      arriving="$(comm -13 <(printf '%s\n' "$main_versions") <(printf '%s\n' "$develop_versions") \
+        | comm -23 - <(printf '%s\n' "$recorded" | sed '/^$/d' | sort))"
+      if [[ -n "$arriving" ]]; then
+        warn "develop has migrations that are in neither main nor production: $(echo $arriving)"
+        note "this release would deploy code that may need them; see 'Releases that add migrations' in docs/release.md"
+      fi
+    fi
+  fi
+fi
+echo
+
+# ---- 2. /health ----------------------------------------------------------------------------------
+echo "== /health on both APIs =="
+for e in production staging; do
+  api="$(env_api_url "$e")"
+  body="$(curl -fsS --max-time 15 "$api/health" 2>/dev/null)"
+  got="$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("environment",""))' 2>/dev/null)"
+  if [[ -z "$body" ]]; then
+    fail "$api/health did not answer"
+  elif [[ "$got" == "$e" ]]; then
+    pass "$api/health -> environment=$got"
+  else
+    fail "$api/health says environment='${got:-?}', expected '$e'"
+  fi
+done
+echo
+
+# ---- 3. golive_check against production ---------------------------------------------------------
+echo "== golive_check against production =="
+if ! command -v railway >/dev/null; then
+  fail "the Railway CLI is not installed, so golive_check cannot run with production's variables"
+else
+  out="$(cd "$root/apps/api" && railway run --service "$(env_railway_service production)" ../../scripts/golive_check --no-env-file 2>&1)"
+  code=$?
+  printf '%s\n' "$out" | sed 's/^/      /'
+  if ! printf '%s\n' "$out" | head -3 | grep -q 'APP_ENV=production'; then
+    fail "golive_check did not run as APP_ENV=production (is the Railway CLI linked to the right project?)"
+  elif [[ $code -eq 0 ]]; then
+    pass "golive_check passed"
+  else
+    fail "golive_check exited $code"
+  fi
+fi
+echo
+
+# ---- for information: what this release contains -------------------------------------------------
+echo "== In origin/develop, not in origin/main =="
+commits="$(git -C "$root" log --oneline --no-merges origin/main..origin/develop)"
+if [[ -z "$commits" ]]; then
+  echo "      (nothing: develop and main are level)"
+else
+  printf '%s\n' "$commits" | sed 's/^/      /'
+  new_migs="$(git -C "$root" diff --name-only --diff-filter=A origin/main...origin/develop -- supabase/migrations)"
+  if [[ -n "$new_migs" ]]; then
+    echo "      Migrations arriving with this release:"
+    printf '%s\n' "$new_migs" | sed 's/^/        /'
+  fi
+fi
+echo
+
+if [[ $fails -eq 0 ]]; then
+  echo "All checks passed."
+  exit 0
+fi
+echo "$fails check(s) failed. Do not merge the release PR yet."
+exit 1
