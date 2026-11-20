@@ -271,6 +271,31 @@ Then open `https://staging.clinicallyanchored.ai`, sign in as the staging clinic
 Vercel preview URL: its calls to the staging api must not fail CORS. `scripts/release_check` checks
 `/health` on both apis every time.
 
+### F. What went wrong the first time (so it doesn't again)
+
+- **"Sign-in failed: Failed to fetch" on the staging site.** The site was built without the
+  `NEXT_PUBLIC_*` variables, so it fell back to `http://localhost:54321` (`src/lib/supabase.ts`).
+  Check in the browser: DevTools -> Network -> the red `token?grant_type=password` request; its
+  Request URL says which address the build holds. Or DevTools search (`Cmd`+`Option`+`F`) for
+  `localhost:54321`: a build that has the values has the real address in place of
+  `process.env.NEXT_PUBLIC_SUPABASE_URL`. A Vercel build now fails on purpose when one is missing.
+- **Put the `NEXT_PUBLIC_*` variables in Vercel, never Railway.** They are Vercel's (Preview only).
+  The api ignores them. In Vercel create them as type **Config**, not Secret: they reach every
+  visitor's browser anyway, and Vercel warns on a Secret with a public prefix.
+- **A change to a variable only reaches a new build.** Vercel's **Redeploy** rebuilds the commit
+  and branch of the row you click, so check the row says Source `develop` and the commit you want.
+  (Redeploying an old `main` row builds old code with no `staging` domain.) The safest way to
+  rebuild `develop` is to merge a commit into it.
+- **"Your account isn't linked to a clinic yet"** after signing in: the user has no `clinic_members`
+  row. Run the SQL in [Adding a clinician](#adding-a-clinician) against the staging project.
+- **The Supabase CLI may not install.** Homebrew can refuse when the Xcode Command Line Tools are old
+  (update them in System Settings -> Software Update). Without the CLI, `scripts/db_migrate staging
+  --dry-run` still works (it needs only `psql`), and the `psql` loop in step 3 above applies the same
+  migrations and records them identically.
+- **The staging site is behind Vercel's login** (Deployment Protection applies to the `develop`
+  deployment): only signed-in members of the Vercel team can open it. Patients cannot, which is fine
+  for staging. Don't test it with `curl`: it answers with a redirect to Vercel's sign-in.
+
 ## Where each variable lives
 
 **Railway staging api** (`clinically-anchored-staging`): the table in
